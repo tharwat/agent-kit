@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/pack.schema.json",
   "name": "core",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "The workflow core: triage, operate, post-op, peer-review, ship and the supporting commands, rules, hooks and Claude/Codex sync. Always installed.",
   "kind": "core",
   "requires": [],
@@ -49,8 +49,6 @@
      "ask": "Besides the seven default gates, is there anything else an agent must never do without your yes?"},
     {"name": "OPEN_ITEMS_TICKET", "meaning": "The standing tracker ticket key for noted findings", "example": "ABC-1", "required": true,
      "ask": "Which ticket should collect noted (non-blocking) findings? The agent can create one."},
-    {"name": "CO_AUTHOR_TRAILER", "meaning": "Commit trailer line, or none", "example": "none", "default": "none", "required": false,
-     "ask": "Should commits carry a co-author trailer line? Give it, or none."},
     {"name": "UI_LANGUAGE", "meaning": "Language of user-facing copy", "example": "en", "default": "en", "required": false,
      "ask": "What language is the user-facing copy in?"},
     {"name": "SYNTHETIC_MARKER", "meaning": "Column or flag on rows that /verify creates", "example": "is_synthetic", "default": "is_synthetic", "required": false,

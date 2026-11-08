@@ -22,5 +22,7 @@ instructions are for changing the kit. They are not the rules the kit installs; 
   the content checks, the installer scenarios and every unit's own suite. Keep it green.
 - **A new pack** needs `packs/<name>/pack.json` (validated by `schemas/pack.schema.json`) and an entry in
   `manifest.json` `units`. Record it in `CHANGELOG.md`.
+- **No AI attribution:** no `Co-Authored-By:` trailer and no "Generated with" line in commits or PR bodies, here
+  or in anything the kit tells an agent to write.
 - **Ask the owner** one question at a time, with a pro and a con for every option. Work on a branch and open a PR
   to `main`. Don't push without the owner's go-ahead.

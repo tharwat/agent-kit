@@ -39,7 +39,6 @@ A test checks that every `<UPPER_SNAKE>` used anywhere is defined in `manifest.j
 | `CRITICAL_SYSTEMS` | Areas whose changes get the stricter checks (§6) | auth, API contracts, schema |
 | `OWNER_KEPT_GATES` | Extra gates on top of G1–G7 | `none` |
 | `OPEN_ITEMS_TICKET` | The standing tracker ticket key | `ABC-1` |
-| `CO_AUTHOR_TRAILER` | Commit trailer line | `none` |
 | `UI_LANGUAGE` | Language of user-facing copy | `en` |
 | `SYNTHETIC_MARKER` | Column or flag on rows that `/verify` creates | `is_synthetic` |
 | `DEPENDENCY_POLICY` | When a new dependency is allowed | "allowed when it's the right tool; say why in the PR" |

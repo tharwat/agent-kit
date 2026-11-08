@@ -127,8 +127,7 @@ git add -- <each intended path>      # never git add -A or git add .
 git commit -m "<ticket>: <what changed>"
 ```
 
-End the message with `<CO_AUTHOR_TRAILER>` unless it is `none`. Committing doesn't move the fingerprint, so the
-post-op coverage holds.
+No co-author trailer. Committing doesn't move the fingerprint, so the post-op coverage holds.
 
 ## Step 8: Ship
 

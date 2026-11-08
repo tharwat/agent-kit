@@ -131,8 +131,8 @@ origin/<MAIN_BRANCH>`. Non-zero
 
 ### 0.4 Commit and push
 
-- Uncommitted changes → show `git diff --stat` and commit as `<ticket>: <description>`. If `<CO_AUTHOR_TRAILER>`
-  isn't `none`, end the message with it. If the change is ambiguous or risky, stop and ask first.
+- Uncommitted changes → show `git diff --stat` and commit as `<ticket>: <description>`, with no co-author trailer.
+  If the change is ambiguous or risky, stop and ask first.
 - Committing new work after 0.2 makes the branch uncovered: re-run 0.2.
 - `git push -u origin HEAD`. Never force-push.
 
