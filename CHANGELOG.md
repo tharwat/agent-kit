@@ -4,6 +4,20 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.2.0 — 2026-11-08
+
+- **Per-project MCP server names.** New required core fact `MCP_PREFIX` (for example `acme_`). Kit servers install
+  as `<MCP_PREFIX><service>`, and the installer rewrites every `mcp__<server>__` permission and text reference, and
+  owner task, to the installed name. `none` keeps the plain names.
+- **Fix:** with `mcp_map`, the kit's permissions and the Jira tool references still named the kit's server, so
+  allow and deny rules (including the `apply_migration` deny) didn't match the project's server. They now follow the
+  mapped name.
+- **Jira:** the pack's server is now named `jira` (was `atlassian`).
+
+**Upgrade touches:** `.mcp.json` (servers re-added under the new names; the old entries are reported as orphaned
+and left in place for you to remove), `.claude/settings.json` permissions, `.claude/rules/ticket-ops.md`, the
+`CLAUDE.md` facts block. Answer `MCP_PREFIX` when upgrading.
+
 ## 1.1.0 — 2026-11-08
 
 - **New pack `turnstile`:** Cloudflare Turnstile bot protection. It installs Cloudflare's `turnstile-spin` setup

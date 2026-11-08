@@ -77,6 +77,9 @@ Collect `answers.json` (format below). Ask only what the scan didn't settle, one
    - `CRITICAL_DOMAIN`: "the one area of logic that must never be wrong here" (it is severity class S3). Give an
      example from the project's own domain.
    - `OPEN_ITEMS_TICKET`: offer to create the standing tracker ticket after install, through the ticket pack.
+   - `MCP_PREFIX`: suggest the project's short name plus `_` (`acme_` installs `acme_jira`, `acme_supabase`).
+     It keeps one project's agent from calling another project's Jira or database when several projects share a
+     machine or an Atlassian site. Every kit permission and tool reference follows the installed names.
 3. **Each chosen pack's facts** from its `pack.json`.
 4. **GitHub:** does the project live on GitHub? The scan usually answers this (`origin_is_github`). If yes, the
    skill-link CI workflow is added. That workflow is CI, so also confirm `HAS_CI`: true only when merges must wait
@@ -103,7 +106,7 @@ For every row marked `conflict`, decide with the owner, one at a time:
 | Project commands with no `description:` | Resolve the other conflicts first, then re-run `plan`: it lists the project's own commands that have no description. Offer to add them to `.agents/claude-only.txt` (`claude_only` in answers) so the Codex link check passes |
 | Merge | The kit's structure, plus the project's facts and extra steps. Then resolve it as `keep-theirs`. If the merged file ends up identical to the kit's, drop its resolution; the plan shows it `unchanged`. **Keep the original:** copy it to `<file>.pre-agent-kit` first, since an untracked file has no git history to fall back on. **Project lines that would land in an always-loaded file** (like `security.md`) go into a path-scoped `.claude/rules/project-<area>.md` instead, so they don't eat the word budget |
 | Existing `CLAUDE.md` / `AGENTS.md` | Never overwritten. The installer appends a marked kit block (`@CLAUDE.kit.md` import + Project facts; the Codex section). If the project's own text contradicts a kit rule, ask the owner which wins and record it in the project's own text |
-| Existing `.mcp.json` server with the same purpose | Keep theirs and map the pack to it: `mcp_map: {"<kit server>": "<their server>"}` |
+| Existing `.mcp.json` server with the same purpose | Keep theirs and map the pack to it: `mcp_map: {"<kit server>": "<their server>"}`. The kit's permissions and tool references are rewritten to their server's name. Never copy a server from another project: its URL, project ref or token points at that project. Install the kit's entry under this project's prefix instead |
 | Existing hook on the same event | Added alongside it; nothing is replaced. **Read every existing hook.** If one clashes with the kit (an old main-branch guard that blocks `git fetch origin main`, a second worktree manager), show the owner and offer to retire it: with their yes, rename the script to `.pre-agent-kit` and remove its entry from `.claude/settings.json`. **Carry over what it did** that the owner still wants (for example env files it linked → `WORKTREE_ENV_FILES`) |
 | An existing `AGENTS.md` holding project rules, and no `CLAUDE.md` | Claude Code doesn't read `AGENTS.md`. The new `CLAUDE.md` gets a note pointing at it. After `apply`, offer to copy the project-specific rules into `CLAUDE.md`'s "Project rules" section instead, condensed, since they count toward the word budget. If all of them are copied, remove the pointer note |
 

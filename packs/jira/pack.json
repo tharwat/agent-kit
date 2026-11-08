@@ -43,24 +43,24 @@
   "hooks": [],
   "permissions": {
     "allow": [
-      "mcp__atlassian__getAccessibleAtlassianResources",
-      "mcp__atlassian__atlassianUserInfo",
-      "mcp__atlassian__getJiraIssue",
-      "mcp__atlassian__listJiraIssueComments",
-      "mcp__atlassian__searchJiraIssuesUsingJql",
-      "mcp__atlassian__discover",
-      "mcp__atlassian__executeRead"
+      "mcp__jira__getAccessibleAtlassianResources",
+      "mcp__jira__atlassianUserInfo",
+      "mcp__jira__getJiraIssue",
+      "mcp__jira__listJiraIssueComments",
+      "mcp__jira__searchJiraIssuesUsingJql",
+      "mcp__jira__discover",
+      "mcp__jira__executeRead"
     ],
     "deny": [
-      "mcp__atlassian__executeDestructive"
+      "mcp__jira__executeDestructive"
     ]
   },
   "owner_tasks": [
-    {"task": "Authorize the Atlassian MCP server: run /mcp in Claude Code, pick atlassian and sign in", "why": "every ticket op goes through it; it uses OAuth, so there is no token to store"},
+    {"task": "Authorize the `jira` MCP server: run /mcp in Claude Code, pick it and sign in with Atlassian", "why": "every ticket op goes through it; it uses OAuth, so there is no token to store"},
     {"task": "Create the open-items tracker ticket (the OPEN_ITEMS_TICKET fact) in Jira if it doesn't exist yet, or ask the agent to create it", "why": "noted findings are filed there; a missing ticket makes every filing fail"}
   ],
   "mcp": {
-    "atlassian": {
+    "jira": {
       "type": "http",
       "url": "https://mcp.atlassian.com/v2/mcp"
     }

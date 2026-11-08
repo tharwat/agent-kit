@@ -65,6 +65,11 @@ content is kept, and the kit's rules go in a separate `CLAUDE.kit.md` that `CLAU
 | `.github/workflows/skill-link-check.yml` | CI that keeps the Codex wrappers, `AGENTS.md` and the word budget in step |
 | `.claude/agent-kit.lock.json` | Kit version, your answers, and a hash of every installed file |
 
+**MCP servers are named per project.** The kit's servers install as `<prefix><service>`, for example
+`acme_jira`, `acme_supabase` and `acme_render`. Every permission and tool reference follows that name, so an
+agent in one project can't reach another project's Jira, database or host by mistake. They use `${ENV_VAR}`
+references only, never a pasted token.
+
 **Fill in the project docs.** The commands read these when they need detail about your project. Empty sections
 are fine to begin with; fill them in as tickets need them.
 
