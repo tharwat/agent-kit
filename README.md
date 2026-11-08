@@ -195,6 +195,7 @@ rules, commands, hooks and Project facts, and extend core commands through `.cla
 | `worktrees` | Parallel sessions in git worktrees: safe sync to `main`, env-file links, a guard against writing to the main checkout | `/worktree` |
 | `ticket-trains` | Queue triaged tickets and run them unattended, with a circuit breaker and locked state. Running a train approves merging that queue only | `/ticket-train-create`, `/ticket-train-triage`, `/ticket-train-run`, `/ticket-train-status` |
 | `hardening` | Deep-security mode: required peer review per ticket and a release-wide edge-case analysis | `/hardening`, `/hardening-analysis` |
+| `turnstile` | Cloudflare Turnstile bot protection for sign-up, login, OTP and other public forms: Cloudflare's setup skill, plus server-side token checks in `/triage`, `/security` and `/verify`. Works on any host | |
 
 **Extras** are opt-in skills that aren't part of the workflow:
 
