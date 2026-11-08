@@ -4,6 +4,16 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.1.0 — 2026-11-08
+
+- **New pack `turnstile`:** Cloudflare Turnstile bot protection. It installs Cloudflare's `turnstile-spin` setup
+  skill (Apache-2.0) from GitHub at a pinned commit, checked by hash. It adds a contract row to `/triage` for public
+  actions that cost money, siteverify checks to `/security`, and a real-token, replay and no-token check to `/verify`.
+- **Version:** `manifest.json` and `core/pack.json` now carry the release version. v1.0.0 shipped them as
+  `1.0.0-dev`.
+
+**Upgrade touches:** the kit version in the lock file only, unless you add the `turnstile` pack.
+
 ## 1.0.0 — 2026-11-07
 
 First release.
