@@ -4,6 +4,17 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.3.0 — 2026-11-08
+
+- **No AI attribution.** The installed `.claude/settings.json` sets Claude Code's `attribution` off (`commit` and
+  `pr` empty, `sessionUrl` false), so commits get no `Co-Authored-By:` trailer and PRs no "Generated with" line. A
+  project's own `attribution` setting is kept. `CLAUDE.kit.md`, `/ship` and `/hardening` say never to add one.
+- **Removed fact `CO_AUTHOR_TRAILER`.** An old answer for it is reported as unused and ignored.
+- **Codex:** Codex may add its own trailer, depending on your ChatGPT account settings. Check a Codex commit once.
+
+**Upgrade touches:** `.claude/settings.json` (adds `attribution` if absent), `CLAUDE.kit.md`, the `CLAUDE.md` facts
+block, `.claude/commands/ship.md`, and `hardening.md` if installed.
+
 ## 1.2.0 — 2026-11-08
 
 - **Per-project MCP server names.** New required core fact `MCP_PREFIX` (for example `acme_`). Kit servers install

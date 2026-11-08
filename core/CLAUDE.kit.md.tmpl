@@ -45,7 +45,8 @@ security, **S3** `<CRITICAL_DOMAIN>`, **S4** the ticket's own behaviour. S1–S4
   `<BRANCH_PREFIX><ticket-lowercase>-<slug>` from `origin/<MAIN_BRANCH>` after `git fetch origin`. Sync a stale
   checkout with `git checkout --detach origin/<MAIN_BRANCH>`.
 - Review diffs: `git diff origin/<MAIN_BRANCH>...HEAD` (three dots), after a fetch.
-- Commits: `<ticket>: <what changed>`, plus `<CO_AUTHOR_TRAILER>` unless `none`. Read your diff line by line first.
+- Commits: `<ticket>: <what changed>`. Read your diff line by line first. No `Co-Authored-By:` trailer and no
+  "Generated with" line in commits, PRs or ticket comments.
 - **`/triage → /operate → /post-op → /peer-review (optional) → /ship`**, with `/handoff` → `/resume` to pause.
 - **`/triage`** writes the binding contract (a row per criterion, safety gate, failure mode and sibling path, with
   severity, hostile case and counterfactual): the plan. Implement without waiting.

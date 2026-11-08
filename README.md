@@ -167,6 +167,8 @@ Installed with the kit and binding on Claude and Codex alike:
 - **No destructive filesystem or git commands,** whether run or written into code and docs. Files are renamed, not
   deleted.
 - **No secrets** in code, logs, commits, PRs or tickets, and no new dependency without your dependency policy.
+- **No AI attribution:** commits and PRs get no `Co-Authored-By:` trailer or "Generated with" line. The installed
+  settings turn Claude Code's attribution off.
 - **A word budget** for instructions loaded in every session: 3,500 words in an installed project, with the kit using
   about 1,900 of them. The rest loads by path or on demand. CI checks it.
 
