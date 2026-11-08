@@ -827,10 +827,19 @@ def build_plan(kit, target, answers_path, upgrade=False):
         plan.warnings.append(f"answers.facts has values no selected unit defines: {', '.join(unknown_facts)}")
     plan.facts = values
     missing = {m["name"] for m in plan.missing_facts}
+    if "MCP_PREFIX" in values and values["MCP_PREFIX"] != "none" and not MCP_PREFIX_RE.match(values["MCP_PREFIX"]):
+        plan.errors.append(f"MCP_PREFIX {values['MCP_PREFIX']!r}: use lowercase letters, digits and _ only "
+                           "(for example acme_), or none")
+    names = mcp_names(kit, units, values, answers["mcp_map"])
 
     def render(spec):
         raw = read_bytes(spec.src_path)
         if not spec.template:
+            if b"mcp__" in raw or b"MCP server" in raw:
+                try:
+                    return rename_mcp_refs(raw.decode("utf-8"), names).encode("utf-8")
+                except UnicodeDecodeError:
+                    return raw
             return raw
         text = raw.decode("utf-8")
         unknown = set()
@@ -842,7 +851,7 @@ def build_plan(kit, target, answers_path, upgrade=False):
             if n not in missing:
                 unknown.add(n)
             return m.group(0)
-        out = normalize_frontmatter_paths(PLACEHOLDER_RE.sub(sub, text))
+        out = rename_mcp_refs(normalize_frontmatter_paths(PLACEHOLDER_RE.sub(sub, text)), names)
         if unknown:
             plan.errors.append(f"{spec.unit}/{spec.src}: placeholder(s) no unit defines: {', '.join(sorted(unknown))}")
         return out.encode("utf-8")
@@ -948,7 +957,7 @@ def build_plan(kit, target, answers_path, upgrade=False):
         produced.add("AGENTS.md")
     settings_spec = merges.get("settings-json")
     plan.rows.append(plan_settings(kit, target, units, settings_spec, render(settings_spec) if settings_spec else None,
-                                   plan, values))
+                                   plan, values, names))
     produced.add(".claude/settings.json")
     plan.rows.append(plan_mcp(kit, target, units, answers["mcp_map"], plan, values, missing,
                               lock_files.get(".mcp.json"), resolutions))
@@ -973,7 +982,7 @@ def build_plan(kit, target, answers_path, upgrade=False):
         for t in kit.units[u].get("owner_tasks", []):
             if not owner_task_applies(t, values):
                 continue
-            plan.owner_tasks.append({k: fill_text(v, values) if isinstance(v, str) else v
+            plan.owner_tasks.append({k: rename_mcp_refs(fill_text(v, values), names) if isinstance(v, str) else v
                                      for k, v in dict(t, unit=u).items() if k != "when"})
 
     # Stale resolutions are only warnings. One the lock already settled (a re-run with the same answers) is quiet.
@@ -1269,7 +1278,7 @@ def _merge_json_target(target, rel, plan):
     return raw, data
 
 
-def plan_settings(kit, target, units, spec, rendered, plan, values=None):
+def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=None):
     rel = ".claude/settings.json"
     raw, cur = _merge_json_target(target, rel, plan)
     unit, src = (spec.unit, spec.src) if spec else ("core", "(pack hooks/permissions)")
@@ -1294,6 +1303,8 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None):
     perm_sources = [("core", tmpl.get("permissions", {}))] + [(u, kit.units[u].get("permissions", {})) for u in units]
     if values is not None:  # a pack's allow rules may name a fact, e.g. Bash({{EAS_CLI}} whoami)
         perm_sources = [(u, fill_json(perms, values, set())) for u, perms in perm_sources]
+    if names:  # tools of a renamed or mapped MCP server: mcp__jira__x -> mcp__acme_jira__x
+        perm_sources = [(u, rename_mcp_json(perms, names)) for u, perms in perm_sources]
     for u, perms in perm_sources:
         if not perms:
             continue
@@ -1382,6 +1393,46 @@ def entry_sha(conf):
     return sha256(json.dumps(conf, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 
 
+MCP_PREFIX_RE = re.compile(r"^[a-z0-9_]*$")
+
+
+def mcp_prefix(values):
+    """The MCP_PREFIX fact as a string to prepend ('' for none or unset)."""
+    v = (values or {}).get("MCP_PREFIX", "")
+    return "" if v in ("none", None) else v
+
+
+def mcp_names(kit, units, values, mcp_map):
+    """{kit server name: name installed in .mcp.json}. A server mapped in mcp_map keeps the project's name;
+    every other server gets MCP_PREFIX in front."""
+    prefix = mcp_prefix(values)
+    names = {}
+    for u in units:
+        for name in kit.units[u].get("mcp", {}):
+            names[name] = mcp_map.get(name) or prefix + name
+    return names
+
+
+def rename_mcp_refs(text, names):
+    """Rewrite `mcp__<kit server>__` tool names and "`<kit server>` MCP server" phrases to the installed names."""
+    for kit_name, real in names.items():
+        if real == kit_name:
+            continue
+        text = re.sub(r"(?<![A-Za-z0-9_])mcp__" + re.escape(kit_name) + "__", "mcp__" + real + "__", text)
+        text = text.replace("`" + kit_name + "` MCP server", "`" + real + "` MCP server")
+    return text
+
+
+def rename_mcp_json(obj, names):
+    if isinstance(obj, str):
+        return rename_mcp_refs(obj, names)
+    if isinstance(obj, list):
+        return [rename_mcp_json(x, names) for x in obj]
+    if isinstance(obj, dict):
+        return {k: rename_mcp_json(v, names) for k, v in obj.items()}
+    return obj
+
+
 def plan_mcp(kit, target, units, mcp_map, plan, values=None, missing=(), lock_entry=None, resolutions=None):
     """Add, update or keep each kit MCP server. Servers the kit installed are recorded in the lock (with a hash of
     the entry): an unchanged one follows the kit, an edited one is a conflict. A server the kit never installed is
@@ -1399,8 +1450,10 @@ def plan_mcp(kit, target, units, mcp_map, plan, values=None, missing=(), lock_en
     recs = (lock_entry or {}).get("servers") or {}
     new = copy.deepcopy(cur) if cur else {}
     changed, backup, records, shipped = False, None, {}, set()
+    names = mcp_names(kit, units, values, mcp_map)
     for u in units:
-        for name, conf in sorted(kit.units[u].get("mcp", {}).items()):
+        for kit_name, conf in sorted(kit.units[u].get("mcp", {}).items()):
+            name = names[kit_name] if kit_name not in mcp_map else kit_name
             shipped.add(name)
             unknown = set()
             conf = fill_json(conf, values, unknown)
@@ -1410,6 +1463,8 @@ def plan_mcp(kit, target, units, mcp_map, plan, values=None, missing=(), lock_en
             envs = sorted(set(ENV_REF_RE.findall(json.dumps(conf))))
             want = entry_sha(conf)
             item = {"server": name, "unit": u, "env": envs}
+            if name != kit_name:
+                item["kit_server"] = kit_name
             key = MCP_KEY_PREFIX + name
             res = resolutions.get(key)
             rec = recs.get(name)
@@ -1439,13 +1494,13 @@ def plan_mcp(kit, target, units, mcp_map, plan, values=None, missing=(), lock_en
                     item.update(action="conflict", reason=why + "; needs a resolution" +
                                 ("" if not res else f" ({res} doesn't apply to an MCP server)"))
 
-            if name in mcp_map:
-                mapped = mcp_map[name]
+            if kit_name in mcp_map:
+                mapped = mcp_map[kit_name]
                 if mapped in existing:
                     item.update(action="mapped", reason=f"mapped to the existing server {mapped!r}; not added")
                 else:
                     item.update(action="error", reason=f"mapped to {mapped!r}, which .mcp.json doesn't have")
-                    plan.errors.append(f"mcp_map: {name} -> {mapped}: no such server in .mcp.json")
+                    plan.errors.append(f"mcp_map: {kit_name} -> {mapped}: no such server in .mcp.json")
             elif have is None and rec is None:
                 put("add", "added with ${ENV} references only")
             elif have is None:

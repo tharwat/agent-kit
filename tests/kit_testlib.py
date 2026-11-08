@@ -110,7 +110,7 @@ def full_answers(kit_root, packs=(), **extra):
             facts[f["name"]] = f.get("example") or f.get("default") or "stub"
     facts.update({"PROJECT_NAME": "Acme", "PROJECT_SUMMARY": "Invoices for small agencies", "TICKET_PREFIX": "ABC",
                   "TEST_COMMANDS": [".: npm test"], "CRITICAL_DOMAIN": "billing — invoice totals",
-                  "OPEN_ITEMS_TICKET": "ABC-1", "MAIN_BRANCH": "main"})
+                  "OPEN_ITEMS_TICKET": "ABC-1", "MAIN_BRANCH": "main", "MCP_PREFIX": "none"})
     ans = {"facts": facts, "packs": list(packs), "options": {"github": True}}
     for k, v in extra.items():
         ans[k] = v

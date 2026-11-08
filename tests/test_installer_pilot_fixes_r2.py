@@ -272,7 +272,7 @@ class ReapplyOutput(Base):
         self.assertNotIn("## MCP servers", md)
         rc, md, _ = self.cli("plan", self.answers())  # jira (from TICKET_SYSTEM) ships the atlassian server
         self.assertIn("## MCP servers (.mcp.json)", md)
-        self.assertIn("| atlassian | jira | add |", md)
+        self.assertIn("| jira | jira | add |", md)
 
 
 class OwnerTaskWhen(Base):
