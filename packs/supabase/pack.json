@@ -69,7 +69,7 @@
   },
   "owner_tasks": [
     {"task": "With MIGRATION_TOOL supabase-cli: install the Supabase CLI and link this repo to the project (supabase link --project-ref with the DB_PROJECT_REF value)", "why": "the /verify apply step runs supabase db push --dry-run and supabase db push from the branch checkout"},
-    {"task": "Add a second, write-enabled Supabase MCP server named supabase_apply to .mcp.json (the supabase entry's URL without read_only=true) and never pre-allow its tools", "why": "with MIGRATION_TOOL mcp-apply, migrations are applied with its apply_migration tool, and every call should prompt", "when": {"fact": "MIGRATION_TOOL", "equals": "mcp-apply"}}
+    {"task": "Add a second, write-enabled Supabase MCP server to .mcp.json, named like the `supabase` MCP server plus _apply (the same URL without read_only=true) and never pre-allow its tools", "why": "with MIGRATION_TOOL mcp-apply, migrations are applied with its apply_migration tool, and every call should prompt", "when": {"fact": "MIGRATION_TOOL", "equals": "mcp-apply"}}
   ],
   "mcp": {
     "supabase": {

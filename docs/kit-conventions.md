@@ -25,6 +25,7 @@ A test checks that every `<UPPER_SNAKE>` used anywhere is defined in `manifest.j
 | `PROJECT_SUMMARY` | One line on what the product does | |
 | `TICKET_SYSTEM` | The installed ticket pack | `jira` |
 | `TICKET_PREFIX` | Ticket key prefix | `ABC` (keys look like `ABC-123`) |
+| `MCP_PREFIX` | Prefix on this project's MCP server names (§9) | `acme_` gives `acme_jira`; `none` for no prefix |
 | `MAIN_BRANCH` | The only long-lived branch | `main` |
 | `BRANCH_PREFIX` | Feature branch prefix | `feature/` |
 | `HAS_CI` | `true` means `/ship` waits for required checks before merging | `false` |
@@ -239,6 +240,10 @@ Rules for `pack.json`:
   has that value.
 - **`template: true`** means the file holds `{{FACT}}` placeholders to fill at install.
 - **MCP:** a server is defined only with `${ENV_VAR}` references. Never write a value.
+- **MCP names:** a pack names its server by service (`jira`, `supabase`, `render`) and writes its tools as
+  `mcp__<server>__<tool>`, in permissions and in text. The installer installs the server as `<MCP_PREFIX><server>`
+  (or the project's server named in `mcp_map`) and rewrites every `mcp__<server>__` reference and every
+  "`<server>` MCP server" phrase to match, so a project's agent only ever calls its own project's servers.
 - **`env`:** every credential is an owner task.
 - **`permissions`:** allow only read-only tools. Destructive commands go in `deny`.
 - **Hook commands** always use `"$CLAUDE_PROJECT_DIR"/.claude/hooks/...`.

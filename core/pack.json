@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/pack.schema.json",
   "name": "core",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "The workflow core: triage, operate, post-op, peer-review, ship and the supporting commands, rules, hooks and Claude/Codex sync. Always installed.",
   "kind": "core",
   "requires": [],
@@ -16,6 +16,13 @@
      "ask": "Which ticket system does this project use? (v1 supports jira)"},
     {"name": "TICKET_PREFIX", "meaning": "Ticket key prefix (keys look like ABC-123)", "example": "ABC", "required": true,
      "ask": "What is the ticket key prefix (the ABC in ABC-123)?"},
+    {
+      "name": "MCP_PREFIX",
+      "meaning": "Prefix on this project's MCP server names, so tools from different projects never mix",
+      "example": "acme_",
+      "required": true,
+      "ask": "What prefix should this project's MCP server names get? Use the project's short name and an underscore (acme_ makes acme_jira, acme_supabase), so one project's agent never calls another project's Jira or database. Lowercase letters, digits and _ only; answer none for no prefix."
+    },
     {"name": "MAIN_BRANCH", "meaning": "The only long-lived branch", "example": "main", "default": "main", "required": true,
      "ask": "What is the main branch called? The kit assumes it is the only long-lived branch."},
     {"name": "BRANCH_PREFIX", "meaning": "Feature branch prefix", "example": "feature/", "default": "feature/", "required": false,

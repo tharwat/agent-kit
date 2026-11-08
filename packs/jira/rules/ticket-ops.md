@@ -12,7 +12,7 @@ before the first ticket op of a session. `<JIRA_SITE>` and `<JIRA_PROJECT_KEY>` 
 
 ## Tracker and facts
 
-- Tools: the Atlassian remote MCP server, `mcp__atlassian__<tool>`. Deferred tools run through `executeRead` /
+- Tools: the `jira` MCP server (Atlassian's remote server), `mcp__jira__<tool>`. Deferred tools run through `executeRead` /
   `executeWrite`. Get the `cloudId` once per session from `getAccessibleAtlassianResources` (the `<JIRA_SITE>`
   entry).
 - Key pattern: `^<TICKET_PREFIX>-[0-9]+$`.
