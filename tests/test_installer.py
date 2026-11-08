@@ -338,9 +338,9 @@ class Upgrade(Base):
         os.rename(os.path.join(hist, orphan), os.path.join(hist, orphan + ".retired"))
         mpath = os.path.join(self.kit, "manifest.json")
         m = load_json(mpath)
-        old_version, m["version"] = m["version"], "1.0.0"
+        old_version, m["version"] = m["version"], "99.0.0"
         write(mpath, json.dumps(m, indent=2))
-        write(os.path.join(self.kit, "CHANGELOG.md"), "# Changelog\n\n## 1.0.0\n\n- New kit lines.\n\n"
+        write(os.path.join(self.kit, "CHANGELOG.md"), "# Changelog\n\n## 99.0.0\n\n- New kit lines.\n\n"
               f"## {old_version}\n\n- Old entry.\n\n## 0.9.0\n\n- Ancient.\n")
         rows = self.rows(ans)
         self.assertEqual(rows[".claude/commands/test.md"]["action"], "conflict")
@@ -361,7 +361,7 @@ class Upgrade(Base):
         self.assertNotIn("Old entry.", out)
         self.assertNotIn("Ancient.", out)
         lock = load_json(self.t(".claude/agent-kit.lock.json"))
-        self.assertEqual(lock["kit"]["version"], "1.0.0")
+        self.assertEqual(lock["kit"]["version"], "99.0.0")
         self.assertTrue(lock["files"][f"docs/workflow/history/{orphan}"]["orphaned"])
 
     def test_upgrade_without_answers_uses_the_lock(self):

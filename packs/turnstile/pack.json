@@ -1,0 +1,40 @@
+{
+  "name": "turnstile",
+  "version": "1.0.0",
+  "description": "Cloudflare Turnstile bot protection: Cloudflare's turnstile-spin setup skill, installed from GitHub at a pinned commit, plus server-side siteverify checks for /security and /verify.",
+  "kind": "workflow",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Protect sign-up, login, OTP or other public forms from bots with Cloudflare Turnstile (a free CAPTCHA alternative; works on any host)? It adds Cloudflare's setup skill and server-side token checks to /security and /verify."
+  },
+  "facts": [],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/turnstile.md"}
+  ],
+  "hooks": [],
+  "permissions": {"allow": [], "deny": []},
+  "owner_tasks": [
+    {"task": "When you first set up Turnstile: create a Cloudflare API token with the Account.Turnstile:Edit permission and export it as CLOUDFLARE_API_TOKEN in the terminal you start the agent from (never paste it into chat)", "why": "the turnstile-spin skill creates the widget through Cloudflare's API"},
+    {"task": "Keep TURNSTILE_SECRET in the backend's secret store (a gitignored .env locally, the host's secret manager in production), and set TURNSTILE_HOSTNAMES to the production frontend hostnames", "why": "the server checks every token with Cloudflare's siteverify using that secret"}
+  ],
+  "mcp": {},
+  "env": [
+    {"name": "TURNSTILE_SECRET", "purpose": "Turnstile widget secret, used only by the backend's siteverify call", "how_to_get": "created by the turnstile-spin skill, or Cloudflare dashboard → Turnstile → the widget", "required": false},
+    {"name": "TURNSTILE_HOSTNAMES", "purpose": "Frontend hostnames a token may come from; production must not include localhost", "required": false}
+  ],
+  "third_party": [
+    {
+      "name": "turnstile-spin",
+      "source": "github:cloudflare/skills/skills/turnstile-spin",
+      "ref": "6eb6c781aa9b6438e0c7307bd102788a75fe1a6d",
+      "sha256": "2ec8b83caaba227444d0247df7b119a1beebff034472e1aebb511b28659d5adb",
+      "license": "Apache-2.0",
+      "dest": ".claude/skills/turnstile-spin/",
+      "note": "Cloudflare's official Turnstile setup skill (15 files, checked 2026-11-08). Its scripts call api.cloudflare.com with curl and never take the secret as an argument."
+    }
+  ],
+  "ci": []
+}
