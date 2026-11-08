@@ -1,0 +1,41 @@
+{
+  "name": "web-qa",
+  "version": "1.0.0",
+  "description": "Playwright E2E and visual QA for a web frontend, plus web checks for /verify, /security and /test.",
+  "kind": "stack",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": ["playwright.config.*", "*/playwright.config.*"],
+    "package_deps": ["vite", "next", "astro", "react-scripts", "svelte", "@sveltejs/kit"],
+    "ask": null
+  },
+  "facts": [
+    {"name": "WEB_QA_URL", "meaning": "Deployed URL the owner allows read-only QA against after deploy, or none. Setting it is the owner's yes for read-only checks there", "example": "https://app.example.com", "default": "none", "required": false, "ask": "After a deploy, may QA load the deployed web app read-only? If yes, give its URL; otherwise answer none."},
+    {"name": "E2E_DIR", "meaning": "Directory holding playwright.config.* and the E2E specs", "example": "tests/e2e", "required": true, "ask": "Where do the Playwright config and E2E specs live? (the directory holding playwright.config.*)"},
+    {"name": "WEB_QA_BREAKPOINTS", "meaning": "Viewport widths in px for /playwright-qa screenshots. Default 375, 768, 1440", "example": "375, 768, 1440", "default": "375, 768, 1440", "required": false, "ask": "Which viewport widths should visual QA screenshot? (default 375, 768, 1440)"}
+  ],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/web-qa.md", "template": true},
+    {"src": "commands/qa.md", "dest": ".claude/commands/qa.md"},
+    {"src": "commands/playwright-qa.md", "dest": ".claude/commands/playwright-qa.md"}
+  ],
+  "hooks": [],
+  "permissions": {
+    "allow": ["Bash(npx playwright --version)"],
+    "deny": []
+  },
+  "owner_tasks": [
+    {"task": "Create a web QA test user, and a lower-privilege one for guard checks, and name their login env vars in docs/agent/verify-map.md (Test accounts)", "why": "/qa and /playwright-qa sign in as them; never a real person's account"},
+    {"task": "Add @playwright/test to the project and install a browser once per machine with npx playwright install chromium", "why": "/qa and /playwright-qa run Playwright"}
+  ],
+  "mcp": {},
+  "env": [
+    {"name": "WEB_QA_USER_EMAIL", "purpose": "Login of the web QA test user. Record the name in docs/agent/verify-map.md (Test accounts); the project may use its own name instead", "how_to_get": "Create a dedicated test user in the app; never a real person's account"},
+    {"name": "WEB_QA_USER_PASSWORD", "purpose": "Password of that test user, read by specs through process.env and never printed", "how_to_get": "Set when creating the test user; keep it only in the local env / secret store"},
+    {"name": "WEB_QA_LOW_PRIV_EMAIL", "purpose": "Login of a lower-privilege test user, for /security route-guard parity checks", "how_to_get": "Create a second test user with the lowest role the app has"},
+    {"name": "WEB_QA_LOW_PRIV_PASSWORD", "purpose": "Password of the lower-privilege test user", "how_to_get": "Set when creating that user; keep it only in the local env / secret store"}
+  ],
+  "third_party": [],
+  "ci": []
+}

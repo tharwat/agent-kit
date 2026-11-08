@@ -1,0 +1,36 @@
+<!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
+# Verify map
+
+How `/verify`, `/test` and `/ship` check each surface. Delete each example row once you add real ones.
+
+## Changed path → how it is verified
+
+| Changed path | How to verify | Evidence to capture |
+|---|---|---|
+| `server/routes/invoices/**` | Run the dev server, call the route with a real session | Example only: response body + log line |
+
+## Dry-run entry points
+
+| Entry point | Dry-run flag | What it prints |
+|---|---|---|
+| `scripts/send-reminders` | `--dry-run` | Example only: the reminders it would send |
+
+## Irreversible side effects (never run as a test)
+
+| Action | Why | Safe alternative |
+|---|---|---|
+| Charging a card | Example only: real money moves | Use the provider's test mode |
+
+## Protected fixtures and seeds
+
+| Fixture or seed command | Rule |
+|---|---|
+| `npm run seed:demo` | Example only: safe to re-run; never edit the protected demo account |
+
+## Test accounts
+
+Env var names only, never values or passwords.
+
+| Env var | Holds |
+|---|---|
+| `TEST_USER_EMAIL` | Example only: login for the standard test user |

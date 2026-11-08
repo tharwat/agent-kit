@@ -1,0 +1,21 @@
+<!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
+# Source layout
+
+Where things live in this repo. Commands read this to find routes, consumers, schema, tests and copy, so keep it
+current when folders move. One row per area; paths are globs relative to the repo root. Delete the example row once
+you add real ones.
+
+| Area | Paths | Notes |
+|---|---|---|
+| API routes | `server/routes/**` | Example only: the HTTP handlers |
+
+Areas to fill in: API routes, API types or spec, clients and other consumer surfaces (web app, mobile app, jobs,
+partner integrations), schema and migrations, tests, user-facing copy.
+
+## Consumer surfaces
+
+Everything that calls the API or reads the schema. The review's contract lens checks each one.
+
+| Consumer | Paths | Can it be force-updated? |
+|---|---|---|
+| Web dashboard | `web/src/**` | Example only: yes, deploys with the API |

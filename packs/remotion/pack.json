@@ -1,0 +1,37 @@
+{
+  "name": "remotion",
+  "version": "1.0.0",
+  "description": "Opt-in extra: the remotion-best-practices skill (video in React), installed from its GitHub source at a pinned commit.",
+  "kind": "extra",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Install the Remotion best-practices skill (making videos with React)? It is third-party, and Remotion itself may need a paid company license."
+  },
+  "facts": [],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/remotion.md"}
+  ],
+  "hooks": [],
+  "permissions": {"allow": [], "deny": []},
+  "owner_tasks": [
+    {"task": "Check Remotion's license terms before commercial use", "why": "the skills repo has no license file, and Remotion needs a paid company license for some companies"},
+    {"task": "Only if the project uses optional Remotion features that need their own keys (map tiles, cloud rendering): set those keys in the environment or the project's .env", "why": "the skill itself needs no key"}
+  ],
+  "mcp": {},
+  "env": [],
+  "third_party": [
+    {
+      "name": "remotion-best-practices",
+      "source": "github:remotion-dev/skills/skills/remotion-best-practices",
+      "ref": "a2824c67f8b4585c294a8101db9f9f0ad3c643f8",
+      "sha256": "a3140396ca08967abb24ea478b7ba6cc2881c189dc7de1ffd3f376004c76858b",
+      "license": "unknown",
+      "dest": ".claude/skills/remotion-best-practices/",
+      "note": "The repo has no LICENSE file at this ref, and GitHub reports no license (checked 2026-11-07). The skill is now a router over sub-references bundled in the same folder (147 files)."
+    }
+  ],
+  "ci": []
+}

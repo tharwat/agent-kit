@@ -1,0 +1,242 @@
+{
+  "name": "expo-mobile",
+  "version": "1.0.0",
+  "description": "Expo / React Native app: EAS QA, simulator and production builds, Maestro QA on simulators, and mobile checks for core commands.",
+  "kind": "stack",
+  "requires": [
+    "core"
+  ],
+  "conflicts": [],
+  "detect": {
+    "files": [
+      "eas.json",
+      "*/eas.json",
+      "app.config.*",
+      "*/app.config.*",
+      "app.json",
+      "*/app.json"
+    ],
+    "package_deps": [
+      "expo"
+    ],
+    "ask": null
+  },
+  "facts": [
+    {
+      "name": "MOBILE_DIR",
+      "meaning": "App directory holding app.json / app.config.* and eas.json, relative to the repo root",
+      "example": "mobile",
+      "required": true,
+      "ask": "Which directory holds the Expo app (the one with eas.json)? Use . for the repo root."
+    },
+    {
+      "name": "EAS_CLI",
+      "meaning": "How the EAS CLI is run",
+      "example": "npx eas-cli@latest",
+      "default": "npx eas-cli@latest",
+      "required": true,
+      "ask": "How should the EAS CLI be run? (default npx eas-cli@latest; use eas if it is installed globally)"
+    },
+    {
+      "name": "EAS_ACCOUNT",
+      "meaning": "Expo account or organization that owns the EAS project",
+      "example": "acme",
+      "required": true,
+      "ask": "Which Expo account or organization owns the project? (eas project:info shows @<account>/<slug>)"
+    },
+    {
+      "name": "EAS_PROJECT_SLUG",
+      "meaning": "EAS project slug",
+      "example": "acme-app",
+      "required": true,
+      "ask": "What is the EAS project slug? (eas project:info shows @<account>/<slug>)"
+    },
+    {
+      "name": "EAS_PROFILE_QA",
+      "meaning": "eas.json build and submit profile for QA device builds sent to TestFlight / Play internal testing",
+      "example": "preview",
+      "default": "preview",
+      "required": true,
+      "ask": "Which eas.json profile makes QA device builds for TestFlight / Play internal testing? (default preview)"
+    },
+    {
+      "name": "EAS_PROFILE_SIM",
+      "meaning": "eas.json build profile for iOS simulator / Android emulator builds",
+      "example": "preview-simulator",
+      "default": "preview-simulator",
+      "required": true,
+      "ask": "Which eas.json profile makes simulator / emulator builds? (default preview-simulator)"
+    },
+    {
+      "name": "EAS_PROFILE_PROD",
+      "meaning": "eas.json build and submit profile for store releases",
+      "example": "production",
+      "default": "production",
+      "required": true,
+      "ask": "Which eas.json profile makes store release builds? (default production)"
+    },
+    {
+      "name": "APP_ID_QA",
+      "meaning": "Bundle ID / Android package name of the QA app variant",
+      "example": "com.example.app.qa",
+      "required": true,
+      "ask": "What is the bundle ID / package name of the QA app variant?"
+    },
+    {
+      "name": "APP_ID_PROD",
+      "meaning": "Bundle ID / Android package name of the store app. Automation never targets it",
+      "example": "com.example.app",
+      "required": true,
+      "ask": "What is the bundle ID / package name of the store app?"
+    },
+    {
+      "name": "MAESTRO_DIR",
+      "meaning": "Directory holding the Maestro flows",
+      "example": "tests/maestro",
+      "default": ".maestro",
+      "required": true,
+      "ask": "Where do the Maestro flows live, relative to the repo root? (default .maestro)"
+    },
+    {
+      "name": "MAESTRO_FLOW_MAP",
+      "meaning": "Project-owned file mapping changed areas to Maestro flows. Default docs/agent/maestro-flows.md",
+      "example": "docs/agent/maestro-flows.md",
+      "default": "docs/agent/maestro-flows.md",
+      "required": false,
+      "ask": "Where should the Maestro flow map live? (default docs/agent/maestro-flows.md)"
+    },
+    {
+      "name": "PROMOTION_BLOCK_LABEL",
+      "meaning": "Ticket label that stops /build-prod and /release while an open ticket carries it. Default blocks-promotion",
+      "example": "blocks-promotion",
+      "default": "blocks-promotion",
+      "required": false,
+      "ask": "Which ticket label should block store builds after a failed Critical-System build QA? (default blocks-promotion)"
+    },
+    {
+      "name": "NEEDS_BUILD_QA_LABEL",
+      "meaning": "Ticket label on a merged mobile change not yet driven on a build. Default needs-qa-on-build",
+      "example": "needs-qa-on-build",
+      "default": "needs-qa-on-build",
+      "required": false,
+      "ask": "Which ticket label marks a merged mobile change still waiting for build QA? (default needs-qa-on-build)"
+    }
+  ],
+  "files": [
+    {
+      "src": "pack.md",
+      "dest": ".claude/packs/expo-mobile.md",
+      "template": true
+    },
+    {
+      "src": "commands/build-qa.md",
+      "dest": ".claude/commands/build-qa.md"
+    },
+    {
+      "src": "commands/build-qa-sim.md",
+      "dest": ".claude/commands/build-qa-sim.md"
+    },
+    {
+      "src": "commands/build-prod.md",
+      "dest": ".claude/commands/build-prod.md"
+    },
+    {
+      "src": "commands/mobile-qa.md",
+      "dest": ".claude/commands/mobile-qa.md"
+    },
+    {
+      "src": "rules/mobile.md",
+      "dest": ".claude/rules/mobile.md",
+      "template": true
+    },
+    {
+      "src": "docs/maestro-flows.md",
+      "dest": "docs/agent/maestro-flows.md",
+      "project_owned": true
+    }
+  ],
+  "hooks": [],
+  "permissions": {
+    "allow": [
+      "Bash({{EAS_CLI}} --version)",
+      "Bash({{EAS_CLI}} whoami)",
+      "Bash({{EAS_CLI}} project:info)",
+      "Bash({{EAS_CLI}} build:list *)",
+      "Bash({{EAS_CLI}} build:view *)",
+      "Bash(xcrun simctl list *)",
+      "Bash(adb devices)",
+      "mcp__expo__read_documentation",
+      "mcp__expo__search_documentation",
+      "mcp__expo__build_list",
+      "mcp__expo__build_info",
+      "mcp__expo__build_logs",
+      "mcp__expo__workflow_list",
+      "mcp__expo__workflow_info",
+      "mcp__expo__workflow_logs",
+      "mcp__expo__testflight_crashes",
+      "mcp__expo__testflight_feedback",
+      "mcp__expo__appstore_reviews",
+      "mcp__expo__playstore_crashes",
+      "mcp__expo__playstore_reviews"
+    ],
+    "deny": [
+      "mcp__expo__build_run",
+      "mcp__expo__build_submit",
+      "mcp__expo__workflow_run",
+      "mcp__expo__appstore_reply_review",
+      "mcp__expo__appstore_delete_review_response",
+      "mcp__expo__playstore_reply_review"
+    ]
+  },
+  "owner_tasks": [
+    {
+      "task": "Authorize the Expo MCP server: run /mcp in Claude Code and sign in with the Expo account",
+      "why": "the hosted server uses OAuth, so there is no token to store; it gives read-only build, log and store tools. Optional: Codex and the commands use the EAS CLI"
+    },
+    {
+      "task": "Create eas.json in the app directory (MOBILE_DIR) with the three build profiles named by EAS_PROFILE_QA, EAS_PROFILE_SIM and EAS_PROFILE_PROD, if it doesn't have them yet",
+      "why": "/build-qa, /build-qa-sim, /build-prod and /mobile-qa build with those profiles"
+    },
+    {
+      "task": "Store the store credentials in EAS with the EAS CLI ({{EAS_CLI}} credentials): an App Store Connect API key and a Google Play service-account JSON key",
+      "why": "EAS submit reaches TestFlight, App Store Connect and Google Play with them; they never go in the repo"
+    },
+    {
+      "task": "Have an Apple Developer team and a Play Console app record with an internal testing track, and make the first Play upload by hand",
+      "why": "Play accepts API submissions only after one manual upload"
+    },
+    {
+      "task": "Create a QA test user in the app's backend and name its login env vars in docs/agent/verify-map.md (Test accounts)",
+      "why": "Maestro flows sign in as that user; never a real person's account"
+    },
+    {
+      "task": "On the machine that runs QA, install Xcode with a simulator, the Android SDK with an emulator, and the Maestro CLI",
+      "why": "/build-qa-sim and /mobile-qa drive simulator builds there"
+    }
+  ],
+  "mcp": {
+    "expo": {
+      "type": "http",
+      "url": "https://mcp.expo.dev/mcp"
+    }
+  },
+  "env": [
+    {
+      "name": "EXPO_TOKEN",
+      "purpose": "Lets the EAS CLI run non-interactively for agents, Codex and CI without an interactive login",
+      "how_to_get": "expo.dev → account or organization settings → Access tokens; prefer a robot user with only the access the builds need"
+    },
+    {
+      "name": "MOBILE_QA_USER_EMAIL",
+      "purpose": "Login of the QA test user that Maestro flows sign in with. Record the name in docs/agent/verify-map.md (Test accounts); the project may use its own name instead",
+      "how_to_get": "Create a dedicated QA test user in the app's backend; never a real person's account"
+    },
+    {
+      "name": "MOBILE_QA_USER_PASSWORD",
+      "purpose": "Password of that QA test user, passed to Maestro by shell expansion and never printed",
+      "how_to_get": "Set when creating the QA test user; keep it only in the local env / secret store"
+    }
+  ],
+  "third_party": [],
+  "ci": []
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tharwat/agent-kit/schemas/manifest.schema.json",
+  "title": "agent-kit manifest",
+  "description": "The kit's top-level manifest. Validated by installer/schema_check.py (type, required, properties, items, enum, pattern, additionalProperties, local $ref).",
+  "type": "object",
+  "required": ["name", "version", "units", "questions", "gitignore", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {"type": "string"},
+    "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"},
+    "description": {"type": "string"},
+    "units": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^(core|packs/[a-z0-9][a-z0-9-]*)/pack\\.json$"}
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "ask", "type", "answer_key"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "ask": {"type": "string"},
+          "type": {"type": "string", "enum": ["boolean", "string", "list", "choice"]},
+          "answer_key": {"type": "string", "pattern": "^(options|packs)(\\.[a-z][a-z0-9_]*)?$"},
+          "options": {"type": "array", "items": {"type": "string"}},
+          "default": {"type": ["string", "boolean", "null"]},
+          "scan_hint": {"type": "string"}
+        }
+      }
+    },
+    "gitignore": {"type": "array", "items": {"type": "string", "pattern": "^[^\\n#!][^\\n]*$"}},
+    "checks": {
+      "type": "object",
+      "required": ["denylist", "destructive_patterns", "destructive_exempt", "placeholder_exempt", "word_budget", "scan_roots"],
+      "additionalProperties": false,
+      "properties": {
+        "scan_roots": {"type": "array", "items": {"type": "string"}},
+        "denylist": {"type": "array", "items": {"$ref": "#/$defs/pattern"}},
+        "denylist_private_file": {"type": "string"},
+        "destructive_patterns": {"type": "array", "items": {"$ref": "#/$defs/pattern"}},
+        "destructive_exempt": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["glob", "reason"],
+            "additionalProperties": false,
+            "properties": {"glob": {"type": "string"}, "reason": {"type": "string"}}
+          }
+        },
+        "placeholder_exempt": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}},
+        "word_budget": {"type": "integer"}
+      }
+    }
+  },
+  "$defs": {
+    "pattern": {
+      "type": "object",
+      "required": ["regex", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "regex": {"type": "string"},
+        "reason": {"type": "string"},
+        "ignore_case": {"type": "boolean"}
+      }
+    }
+  }
+}

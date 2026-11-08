@@ -1,0 +1,24 @@
+{
+  "name": "node-esm",
+  "version": "1.0.0",
+  "description": "Node.js ESM code with no compiler: ESM, .mjs and Node-version rules, node --check as the syntax check, node --test notes.",
+  "kind": "stack",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": ["**/*.mjs"],
+    "package_deps": [],
+    "ask": null
+  },
+  "facts": [],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/node-esm.md"},
+    {"src": "rules/node-esm.md", "dest": ".claude/rules/node-esm.md"}
+  ],
+  "hooks": [],
+  "permissions": {"allow": [], "deny": []},
+  "mcp": {},
+  "env": [],
+  "third_party": [],
+  "ci": []
+}

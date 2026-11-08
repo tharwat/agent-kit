@@ -1,0 +1,10 @@
+<!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
+# Sibling paths
+
+Pairs or groups of code paths that must change together. A fix on one and not its sibling is the most common miss,
+so `/operate` and the review rounds check this list. Add a row whenever a review finds a missed sibling. Delete the
+example row once you add real ones.
+
+| Paths | Why they move together |
+|---|---|
+| `server/validate/signup.*` + `server/validate/invite.*` | Example only: both accept the same email field and must normalize it the same way |

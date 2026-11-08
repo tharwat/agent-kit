@@ -1,0 +1,59 @@
+<!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
+# Defect classes this project ships
+
+`/operate` checks every diff against each class that applies, and the review rounds use the list as a checklist.
+The kit seeds it with classes that recur across stacks. Add your own as reviews find them, one line each, in the
+same shape: the defect, then what to check. Put the ticket key in brackets at the end if you want the trail.
+Remove a seeded class only if it truly can't occur in this stack.
+
+## Normalization and validation
+
+- A comparison whose two sides normalize differently. Check: both sides go through the same helper.
+- A value stored raw while its normalized form is what decides. Check: store the value in the form it is compared in.
+- A request field the handler reads but the input validator never declares, so validation strips it. Check: every
+  field read is declared.
+- New branch logic on a nullable source field, with only the happy path traced. Check: trace the null and missing
+  cases.
+
+## Siblings and entry points
+
+- One of N sibling call sites left on the old pattern. Check: grep for every site and `docs/agent/sibling-paths.md`.
+- A guard on one input path while its siblings reach the same downstream unguarded. Check: list every path into that
+  downstream.
+- A guard that reads a verdict only some producers write. Check: list every producer of the verdict.
+
+## Error handling and lifecycle
+
+- A handler that logs a query error and continues with partial data. Check: every error throws.
+- Cleanup that runs on every exit, including the ones that must not clean up. Check: walk each exit path.
+- An `await` inserted into a synchronous batch, splitting the flush. Check: the batch still applies as one.
+- A gate whose value is decided before the finding it depends on exists. Check: the order in which the inputs are
+  produced.
+
+## Counting, scanning and parsing
+
+- A count taken from the length of a display-limited list. Check: counts come from a count query or a stored counter.
+- A scan that reads the whole file or input when it meant one construct. Check: the scan is bounded to that construct.
+- A region located by character distance instead of structure. Check: locate it by parsing.
+- A pattern applied to raw text, so string contents and comments read as code. Check: match on structure, or strip
+  strings and comments first.
+- An unbounded pattern over input an operator or user controls. Check: bound it and measure it on a large input.
+
+## UI state
+
+- An async action that fires while its validation request is still in flight, or a nonce-guarded `.finally()` that
+  isn't gated. Check: the pending state disables the action, and `.finally()` checks the nonce.
+
+## Tests and CI
+
+- A mocked call that cannot prove what happens on the other side of it. Check: something real covers that side.
+- Mock state leaking between tests: a reset that doesn't clear return values, or queued one-shot values left over.
+  Check: each test sets up its own mocks.
+- A test that passes vacuously. Check: mutation-test it; break the code and watch it go red.
+- A green CI run that is really a skip, hiding breakage. Check: the job ran and executed tests.
+- An unpinned third-party install that changes behaviour with no change in the repo. Check: versions are pinned.
+
+## Project classes
+
+<!-- Add this project's own classes below. -->
+- Example only: a currency amount rounded before it is summed. Check: round once, at display.

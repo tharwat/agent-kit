@@ -1,0 +1,51 @@
+# Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License).
+# Claude <-> Codex skill-link check, installed by agent-kit.
+#
+# Claude's commands in .claude/commands/ are the single source of truth. Each Codex
+# skill .agents/skills/<name>/SKILL.md links to its command instead of copying it,
+# Codex reads .claude/rules/ directly, and AGENTS.md links to CLAUDE.md and restates
+# the tagged must-never lines verbatim. This job fails when a link breaks, a copy
+# creeps back, the restated block drifts, the always-loaded instructions outgrow
+# the word budget, or a locked third-party skill no longer matches skills-lock.json.
+#
+# It reads files only. python3 and git ship on the runner, so there is no setup
+# step and nothing to install. Fix a failure by fixing the files, never by
+# weakening this check (that needs the owner's yes: G7).
+name: Skill link check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "{{MAIN_BRANCH}}"
+  workflow_dispatch:
+
+# Least privilege: the job only checks out and reads the repo, and needs no token
+# beyond that. Stated explicitly rather than inheriting the repo or org default.
+permissions:
+  contents: read
+
+concurrency:
+  group: skill-link-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skill-link-check:
+    name: skill-link-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # A fork PR's own code runs in the next steps; leave no credential in
+          # .git/config for it. Nothing here talks to the GitHub API.
+          persist-credentials: false
+
+      - name: Test the link tools themselves
+        run: |
+          python3 .github/scripts/test_check_skill_links.py
+          python3 .github/scripts/test_make_skill_links.py
+
+      - name: Check Claude <-> Codex skill links
+        run: python3 .github/scripts/check_skill_links.py --require-restated

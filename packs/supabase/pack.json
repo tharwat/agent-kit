@@ -1,0 +1,101 @@
+{
+  "name": "supabase",
+  "version": "1.0.0",
+  "description": "Supabase (Postgres) on one production database: RLS and grant rules, guard overlay, post-merge migration apply with a live privilege assertion, and a CI grant checker.",
+  "kind": "stack",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": ["supabase/config.toml", "supabase/migrations/"],
+    "package_deps": ["@supabase/supabase-js"],
+    "ask": null
+  },
+  "facts": [
+    {
+      "name": "DB_PROJECT_REF",
+      "meaning": "The one Supabase project ref. There is no QA project.",
+      "example": "abcd1234efgh5678ijkl",
+      "required": true,
+      "ask": "What is the Supabase project ref (the id in the project URL)? It is not a secret."
+    },
+    {
+      "name": "MIGRATION_TOOL",
+      "meaning": "How schema changes are applied: supabase-cli or mcp-apply. Default supabase-cli when supabase/migrations/ exists.",
+      "example": "supabase-cli",
+      "required": true,
+      "ask": "How should schema changes be applied? (1) supabase-cli: migration files live in the repo; an additive one is applied with `supabase db push` before merge, once /guard passes. Pro: every migration is in the PR diff, so review and the CI grant checker see it. Con: needs the Supabase CLI and the database password on the machine that applies, and a file edited in the wrong checkout is a trap. (2) mcp-apply: the agent applies SQL with the Supabase MCP `apply_migration` tool and the migration ledger is the record. Pro: no CLI setup and no folder that can drift from the ledger. Con: the SQL is not in the repo, so CI can't check it and reviewers only see it in the PR description; it needs a second, write-enabled MCP server."
+    },
+    {
+      "name": "MIGRATIONS_DIR",
+      "meaning": "Where migration files live. `none` with mcp-apply.",
+      "example": "supabase/migrations",
+      "required": true,
+      "ask": "Where do migration files live? (Default supabase/migrations; `none` with mcp-apply.)"
+    },
+    {
+      "name": "RLS_HELPER_EXEMPTIONS",
+      "meaning": "RLS helper functions that policies call as the requesting role, kept executable by anon/authenticated, as schema.name(arg types). Default none.",
+      "example": "public.current_member_role(uuid)",
+      "default": "none",
+      "required": false,
+      "ask": "Do any RLS policies call a helper function as the requesting user (so it must stay executable by anon/authenticated)? List each as schema.name(argument types), or answer none (the default)."
+    }
+  ],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/supabase.md", "template": true},
+    {"src": "rules/database.md", "dest": ".claude/rules/database.md", "template": true}
+  ],
+  "hooks": [],
+  "permissions": {
+    "allow": [
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_extensions",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__get_advisors",
+      "mcp__supabase__get_logs",
+      "mcp__supabase__query_logs",
+      "mcp__supabase__search_docs",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__generate_typescript_types"
+    ],
+    "deny": [
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__deploy_edge_function",
+      "Bash(supabase db reset *)",
+      "Bash(supabase migration repair *)",
+      "Bash(supabase db push --include-all *)"
+    ]
+  },
+  "owner_tasks": [
+    {"task": "With MIGRATION_TOOL supabase-cli: install the Supabase CLI and link this repo to the project (supabase link --project-ref with the DB_PROJECT_REF value)", "why": "the /verify apply step runs supabase db push --dry-run and supabase db push from the branch checkout"},
+    {"task": "Add a second, write-enabled Supabase MCP server named supabase_apply to .mcp.json (the supabase entry's URL without read_only=true) and never pre-allow its tools", "why": "with MIGRATION_TOOL mcp-apply, migrations are applied with its apply_migration tool, and every call should prompt", "when": {"fact": "MIGRATION_TOOL", "equals": "mcp-apply"}}
+  ],
+  "mcp": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref={{DB_PROJECT_REF}}&read_only=true&features=database,debugging,development,docs",
+      "headers": {"Authorization": "Bearer ${SUPABASE_ACCESS_TOKEN}"}
+    }
+  },
+  "env": [
+    {
+      "name": "SUPABASE_ACCESS_TOKEN",
+      "purpose": "Access token for the Supabase MCP server and the Supabase CLI.",
+      "how_to_get": "Owner task: Supabase dashboard > Account > Access Tokens > Generate new token. Put it in your shell environment or secret manager, never in a committed file."
+    },
+    {
+      "name": "SUPABASE_DB_PASSWORD",
+      "purpose": "Only with MIGRATION_TOOL supabase-cli: lets `supabase db push` reach the database when a guarded migration is applied.",
+      "how_to_get": "Owner task: Supabase dashboard > Project Settings > Database (reset it there if unknown). Keep it in your shell environment or secret manager."
+    }
+  ],
+  "third_party": [],
+  "ci": [
+    {"src": "ci/check_function_grants.py", "dest": ".github/scripts/check_function_grants.py"},
+    {"src": "ci/test_check_function_grants.py", "dest": ".github/scripts/test_check_function_grants.py"},
+    {"src": "ci/make_function_grants_baseline.py", "dest": ".github/scripts/make_function_grants_baseline.py"},
+    {"src": "ci/test_make_function_grants_baseline.py", "dest": ".github/scripts/test_make_function_grants_baseline.py"},
+    {"src": "ci/function-grants-check.yml", "dest": ".github/workflows/function-grants-check.yml", "template": true}
+  ]
+}

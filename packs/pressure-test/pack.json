@@ -1,0 +1,24 @@
+{
+  "name": "pressure-test",
+  "version": "1.0.0",
+  "description": "Opt-in extra: /pressure-test, a 5-member council and a GO / RESHAPE / KILL verdict on a business idea.",
+  "kind": "extra",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Install /pressure-test, a council of five reviewers that stress-tests a business idea before you build it?"
+  },
+  "facts": [],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/pressure-test.md"},
+    {"src": "commands/pressure-test.md", "dest": ".claude/commands/pressure-test.md"}
+  ],
+  "hooks": [],
+  "permissions": {"allow": [], "deny": []},
+  "mcp": {},
+  "env": [],
+  "third_party": [],
+  "ci": []
+}

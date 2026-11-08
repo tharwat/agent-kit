@@ -1,0 +1,114 @@
+{
+  "name": "fal-media",
+  "version": "2.0.0",
+  "description": "Opt-in extra: fal.ai's general-purpose media skills (image, video and audio generation, prompting, model catalog, workflows) and the genmedia CLI skill they run on, installed from GitHub at a pinned commit.",
+  "kind": "extra",
+  "requires": [
+    "core"
+  ],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Install the fal.ai media skills (generate images, video and audio through fal.ai)? They are third-party and need a fal.ai key and the genmedia CLI."
+  },
+  "facts": [],
+  "files": [
+    {
+      "src": "pack.md",
+      "dest": ".claude/packs/fal-media.md"
+    }
+  ],
+  "hooks": [],
+  "permissions": {
+    "allow": [],
+    "deny": []
+  },
+  "owner_tasks": [
+    {"task": "Install the genmedia CLI (see the genmedia skill)", "why": "every skill except fal-media runs through it"},
+    {"task": "Optional: connect a fal MCP server", "why": "only the fal-media skill uses one; without it the agent uses genmedia"}
+  ],
+  "mcp": {},
+  "env": [
+    {
+      "name": "FAL_KEY",
+      "purpose": "Authenticates every fal.ai call the skills make. Calls are billed to the key's account.",
+      "how_to_get": "Create a key in the fal.ai dashboard (Keys page). Set it in the environment or the project's .env, or store it with `genmedia setup`. Never put it on a command line."
+    }
+  ],
+  "third_party": [
+    {
+      "name": "genmedia",
+      "source": "github:fal-ai-community/skills/skills/genmedia",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "2dce6007fcabbf4e182628824b1f5b19057176fd68c21eb58472575a64fb9031",
+      "license": "MIT",
+      "dest": ".claude/skills/genmedia/"
+    },
+    {
+      "name": "fal-media",
+      "source": "github:fal-ai-community/skills/skills/fal-media",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "5cac65cc73cd7ca4eb876cdd23aeb794de81016fe3f44480a6fac0a7c9146073",
+      "license": "MIT",
+      "dest": ".claude/skills/fal-media/"
+    },
+    {
+      "name": "fal-workflow",
+      "source": "github:fal-ai-community/skills/skills/fal-workflow",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "96b32a1cec662daf1caf2b32cc38c2684ba80a6d3ccb76ec52f374c2ad926071",
+      "license": "MIT",
+      "dest": ".claude/skills/fal-workflow/"
+    },
+    {
+      "name": "fal-video-generation",
+      "source": "github:fal-ai-community/skills/skills/fal-video-generation",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "19725616ad1c3424fd523ee55c3688f6d5bccc532a680cd78d88b8f01fbdd7de",
+      "license": "MIT",
+      "dest": ".claude/skills/fal-video-generation/"
+    },
+    {
+      "name": "fal-audio-generation",
+      "source": "github:fal-ai-community/skills/skills/fal-audio-generation",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "c68e512cc668ab48c970b9567e137cd1b9a1a8f0ee65cc3e68ce636123d9a467",
+      "license": "MIT",
+      "dest": ".claude/skills/fal-audio-generation/"
+    },
+    {
+      "name": "fal-prompting",
+      "source": "github:fal-ai-community/skills/skills/fal-prompting",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "578b92d4a48defb17ebf974b71690ad0c13114e0aa330467d30fa5c7df4bfed6",
+      "license": "MIT",
+      "dest": ".claude/skills/fal-prompting/"
+    },
+    {
+      "name": "fal-models-catalog",
+      "source": "github:fal-ai-community/skills/skills/fal-models-catalog",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "f072cb42cb7a0a4967d7fce5fc868a3d8ad5fb938a8ff9887d48f740b4feff28",
+      "license": "MIT",
+      "dest": ".claude/skills/fal-models-catalog/"
+    },
+    {
+      "name": "fal-recipes",
+      "source": "github:fal-ai-community/skills/skills/fal-recipes",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "a3e1bb9f64ed6b728cb0f646442bc22482a20192ff43a37878db51837d9ffb69",
+      "license": "MIT",
+      "dest": ".claude/skills/fal-recipes/"
+    },
+    {
+      "name": "fal-shot-craft",
+      "source": "github:fal-ai-community/skills/skills/fal-shot-craft",
+      "ref": "ca79376d624d244e601f9182fa80b5bf66efec9c",
+      "sha256": "8ab75ea591975d4c470d05561f70e844cc4a2354929ef9107a4f5621482726c0",
+      "license": "MIT",
+      "dest": ".claude/skills/fal-shot-craft/"
+    }
+  ],
+  "ci": []
+}

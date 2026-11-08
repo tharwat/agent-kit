@@ -1,0 +1,12 @@
+<!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
+# PII fields
+
+Data about people that this project handles and how each field is masked in logs. `.claude/rules/security.md` and
+`/observability` read this. When unsure whether a field is sensitive, add it. Delete the example row once you add
+real ones.
+
+| Field | Where it appears | In logs |
+|---|---|---|
+| `email` | Example only: `users` table, signup requests | Never logged; log the user ID instead |
+
+Masking options: never logged; last 2–4 characters only; a one-way hash; a truncated ID.

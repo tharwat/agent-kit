@@ -1,0 +1,57 @@
+{
+  "name": "scrollcraft",
+  "version": "1.0.0",
+  "description": "Opt-in extra: the scroll-craft skill (MIT fork) for premium scroll-driven landing pages, with Segmind asset generation.",
+  "kind": "extra",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Install the scroll-craft skill for building scroll-driven landing pages? It is optional and needs a Segmind key only to generate images and clips."
+  },
+  "facts": [],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/scrollcraft.md"},
+    {"src": "skills/scroll-craft/CHANGELOG.md", "dest": ".claude/skills/scroll-craft/CHANGELOG.md"},
+    {"src": "skills/scroll-craft/engine/scrollcraft.css", "dest": ".claude/skills/scroll-craft/engine/scrollcraft.css"},
+    {"src": "skills/scroll-craft/engine/scrollcraft.js", "dest": ".claude/skills/scroll-craft/engine/scrollcraft.js"},
+    {"src": "skills/scroll-craft/LICENSE", "dest": ".claude/skills/scroll-craft/LICENSE"},
+    {"src": "skills/scroll-craft/references/approved-collection.md", "dest": ".claude/skills/scroll-craft/references/approved-collection.md"},
+    {"src": "skills/scroll-craft/references/assets.md", "dest": ".claude/skills/scroll-craft/references/assets.md"},
+    {"src": "skills/scroll-craft/references/device-diag.html", "dest": ".claude/skills/scroll-craft/references/device-diag.html"},
+    {"src": "skills/scroll-craft/references/devices.md", "dest": ".claude/skills/scroll-craft/references/devices.md"},
+    {"src": "skills/scroll-craft/references/feel.md", "dest": ".claude/skills/scroll-craft/references/feel.md"},
+    {"src": "skills/scroll-craft/references/hero-depth.md", "dest": ".claude/skills/scroll-craft/references/hero-depth.md"},
+    {"src": "skills/scroll-craft/references/taste.md", "dest": ".claude/skills/scroll-craft/references/taste.md"},
+    {"src": "skills/scroll-craft/references/template.html", "dest": ".claude/skills/scroll-craft/references/template.html"},
+    {"src": "skills/scroll-craft/references/uniqueness.md", "dest": ".claude/skills/scroll-craft/references/uniqueness.md"},
+    {"src": "skills/scroll-craft/references/verify.md", "dest": ".claude/skills/scroll-craft/references/verify.md"},
+    {"src": "skills/scroll-craft/references/worldflight.md", "dest": ".claude/skills/scroll-craft/references/worldflight.md"},
+    {"src": "skills/scroll-craft/references/worlds.md", "dest": ".claude/skills/scroll-craft/references/worlds.md"},
+    {"src": "skills/scroll-craft/scripts/doctor.mjs", "dest": ".claude/skills/scroll-craft/scripts/doctor.mjs"},
+    {"src": "skills/scroll-craft/scripts/encode.sh", "dest": ".claude/skills/scroll-craft/scripts/encode.sh"},
+    {"src": "skills/scroll-craft/scripts/segmind.mjs", "dest": ".claude/skills/scroll-craft/scripts/segmind.mjs"},
+    {"src": "skills/scroll-craft/scripts/serve.mjs", "dest": ".claude/skills/scroll-craft/scripts/serve.mjs"},
+    {"src": "skills/scroll-craft/scripts/shoot.mjs", "dest": ".claude/skills/scroll-craft/scripts/shoot.mjs"},
+    {"src": "skills/scroll-craft/scripts/workspace.mjs", "dest": ".claude/skills/scroll-craft/scripts/workspace.mjs"},
+    {"src": "skills/scroll-craft/scripts/worldflight-assert.mjs", "dest": ".claude/skills/scroll-craft/scripts/worldflight-assert.mjs"},
+    {"src": "skills/scroll-craft/SKILL.md", "dest": ".claude/skills/scroll-craft/SKILL.md"},
+    {"src": "skills/scroll-craft/templates/FINGERPRINTS.md", "dest": ".claude/skills/scroll-craft/templates/FINGERPRINTS.md"}
+  ],
+  "hooks": [],
+  "permissions": {"allow": [], "deny": []},
+  "owner_tasks": [
+    {"task": "Run node .claude/skills/scroll-craft/scripts/doctor.mjs once", "why": "it checks Node 22+, a full ffmpeg build, playwright-core, an installed Chrome, the Segmind key and the workspace"}
+  ],
+  "mcp": {},
+  "env": [
+    {
+      "name": "SEGMIND_API_KEY",
+      "purpose": "Generate stills, clips and cutouts through Segmind. Not needed to build from the project's own photos and footage.",
+      "how_to_get": "Create a key in the Segmind console (API keys page) and set it in the environment or the project's .env. Never put it on a command line."
+    }
+  ],
+  "third_party": [],
+  "ci": []
+}

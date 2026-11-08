@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+# Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License).
+"""PreToolUse Bash hook: keep agents off the main branch.
+
+Blocks (exit 2, reason on stderr):
+  - `git commit` while the current branch is the main branch;
+  - `git push` whose target is the main branch: `origin main`, `HEAD:main`,
+    `refs/heads/main`, `+main`, `:main`, `--all`/`--mirror`, or a push with no
+    refspec (or `HEAD`) while on main. Force flags make no difference: any
+    push to main is blocked;
+  - `gh pr merge --admin`.
+
+Everything else is allowed (exit 0): paths such as `src/main.ts`,
+`git checkout main`, `git pull`, `git fetch`, `git diff origin/main...HEAD`,
+`gh pr create --base main`, `gh pr merge` without `--admin`, and commit
+messages that mention "main".
+
+The main branch is the `MAIN_BRANCH` row of the Project facts table in
+CLAUDE.md, defaulting to `main`. The hook reads git state locally, makes no
+network calls, writes nothing, and fails open (exit 0 with a one-line stderr
+note) on any internal error.
+"""
+
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+
+DEFAULT_MAIN = "main"
+SEPARATORS = {";", "&&", "||", "|", "&", "|&", ";;", "(", ")"}
+WRAPPERS = {"env", "command", "exec", "nohup", "time", "sudo", "nice"}
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
+PUSH_OPTS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+class Blocked(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- main branch
+
+def find_claude_md(cwd):
+    """CLAUDE.md in $CLAUDE_PROJECT_DIR, else the nearest one at or above cwd."""
+    project = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project:
+        path = os.path.join(project, "CLAUDE.md")
+        if os.path.isfile(path):
+            return path
+    here = os.path.abspath(cwd or os.getcwd())
+    while True:
+        path = os.path.join(here, "CLAUDE.md")
+        if os.path.isfile(path):
+            return path
+        parent = os.path.dirname(here)
+        if parent == here:
+            return None
+        here = parent
+
+
+def read_main_branch(cwd):
+    path = find_claude_md(cwd)
+    if not path:
+        return DEFAULT_MAIN
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                cells = [c.strip().strip("`").strip() for c in line.strip().strip("|").split("|")]
+                if len(cells) >= 2 and cells[0] == "MAIN_BRANCH":
+                    value = cells[1]
+                    if BRANCH_RE.match(value):
+                        return value
+                    return DEFAULT_MAIN
+    except OSError:
+        pass
+    return DEFAULT_MAIN
+
+
+def current_branch(directory):
+    """Short name of the checked-out branch, or None (detached, not a repo, error)."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", directory, "symbolic-ref", "--short", "-q", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip() or None
+
+
+# ---------------------------------------------------------------- parsing
+
+HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def strip_heredocs(command):
+    """Drop heredoc bodies (they are data, not commands). Keeps the `<<TAG` marker."""
+    lines = command.split("\n")
+    out = []
+    pending = []
+    for line in lines:
+        if pending:
+            if line.strip() == pending[0]:
+                pending.pop(0)
+            continue
+        out.append(line)
+        pending.extend(m.group(2) for m in HEREDOC_RE.finditer(line))
+    return "\n".join(out)
+
+
+def split_commands(command):
+    """Tokenize and split on shell operators. Quoted text stays one token."""
+    text = strip_heredocs(command).replace("\n", " ; ")
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    commands, current = [], []
+    for token in lexer:
+        if token in SEPARATORS:
+            if current:
+                commands.append(current)
+            current = []
+        else:
+            current.append(token)
+    if current:
+        commands.append(current)
+    return commands
+
+
+def strip_prefix(tokens):
+    """Remove leading VAR=value assignments and wrappers such as `env`."""
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tok):
+            i += 1
+        elif tok in WRAPPERS:
+            i += 1
+        else:
+            break
+    return tokens[i:]
+
+
+# ---------------------------------------------------------------- checks
+
+def normalize_ref(ref):
+    if ref.startswith("refs/heads/"):
+        return ref[len("refs/heads/"):]
+    return ref
+
+
+def check_push(args, directory, main):
+    positionals = []
+    everything = False
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            positionals.extend(args[i + 1:])
+            break
+        if tok.startswith("-"):
+            name = tok.split("=", 1)[0]
+            if name in ("--all", "--mirror", "--branches"):
+                everything = True
+            if name in PUSH_OPTS_WITH_VALUE and "=" not in tok:
+                i += 1
+        else:
+            positionals.append(tok)
+        i += 1
+
+    if everything:
+        raise Blocked("`git push --all/--mirror` pushes every branch, including `%s`" % main)
+
+    refspecs = positionals[1:]
+    if not refspecs:
+        branch = current_branch(directory)
+        if branch == main:
+            raise Blocked("`git push` with no refspec while on `%s` pushes `%s`" % (main, main))
+        return
+    for spec in refspecs:
+        spec = spec.lstrip("+")
+        if ":" in spec:
+            src, dst = spec.split(":", 1)
+            if not dst:
+                dst = src
+        else:
+            src = dst = spec
+        if dst == "HEAD":
+            dst = current_branch(directory) or ""
+        if normalize_ref(dst) == main:
+            raise Blocked("`git push` targets `%s`" % main)
+
+
+def check_git(args, directory, main):
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if not tok.startswith("-"):
+            break
+        name = tok.split("=", 1)[0]
+        if name in GIT_OPTS_WITH_VALUE and "=" not in tok:
+            if name == "-C" and i + 1 < len(args):
+                directory = os.path.join(directory, args[i + 1])
+            i += 2
+            continue
+        i += 1
+    if i >= len(args):
+        return
+    sub, rest = args[i], args[i + 1:]
+    if sub == "commit":
+        if "-h" in rest or "--help" in rest:
+            return
+        if current_branch(directory) == main:
+            raise Blocked("`git commit` on `%s`" % main)
+    elif sub == "push":
+        check_push(rest, directory, main)
+
+
+def check_gh(args):
+    if len(args) >= 2 and args[0] == "pr" and args[1] == "merge" and "--admin" in args[2:]:
+        raise Blocked("`gh pr merge --admin` bypasses branch protection (gate G4)")
+
+
+def check_command(command, cwd, main, depth=0):
+    directory = cwd
+    for tokens in split_commands(command):
+        tokens = strip_prefix(tokens)
+        if not tokens:
+            continue
+        prog = os.path.basename(tokens[0])
+        args = tokens[1:]
+        if prog == "cd":
+            target = args[0] if args else os.path.expanduser("~")
+            directory = os.path.join(directory, os.path.expanduser(target))
+        elif prog == "git":
+            check_git(args, directory, main)
+        elif prog == "gh":
+            check_gh(args)
+        elif prog in SHELLS and "-c" in args and depth < 3:
+            idx = args.index("-c")
+            if idx + 1 < len(args):
+                check_command(args[idx + 1], directory, main, depth + 1)
+
+
+# ---------------------------------------------------------------- entry point
+
+def main():
+    try:
+        raw = sys.stdin.read()
+        event = json.loads(raw)
+        if event.get("tool_name") != "Bash":
+            return 0
+        command = (event.get("tool_input") or {}).get("command") or ""
+        if not command.strip():
+            return 0
+        cwd = event.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+        main_branch = read_main_branch(cwd)
+        check_command(command, cwd, main_branch)
+        return 0
+    except Blocked as exc:
+        sys.stderr.write(
+            "Blocked by the main-branch guard: %s. Work on a feature branch; /ship merges through a PR "
+            "after the owner's yes (gates G3/G4).\n" % exc
+        )
+        return 2
+    except Exception as exc:  # fail open on anything unexpected
+        sys.stderr.write("block-main-branch: could not check the command (%s); allowing it.\n" % type(exc).__name__)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
