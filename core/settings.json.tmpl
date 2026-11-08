@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git merge-base *)",
+      "Bash(git rev-parse *)",
+      "Bash(diff *)",
+      "Bash(gh pr view *)",
+      "Bash(gh repo view *)",
+      "Bash(git remote get-url *)",
+      "Bash(node .claude/scripts/kit-tools.mjs *)",
+      "Bash(python3 .github/scripts/check_skill_links.py *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean *)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git branch -D *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-main-branch.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "name": "jira",
+  "version": "1.0.0",
+  "description": "Ticket ops (get, comment, close, label, search, create) mapped to the Atlassian remote MCP server",
+  "kind": "ticket",
+  "requires": [
+    "core"
+  ],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": null
+  },
+  "facts": [
+    {
+      "name": "JIRA_SITE",
+      "meaning": "Atlassian site host, used to pick the cloudId",
+      "example": "example.atlassian.net",
+      "required": true,
+      "ask": "What is your Jira site address (for example example.atlassian.net)?"
+    },
+    {
+      "name": "JIRA_PROJECT_KEY",
+      "meaning": "Jira project that tickets are searched and created in; in Jira this equals TICKET_PREFIX",
+      "example": "ABC",
+      "required": false,
+      "ask": "What is the Jira project key (the part before the dash in ABC-123)?",
+      "default": "{{TICKET_PREFIX}}"
+    }
+  ],
+  "files": [
+    {
+      "src": "pack.md",
+      "dest": ".claude/packs/jira.md",
+      "template": true
+    },
+    {
+      "src": "rules/ticket-ops.md",
+      "dest": ".claude/rules/ticket-ops.md"
+    }
+  ],
+  "hooks": [],
+  "permissions": {
+    "allow": [
+      "mcp__atlassian__getAccessibleAtlassianResources",
+      "mcp__atlassian__atlassianUserInfo",
+      "mcp__atlassian__getJiraIssue",
+      "mcp__atlassian__listJiraIssueComments",
+      "mcp__atlassian__searchJiraIssuesUsingJql",
+      "mcp__atlassian__discover",
+      "mcp__atlassian__executeRead"
+    ],
+    "deny": [
+      "mcp__atlassian__executeDestructive"
+    ]
+  },
+  "owner_tasks": [
+    {"task": "Authorize the Atlassian MCP server: run /mcp in Claude Code, pick atlassian and sign in", "why": "every ticket op goes through it; it uses OAuth, so there is no token to store"},
+    {"task": "Create the open-items tracker ticket (the OPEN_ITEMS_TICKET fact) in Jira if it doesn't exist yet, or ask the agent to create it", "why": "noted findings are filed there; a missing ticket makes every filing fail"}
+  ],
+  "mcp": {
+    "atlassian": {
+      "type": "http",
+      "url": "https://mcp.atlassian.com/v2/mcp"
+    }
+  },
+  "env": [],
+  "third_party": [],
+  "ci": []
+}

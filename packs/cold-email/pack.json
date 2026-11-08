@@ -1,0 +1,32 @@
+{
+  "name": "cold-email",
+  "version": "1.0.0",
+  "description": "Opt-in extra: the cold-email-sequence-generator skill, installed from its GitHub source at a pinned commit.",
+  "kind": "extra",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Install the cold-email sequence skill (outbound email campaigns with A/B subject lines and follow-up timing)? It is third-party."
+  },
+  "facts": [],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/cold-email.md"}
+  ],
+  "hooks": [],
+  "permissions": {"allow": [], "deny": []},
+  "mcp": {},
+  "env": [],
+  "third_party": [
+    {
+      "name": "cold-email-sequence-generator",
+      "source": "github:onewave-ai/claude-skills/cold-email-sequence-generator",
+      "ref": "b2267d9171af4f56848d82992381b20b89b44056",
+      "sha256": "df3146eb358155dda1bf0a914e9c2cc411133f01472efd8a8f05a5937f0d0199",
+      "license": "MIT",
+      "dest": ".claude/skills/cold-email-sequence-generator/"
+    }
+  ],
+  "ci": []
+}

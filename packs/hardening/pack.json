@@ -1,0 +1,42 @@
+{
+  "name": "hardening",
+  "version": "1.0.0",
+  "description": "Deep-security mode: release-wide edge-case analysis, and per-ticket runs with required peer review and no merge before review.",
+  "kind": "workflow",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Add the hardening pack (deep-security mode with required peer review)?"
+  },
+  "facts": [
+    {
+      "name": "SCHEMA_DUMP_COMMAND",
+      "meaning": "A read-only command that prints the database schema (no data) to stdout, or none when the project has no database",
+      "example": "pg_dump --schema-only --no-owner \"$DATABASE_URL\"",
+      "required": true,
+      "ask": "What command prints your database schema only, with no data? Answer none if there is no database."
+    }
+  ],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/hardening.md", "template": true},
+    {"src": "commands/hardening.md", "dest": ".claude/commands/hardening.md"},
+    {"src": "commands/hardening-analysis.md", "dest": ".claude/commands/hardening-analysis.md"},
+    {"src": "hooks/block-push-before-review.py", "dest": ".claude/hooks/block-push-before-review.py"},
+    {"src": "hooks/test_block_push_before_review.py", "dest": ".claude/hooks/test_block_push_before_review.py"}
+  ],
+  "hooks": [
+    {"event": "PreToolUse", "matcher": "Bash", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-push-before-review.py", "timeout": 10},
+    {"event": "PreToolUse", "matcher": "mcp__.*apply_migration", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-push-before-review.py", "timeout": 10}
+  ],
+  "permissions": {"allow": [], "deny": []},
+  "owner_tasks": [
+    {"task": "Make sure .gitignore doesn't ignore hardening/", "why": "/hardening-analysis writes its analysis there and it is committed; only .claude/state/ (the hook markers) is ignored"},
+    {"task": "Optional: list hardening and hardening-analysis in .agents/claude-only.txt", "why": "/hardening stops under Codex, and /hardening-analysis --auto needs subagents (Codex falls back to the default mode)"}
+  ],
+  "mcp": {},
+  "env": [],
+  "third_party": [],
+  "ci": []
+}

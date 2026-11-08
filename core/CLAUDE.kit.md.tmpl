@@ -1,0 +1,116 @@
+<!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
+# CLAUDE.kit.md — agent-kit rules
+
+Binding on Claude Code and Codex alike. Project rules go in `CLAUDE.md`, never here. Reasons:
+`docs/workflow/history/rules.md` (not loaded); the rule wins any disagreement.
+
+## Forbidden actions
+
+- **No destructive filesystem or git commands** (deleting files, folders or branches, hard resets, cleans, discarding changes), whether run or written into code, docs or runbooks. Rename to `<file>.pre-agent-kit`, `git stash` (never drop), use a disposable worktree, or name the files for the owner to remove. Code may remove only temp dirs it created. <!-- codex-restate -->
+- **No secrets** in code, logs, commits, PRs, ticket comments or docs: name the env var, never the value. Never open a secret file or print a token. Gitignore a new secret-bearing file in the same change. <!-- codex-restate -->
+- **Never commit, push or force-push to `<MAIN_BRANCH>` directly**, and never force-push a shared branch. Work on a feature branch; `/ship` merges through a PR. <!-- codex-restate -->
+- **No hand-run schema changes.** Only via the migration path in installed pack rules; never raw SQL from a console, tool or script. Schema stays additive; a removal is phased, and its final step is G5. <!-- codex-restate -->
+- **No breaking API change.** Never remove or change existing fields, URLs or status codes; ship a new route or keep the old shape working (`.claude/rules/api-contracts.md`). <!-- codex-restate -->
+- **No new dependency** unless `<DEPENDENCY_POLICY>` allows it; record why on the ticket or PR. <!-- codex-restate -->
+- **No CI, deploy or release triggers** outside the owner-invoked commands that own them, which still stop at their gates. <!-- codex-restate -->
+- **Never invent a ticket key, ID or URL.** Write only one you fetched or created this session. <!-- codex-restate -->
+
+## Owner-Kept Gates
+
+Agents decide everything else. These need the owner's explicit yes at the time: <!-- codex-restate -->
+
+- **G1** Production builds and releases <!-- codex-restate -->
+- **G2** Writes to production data, except rows the agent created with `<SYNTHETIC_MARKER>` <!-- codex-restate -->
+- **G3** Merging to `<MAIN_BRANCH>`. With the ticket-trains pack installed, invoking `/ticket-train-run` approves that train's queue only <!-- codex-restate -->
+- **G4** Admin-override merges, or bypassing branch protection <!-- codex-restate -->
+- **G5** Destructive schema steps: DROP, final column removal, data deletion <!-- codex-restate -->
+- **G6** Making data readable by clients: policies, grants, public buckets <!-- codex-restate -->
+- **G7** Weakening or removing a safety check: CI checks, hooks, settings hook entries, these gates. Adding or tightening a check doesn't need the owner <!-- codex-restate -->
+- **Project gates:** `<OWNER_KEPT_GATES>` <!-- codex-restate -->
+
+"These gates" includes Forbidden actions, Critical Systems and their `AGENTS.md` restatement. Read-only production
+queries need no gate. Elsewhere, cite gates by label (`G2`) only; edit them here.
+
+## Critical Systems
+
+A change to `<CRITICAL_SYSTEMS>` is agent-approved with stricter checks unless it hits a gate: (1) find every consumer; (2) record its need and risk on the ticket; (3) add tests, regressions included, keeping existing ones green; (4) verify before merge. A post-merge failure is fixed forward on a new ticket and alerts the owner. <!-- codex-restate -->
+
+Review severity: **S1** data integrity (loss, corruption, wrong writes, cross-tenant exposure), **S2** auth and
+security, **S3** `<CRITICAL_DOMAIN>`, **S4** the ticket's own behaviour. S1–S4 are must-fix; the rest is `noted` on
+`<OPEN_ITEMS_TICKET>`.
+
+## Git and workflow
+
+- `<MAIN_BRANCH>` is the only long-lived branch; never write in a staging branch or environment. Per ticket, branch
+  `<BRANCH_PREFIX><ticket-lowercase>-<slug>` from `origin/<MAIN_BRANCH>` after `git fetch origin`. Sync a stale
+  checkout with `git checkout --detach origin/<MAIN_BRANCH>`.
+- Review diffs: `git diff origin/<MAIN_BRANCH>...HEAD` (three dots), after a fetch.
+- Commits: `<ticket>: <what changed>`, plus `<CO_AUTHOR_TRAILER>` unless `none`. Read your diff line by line first.
+- **`/triage → /operate → /post-op → /peer-review (optional) → /ship`**, with `/handoff` → `/resume` to pause.
+- **`/triage`** writes the binding contract (a row per criterion, safety gate, failure mode and sibling path, with
+  severity, hostile case and counterfactual): the plan. Implement without waiting.
+- **`/operate`** turns each row into a test before production edits, then red-teams its own diff.
+- **`/post-op`** runs its gates, self-red-team and contract audit, then ≤ 3 review rounds (+3 after one redesign,
+  +1 if the owner grants). It ends `clean`, `capped` or `escalate`; it never commits.
+- **`/post-op` is never optional before a commit that touches source or `.claude/`.** Small, urgent, low-risk or well-tested is never a reason to skip it. <!-- codex-restate -->
+- **`/peer-review`**: the owner's call per ticket. After a pass, an unresolved verified finding stops `/ship`.
+- **`/verify`** runs on the feature branch, locally against real services, before merge.
+- **`/ship`** checks the shipped tree is the reviewed one, commits, opens the PR, waits for required checks if
+  `<HAS_CI>` is `true`, merges after G3, closes the ticket and files its noted items.
+- Packs extend commands through `## /<command>` sections in `.claude/packs/*.md`, read at hook lines.
+
+## Working rules
+
+- **The code is the source of truth**; a ticket is a guide: check every file, field and endpoint it names; build its
+  whole intent. Read whole files before describing or editing them; cite only confirmed paths; read the area's
+  `docs/agent/lessons.md` section first.
+- **Don't guess: everything is a claim until checked, and "I don't know" beats an unchecked answer.** Use only API
+  shapes, endpoints and fields confirmed this session against live docs or a real payload. Reproduce an error before
+  naming its cause; for a failing integration, read its error body first. Unobservable state: ask once for evidence,
+  then act on it.
+- Wrong twice about one kind of thing: change approach. A grep count describes the pattern, not the set: check its
+  edges.
+- Fix the one measured cause; build only for a live problem; store facts rather than infer them; use the simplest
+  design that holds: no unmeasured optimization, no abstraction before 2–3 real duplicates, no speculative
+  architecture.
+- Name the sibling you copy (`file:line`). Before any diff, state its impact on each consumer, even "none".
+- **Add tests for every change**, even unasked. Mutation-test behavioural checks: each fails with its guard deleted.
+- Build the deliverable, not machinery around it. Automation resolves edge cases instead of exiting to a human.
+- **A review claim is a hypothesis until verified.** Fix a verified must-fix defect on the ticket's path on that
+  ticket, even if pre-existing; only independent new capability gets a new ticket.
+- Follow codebase conventions; keep existing comments, headers and imports. Unless asked, don't remove
+  unused-looking code, reformat untouched code, or broadly refactor, rename or move.
+- **Ask the owner only** for a product decision, a gate or a truly ambiguous task: one question at a time, plain
+  language, every option with a pro and a con.
+- Temp files go in the session scratch dir, else `.claude/state/tmp/`; never the system temp dir.
+
+## Done and reporting
+
+- `<TEST_COMMANDS>` run exactly as written, never a subset, and green; `<TYPECHECK_COMMAND>`, `<BUILD_COMMAND>` and
+  `<SYNTAX_CHECK_COMMAND>` clean where set.
+- Happy and failure paths handled; a minimal, scoped diff; docs updated per `docs/agent/docs-map.md`.
+- A behaviour change is observed at runtime, cheapest safe rung first: dry-run; read the stored result; a real run,
+  logs read; `/verify` on the changed flow. Green tests or CI are not Done; only a diff with no runtime surface
+  (tests, docs, config) is exempt. Show evidence, never "it should work"; name any unverifiable path as a gap.
+- After merge: deploy confirmed and `<LOG_SINK>` read.
+- A code change comes with a plan (≤ 8 bullets), the exact paths read, the diff, verification steps, and a rollback
+  plan when risky. If a required file can't be read, stop and ask.
+- Reports separate checks run, failed, unavailable and waived; test counts come from the runner. Never call
+  uncommitted work committed, an unmerged branch shipped, or a static check runtime verification. For an owner-run
+  step, give one `!` line with absolute paths. End every report with `Owner action: none` or the single action the
+  owner must take now.
+
+## Claude ↔ Codex
+
+- Both agents read `CLAUDE.md`, this file, `.claude/rules/` and `.claude/commands/` in place; never copy them (no
+  `.agents/rules/`).
+- `AGENTS.md`, Codex's entry point, restates every `codex-restate`-tagged line, here then in `CLAUDE.md`, verbatim and
+  in order; every Forbidden actions bullet is tagged. **After editing a tagged line, re-copy all of them there in the
+  same change.**
+- Each command has an `.agents/skills/<name>/SKILL.md` linking to it, or a line with a reason in
+  `.agents/claude-only.txt`; add, rename or delete both together.
+
+## Index
+
+`.claude/rules/*.md` carry this file's authority. Read `ticket-ops.md` before the first ticket op. Project docs,
+read as needed: `docs/agent/*.md`.

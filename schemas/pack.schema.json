@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tharwat/agent-kit/schemas/pack.schema.json",
+  "title": "agent-kit unit (core or pack)",
+  "description": "One installable unit. See docs/kit-conventions.md section 9. Validated by installer/schema_check.py, which supports only: type, required, properties, items, enum, pattern, additionalProperties, $ref (local #/$defs/...).",
+  "type": "object",
+  "required": ["name", "version", "description", "kind", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {"type": "string"},
+    "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"},
+    "description": {"type": "string", "pattern": "^[^\\n]+$"},
+    "kind": {"type": "string", "enum": ["core", "stack", "ticket", "workflow", "extra"]},
+    "requires": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}},
+    "conflicts": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}},
+    "detect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": {"type": "array", "items": {"type": "string"}},
+        "package_deps": {"type": "array", "items": {"type": "string"}},
+        "package_json": {"type": "object"},
+        "ask": {"type": ["string", "null"]}
+      }
+    },
+    "facts": {"type": "array", "items": {"$ref": "#/$defs/fact"}},
+    "files": {"type": "array", "items": {"$ref": "#/$defs/file"}},
+    "ci": {"type": "array", "items": {"$ref": "#/$defs/file"}},
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["event", "command"],
+        "additionalProperties": false,
+        "properties": {
+          "event": {"type": "string", "enum": ["PreToolUse", "PostToolUse", "UserPromptSubmit", "Notification", "Stop", "SubagentStop", "PreCompact", "SessionStart", "SessionEnd"]},
+          "matcher": {"type": "string"},
+          "command": {"type": "string", "pattern": "^((python3|sh|bash|node) )?\"\\$CLAUDE_PROJECT_DIR\"/\\.claude/hooks/[^ ]+"},
+          "timeout": {"type": "integer"}
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {"type": "array", "items": {"type": "string"}},
+        "deny": {"type": "array", "items": {"type": "string"}},
+        "ask": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/mcp_server"}
+    },
+    "env": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "purpose"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+          "purpose": {"type": "string"},
+          "how_to_get": {"type": "string"},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
+    "third_party": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "source", "ref", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "source": {"type": "string", "pattern": "^github:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(/.*)?$"},
+          "ref": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "license": {"type": "string"},
+          "dest": {"type": "string", "pattern": "^\\.(claude|agents)/skills/[A-Za-z0-9._-]+/?$"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "owner_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task"],
+        "additionalProperties": false,
+        "properties": {
+          "task": {"type": "string"},
+          "why": {"type": "string"},
+          "when": {
+            "description": "Show the task only when this fact has this value after the answers and defaults are applied.",
+            "type": "object",
+            "required": ["fact", "equals"],
+            "additionalProperties": false,
+            "properties": {
+              "fact": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$"},
+              "equals": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "gitignore": {"type": "array", "items": {"type": "string", "pattern": "^[^\\n#!][^\\n]*$"}},
+    "always_loaded_reason": {"type": "string"}
+  },
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "required": ["name", "meaning", "required", "ask"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$"},
+        "meaning": {"type": "string"},
+        "example": {"type": "string"},
+        "default": {"type": "string"},
+        "required": {"type": "boolean"},
+        "multiline": {"type": "boolean"},
+        "ask": {"type": "string"}
+      }
+    },
+    "file": {
+      "type": "object",
+      "required": ["src", "dest"],
+      "additionalProperties": false,
+      "properties": {
+        "src": {"type": "string", "pattern": "^(\\.\\./sync/)?[^/][^\\\\]*$"},
+        "dest": {"type": "string", "pattern": "^[^/~$][^\\\\]*$"},
+        "template": {"type": "boolean"},
+        "project_owned": {"type": "boolean"},
+        "merge": {"type": "string", "enum": ["claude-md", "agents-md", "settings-json"]},
+        "when": {"type": "string", "enum": ["github"]}
+      }
+    },
+    "mcp_server": {
+      "type": "object",
+      "properties": {
+        "type": {"type": "string", "enum": ["stdio", "http", "sse"]},
+        "command": {"type": "string"},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "url": {"type": "string"},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+        "env": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^\\$\\{[A-Z][A-Z0-9_]*(:-[^}]*)?\\}$"}}
+      }
+    }
+  }
+}

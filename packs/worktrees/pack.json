@@ -1,0 +1,56 @@
+{
+  "name": "worktrees",
+  "version": "1.0.0",
+  "description": "Parallel Claude sessions in git worktrees: safe sync to origin's main branch, env-file links, a guard against writing into the main checkout, and a /worktree status skill.",
+  "kind": "workflow",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Do you run parallel Claude sessions in git worktrees?"
+  },
+  "facts": [
+    {
+      "name": "WORKTREE_DIR",
+      "meaning": "Where session worktrees live, relative to the main checkout. Default `.claude/worktrees` (where `claude --worktree` and EnterWorktree create them).",
+      "example": ".claude/worktrees",
+      "default": ".claude/worktrees",
+      "required": false,
+      "ask": "Where do your session worktrees live, relative to the repo root? Press enter for `.claude/worktrees`, where Claude Code creates them."
+    },
+    {
+      "name": "WORKTREE_ENV_FILES",
+      "meaning": "Untracked env files to symlink from the main checkout into each new worktree (comma-separated paths from the repo root), or `none`. Links are made only where the file is missing; nothing is overwritten.",
+      "example": "api/.env, .env.local",
+      "default": "none",
+      "required": false,
+      "ask": "Which untracked env files should each worktree link to from the main checkout? Comma-separated paths from the repo root, or `none`."
+    }
+  ],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/worktrees.md", "template": true},
+    {"src": "skills/worktree/SKILL.md", "dest": ".claude/skills/worktree/SKILL.md"},
+    {"src": "hooks/worktree-hook.sh", "dest": ".claude/hooks/worktree-hook.sh"},
+    {"src": "hooks/worktree_common.py", "dest": ".claude/hooks/worktree_common.py"},
+    {"src": "hooks/block_main_repo_writes.py", "dest": ".claude/hooks/block_main_repo_writes.py"},
+    {"src": "hooks/ensure_worktree.py", "dest": ".claude/hooks/ensure_worktree.py"},
+    {"src": "hooks/enter_worktree.py", "dest": ".claude/hooks/enter_worktree.py"},
+    {"src": "hooks/worktree_info.py", "dest": ".claude/hooks/worktree_info.py"},
+    {"src": "hooks/worktree_fixture.py", "dest": ".claude/hooks/worktree_fixture.py"},
+    {"src": "hooks/test_block_main_repo_writes.py", "dest": ".claude/hooks/test_block_main_repo_writes.py"},
+    {"src": "hooks/test_ensure_worktree.py", "dest": ".claude/hooks/test_ensure_worktree.py"},
+    {"src": "hooks/test_enter_worktree.py", "dest": ".claude/hooks/test_enter_worktree.py"},
+    {"src": "hooks/test_worktree_info.py", "dest": ".claude/hooks/test_worktree_info.py"}
+  ],
+  "hooks": [
+    {"event": "PreToolUse", "matcher": "Edit|Write|MultiEdit|NotebookEdit", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-hook.sh block_main_repo_writes", "timeout": 15},
+    {"event": "UserPromptSubmit", "matcher": "", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-hook.sh ensure_worktree", "timeout": 90},
+    {"event": "PostToolUse", "matcher": "EnterWorktree", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-hook.sh enter_worktree", "timeout": 90}
+  ],
+  "permissions": {"allow": ["Bash(python3 .claude/hooks/worktree_info.py)", "Bash(python3 .claude/hooks/worktree_info.py *)"], "deny": []},
+  "mcp": {},
+  "env": [],
+  "third_party": [],
+  "ci": []
+}

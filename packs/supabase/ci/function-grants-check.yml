@@ -1,0 +1,52 @@
+# Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License).
+# Database grant check, installed by agent-kit (supabase pack).
+#
+# Every function in an exposed schema is reachable through the Supabase REST API
+# (POST /rest/v1/rpc/<fn>) by any role that can EXECUTE it, and the anon key is
+# public. This job stops a new migration from opening one: a SECURITY DEFINER
+# function must REVOKE EXECUTE FROM PUBLIC, anon, authenticated and GRANT EXECUTE TO
+# service_role in the same migration, and no migration may grant functions, tables,
+# views or sequences to PUBLIC/anon/authenticated (except the RLS helpers listed in
+# function_grants_config.json). Migrations that existed at install are listed in the
+# frozen, hash-pinned function_grants_baseline.txt.
+#
+# It reads files only. python3 ships on the runner, so there is nothing to install.
+# Fix a failure by fixing the migration, never by weakening this check or adding to
+# the baseline (that needs the owner's yes: G7).
+name: Function grants check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "{{MAIN_BRANCH}}"
+  workflow_dispatch:
+
+# Least privilege: the job only checks out and reads the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: function-grants-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  function-grants-check:
+    name: migrations/function-grants
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # A fork PR's own code runs in the next steps; leave no credential in
+          # .git/config for it. Nothing here talks to the GitHub API.
+          persist-credentials: false
+
+      - name: Test the grant tools themselves
+        run: |
+          python3 .github/scripts/test_check_function_grants.py
+          python3 .github/scripts/test_make_function_grants_baseline.py
+
+      - name: Check that no migration opens the public API
+        run: python3 .github/scripts/check_function_grants.py

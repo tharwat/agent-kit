@@ -1,0 +1,49 @@
+{
+  "name": "typescript",
+  "version": "1.0.0",
+  "description": "TypeScript: a type-check hook after each edit, vitest/jest test discipline, mock-fidelity lens, type-ripple and request/response type checks.",
+  "kind": "stack",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": ["tsconfig.json"],
+    "package_deps": ["typescript"],
+    "ask": null
+  },
+  "facts": [
+    {
+      "name": "TS_PACKAGE_DIRS",
+      "meaning": "Dirs (from the repo root, comma-separated; `.` is the root) whose own tsc the edit hook runs. `auto` means every dir holding a tsconfig.json, up to depth 2.",
+      "example": "api, web",
+      "default": "auto",
+      "required": true,
+      "ask": "Which directories hold a TypeScript package the after-edit type check should cover? Comma-separated paths from the repo root, or `auto` to use every directory with a tsconfig.json (up to two levels deep)."
+    },
+    {
+      "name": "TEST_FRAMEWORK",
+      "meaning": "The TypeScript test runner: vitest, jest, or none when the project has no runner yet.",
+      "example": "vitest",
+      "default": "none",
+      "required": true,
+      "ask": "Which test runner do the TypeScript packages use: vitest, jest, or none (no runner yet)?"
+    }
+  ],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/typescript.md", "template": true},
+    {"src": "rules/typescript.md", "dest": ".claude/rules/typescript.md"},
+    {"src": "hooks/typecheck.sh", "dest": ".claude/hooks/typecheck.sh"},
+    {"src": "hooks/typecheck.py", "dest": ".claude/hooks/typecheck.py"},
+    {"src": "hooks/test_typecheck.py", "dest": ".claude/hooks/test_typecheck.py"}
+  ],
+  "hooks": [
+    {"event": "PostToolUse", "matcher": "Edit|Write|MultiEdit", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/typecheck.sh", "timeout": 90}
+  ],
+  "permissions": {"allow": [], "deny": []},
+  "owner_tasks": [
+    {"task": "If TEST_FRAMEWORK is none: add a test runner (vitest or jest), add its command to TEST_COMMANDS, and set TEST_FRAMEWORK with an installer upgrade", "why": "until then, contract tests are plain node:test scripts, and a row they can't drive is BLOCKED"}
+  ],
+  "mcp": {},
+  "env": [],
+  "third_party": [],
+  "ci": []
+}

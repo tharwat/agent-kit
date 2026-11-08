@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+# Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License).
+"""Send a plain-text notification to the project's Telegram chat.
+
+Usage: .claude/scripts/notify "<text>"
+
+Config: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from the environment. A value
+missing from the environment is read from `.claude/notify.env` (KEY=value
+lines; gitignored). The environment wins when both set a key.
+
+Never fails the caller: every outcome exits 0. A problem prints one line on
+stderr. The bot token is never printed.
+
+TELEGRAM_API_BASE overrides the API base URL. It exists for tests only.
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+API_BASE = "https://api.telegram.org"
+TIMEOUT = 10  # seconds, per request
+CHUNK = 4000  # Telegram's limit is 4096; stay under it
+KEYS = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
+ENV_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "notify.env")
+
+
+def read_env_file(path):
+    values = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):]
+                key, value = line.split("=", 1)
+                values[key.strip()] = value.strip().strip("'\"")
+    except OSError:
+        pass
+    return values
+
+
+def load_config():
+    config = {k: os.environ.get(k, "").strip() for k in KEYS}
+    if not all(config.values()):
+        from_file = read_env_file(ENV_FILE)
+        for key in KEYS:
+            if not config[key]:
+                config[key] = from_file.get(key, "")
+    return config
+
+
+def split_text(text, size=CHUNK):
+    """Chunks of at most `size` chars, preferring to break at a newline."""
+    chunks = []
+    while len(text) > size:
+        cut = text.rfind("\n", 0, size)
+        if cut < size // 2:
+            cut = size
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+    if text:
+        chunks.append(text)
+    return chunks
+
+
+def redact(message, token):
+    message = str(message)
+    if token:
+        message = message.replace(token, "<redacted>")
+    return " ".join(message.split())
+
+
+def send(base, token, chat_id, text):
+    url = "%s/bot%s/sendMessage" % (base.rstrip("/"), token)
+    data = urllib.parse.urlencode({
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": "true",
+    }).encode("utf-8")
+    request = urllib.request.Request(url, data=data, method="POST")
+    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        body = json.loads(response.read().decode("utf-8") or "{}")
+    if not body.get("ok", False):
+        raise RuntimeError(body.get("description") or "Telegram replied ok=false")
+
+
+def describe(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        detail = ""
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("description", "")
+        except Exception:
+            pass
+        return "HTTP %s%s" % (exc.code, (": " + detail) if detail else "")
+    if isinstance(exc, urllib.error.URLError):
+        return "network error: %s" % (exc.reason,)
+    if isinstance(exc, TimeoutError) or "timed out" in str(exc):
+        return "timed out after %ss" % TIMEOUT
+    return "%s: %s" % (type(exc).__name__, exc)
+
+
+def main(argv):
+    token = ""
+    try:
+        text = " ".join(argv).strip()
+        if not text:
+            sys.stderr.write('notify: nothing to send (usage: notify "<text>")\n')
+            return 0
+        config = load_config()
+        token, chat_id = config["TELEGRAM_BOT_TOKEN"], config["TELEGRAM_CHAT_ID"]
+        if not token or not chat_id:
+            sys.stderr.write("notify: not configured (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID)\n")
+            return 0
+        base = os.environ.get("TELEGRAM_API_BASE") or API_BASE
+        chunks = split_text(text)
+        for index, chunk in enumerate(chunks, 1):
+            try:
+                send(base, token, chat_id, chunk)
+            except Exception as exc:
+                part = " (part %d of %d)" % (index, len(chunks)) if len(chunks) > 1 else ""
+                sys.stderr.write("notify: send failed%s: %s\n" % (part, redact(describe(exc), token)))
+                return 0
+        return 0
+    except Exception as exc:  # never fail the caller
+        sys.stderr.write("notify: send failed: %s\n" % redact(describe(exc), token))
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

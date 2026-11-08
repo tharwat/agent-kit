@@ -1,0 +1,9 @@
+# Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License).
+# Claude-only commands: .claude/commands/<name>.md files that get NO Codex skill.
+#
+# Format: one command name per line (the file name without .md). Everything after
+# a '#' is a comment; blank lines are ignored. Give the reason in a comment, e.g.
+#   my-command  # needs a Claude-only tool with no Codex equivalent
+#
+# make_skill_links.py skips the commands listed here, and check_skill_links.py stops
+# requiring a skill for them. An entry with no matching command is only a warning.

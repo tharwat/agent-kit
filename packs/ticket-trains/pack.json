@@ -1,0 +1,57 @@
+{
+  "name": "ticket-trains",
+  "version": "1.0.0",
+  "description": "Queue several triaged tickets and run them unattended, one at a time, with locked and validated state.",
+  "kind": "workflow",
+  "requires": [
+    "core"
+  ],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Do you want ticket trains (queue several triaged tickets and run them unattended)?"
+  },
+  "facts": [],
+  "files": [
+    {
+      "src": "pack.md",
+      "dest": ".claude/packs/ticket-trains.md"
+    },
+    {
+      "src": "commands/ticket-train-create.md",
+      "dest": ".claude/commands/ticket-train-create.md"
+    },
+    {
+      "src": "commands/ticket-train-triage.md",
+      "dest": ".claude/commands/ticket-train-triage.md"
+    },
+    {
+      "src": "commands/ticket-train-run.md",
+      "dest": ".claude/commands/ticket-train-run.md"
+    },
+    {
+      "src": "commands/ticket-train-status.md",
+      "dest": ".claude/commands/ticket-train-status.md"
+    },
+    {
+      "src": "scripts/train-state.mjs",
+      "dest": ".claude/scripts/train-state.mjs"
+    },
+    {
+      "src": "scripts/train-state.test.mjs",
+      "dest": ".claude/scripts/train-state.test.mjs"
+    }
+  ],
+  "hooks": [],
+  "permissions": {
+    "allow": [
+      "Bash(node .claude/scripts/train-state.mjs *)"
+    ],
+    "deny": []
+  },
+  "mcp": {},
+  "env": [],
+  "third_party": [],
+  "ci": []
+}

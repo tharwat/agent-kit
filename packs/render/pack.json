@@ -1,0 +1,83 @@
+{
+  "name": "render",
+  "version": "1.0.0",
+  "description": "Render hosting: post-merge deploy-live and log checks, release checks for services and env groups, and runtime-fit rules for memory-bound work.",
+  "kind": "stack",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": ["render.yaml"],
+    "package_deps": [],
+    "ask": null
+  },
+  "facts": [
+    {
+      "name": "DEPLOY_SERVICES",
+      "meaning": "A markdown table: code area (path glob) -> Render service name(s). Shared code lists every service built from it.",
+      "example": "| Code area | Services |\n|---|---|\n| `src/api/**` | `acme-web` |\n| `src/jobs/**` | `acme-worker` |\n| `src/lib/**` | `acme-web`, `acme-worker` |",
+      "required": true,
+      "ask": "Which Render service runs which code? The installer lists the services from render.yaml; for each code area, name the service(s) that build it, and mark shared code that several services build."
+    },
+    {
+      "name": "ENV_GROUPS",
+      "meaning": "Each Render env group and the services that must link it.",
+      "example": "acme-env: acme-web, acme-worker",
+      "default": "none",
+      "required": false,
+      "ask": "Which Render env groups exist, and which services must link each one? (none if the project sets variables per service)"
+    },
+    {
+      "name": "RUNTIME_MEMORY_LIMIT",
+      "meaning": "Memory ceiling of the smallest instance that runs app code.",
+      "example": "512 MB (starter)",
+      "required": true,
+      "ask": "What is the memory limit of the smallest Render instance that runs your code (for example 512 MB on a starter plan)?"
+    }
+  ],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/render.md", "template": true}
+  ],
+  "hooks": [],
+  "permissions": {
+    "allow": [
+      "mcp__render__list_workspaces",
+      "mcp__render__get_selected_workspace",
+      "mcp__render__list_services",
+      "mcp__render__get_service",
+      "mcp__render__list_deploys",
+      "mcp__render__get_deploy",
+      "mcp__render__list_events",
+      "mcp__render__list_logs",
+      "mcp__render__list_log_label_values",
+      "mcp__render__get_metrics"
+    ],
+    "deny": [
+      "mcp__render__trigger_deploy",
+      "mcp__render__update_environment_variables",
+      "mcp__render__create_web_service",
+      "mcp__render__create_static_site",
+      "mcp__render__create_cron_job",
+      "mcp__render__create_postgres",
+      "mcp__render__create_key_value",
+      "mcp__render__create_blueprint",
+      "mcp__render__update_blueprint",
+      "mcp__render__approve_blueprint"
+    ]
+  },
+  "mcp": {
+    "render": {
+      "type": "http",
+      "url": "https://mcp.render.com/mcp",
+      "headers": {"Authorization": "Bearer ${RENDER_API_KEY}"}
+    }
+  },
+  "env": [
+    {
+      "name": "RENDER_API_KEY",
+      "purpose": "Lets the Render MCP server read services, deploys, logs and metrics.",
+      "how_to_get": "Owner task: Render dashboard > Account Settings > API Keys > Create API Key. The key reaches every workspace the account can see; keep it in your shell environment or secret manager, never in a committed file."
+    }
+  ],
+  "third_party": [],
+  "ci": []
+}

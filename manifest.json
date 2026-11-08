@@ -1,0 +1,203 @@
+{
+  "$schema": "schemas/manifest.schema.json",
+  "name": "agent-kit",
+  "version": "1.0.0-dev",
+  "description": "Claude Code + Codex working conventions, installable into any project. installer/agent_kit.py does every write; INSTALL.md tells the agent how to drive it.",
+  "units": [
+    "core/pack.json",
+    "packs/cloudflare/pack.json",
+    "packs/cold-email/pack.json",
+    "packs/expo-mobile/pack.json",
+    "packs/fal-media/pack.json",
+    "packs/hardening/pack.json",
+    "packs/jira/pack.json",
+    "packs/node-esm/pack.json",
+    "packs/notify-telegram/pack.json",
+    "packs/pressure-test/pack.json",
+    "packs/remotion/pack.json",
+    "packs/render/pack.json",
+    "packs/scrollcraft/pack.json",
+    "packs/supabase/pack.json",
+    "packs/ticket-trains/pack.json",
+    "packs/typescript/pack.json",
+    "packs/web-qa/pack.json",
+    "packs/worktrees/pack.json"
+  ],
+  "questions": [
+    {
+      "id": "packs",
+      "ask": "Which packs should be installed? The scan proposes the ones whose detect rules matched; packs with a detect question are asked one at a time. The ticket pack is not asked: the installer adds the one named by the TICKET_SYSTEM fact.",
+      "type": "list",
+      "answer_key": "packs",
+      "default": null,
+      "scan_hint": "scan output: packs[].matched and packs[].ask"
+    },
+    {
+      "id": "github",
+      "ask": "Does this project live on GitHub? If yes, the skill-link check is added as a GitHub Actions workflow.",
+      "type": "boolean",
+      "answer_key": "options.github",
+      "default": null,
+      "scan_hint": "scan output: git.remote_host is github.com, or .github/ exists"
+    }
+  ],
+  "gitignore": [
+    ".claude/state/",
+    ".claude/handoffs/",
+    ".claude/notify.env",
+    "__pycache__/",
+    ".mcp.json.pre-agent-kit",
+    ".mcp.json.pre-agent-kit.*"
+  ],
+  "checks": {
+    "scan_roots": [
+      "core",
+      "packs"
+    ],
+    "word_budget": 2500,
+    "placeholder_exempt": [
+      "LIKE_THIS"
+    ],
+    "denylist": [
+      {
+        "regex": "origin/qa\\b",
+        "reason": "source-project branch model (the kit is main-only)"
+      },
+      {
+        "regex": "/Users/[A-Za-z0-9._-]+",
+        "reason": "owner's absolute path"
+      },
+      {
+        "regex": "/home/[A-Za-z0-9._-]+/",
+        "reason": "absolute home path"
+      },
+      {
+        "regex": "\\bdropbox/",
+        "ignore_case": true,
+        "reason": "owner's absolute path"
+      },
+      {
+        "regex": "(?<![0-9])-100(?!0{6})[0-9]{8,}\\b",
+        "reason": "Telegram chat ID shape"
+      },
+      {
+        "regex": "\\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\\b",
+        "reason": "Telegram bot token shape"
+      },
+      {
+        "regex": "\\beyJ[A-Za-z0-9_-]{15,}\\.[A-Za-z0-9_-]{15,}",
+        "reason": "JWT shape"
+      },
+      {
+        "regex": "\\bsk-[A-Za-z0-9_-]{20,}",
+        "reason": "API secret key shape"
+      },
+      {
+        "regex": "\\bgh[pousr]_[A-Za-z0-9]{30,}",
+        "reason": "GitHub token shape"
+      },
+      {
+        "regex": "\\bgithub_pat_[A-Za-z0-9_]{20,}",
+        "reason": "GitHub token shape"
+      },
+      {
+        "regex": "\\bAKIA[0-9A-Z]{16}\\b",
+        "reason": "AWS access key shape"
+      },
+      {
+        "regex": "\\bxox[abprs]-[A-Za-z0-9-]{10,}",
+        "reason": "Slack token shape"
+      },
+      {
+        "regex": "\\bsbp_[0-9a-f]{40}\\b",
+        "reason": "Supabase access token shape"
+      },
+      {
+        "regex": "\\brnd_[A-Za-z0-9]{20,}",
+        "reason": "Render API key shape"
+      },
+      {
+        "regex": "\\bATATT[A-Za-z0-9_=-]{20,}",
+        "reason": "Atlassian API token shape"
+      },
+      {
+        "regex": "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+        "reason": "private key"
+      },
+      {
+        "regex": "\\b[a-z0-9]{20}\\.supabase\\.(co|in)\\b",
+        "reason": "a real Supabase project URL"
+      },
+      {
+        "regex": "\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+        "ignore_case": true,
+        "reason": "UUID-shaped ID (cloud IDs, project IDs)"
+      }
+    ],
+    "destructive_patterns": [
+      {
+        "regex": "(?<![\\w./-])rm\\s+(-|\\S)",
+        "reason": "rm"
+      },
+      {
+        "regex": "\\brmdir\\b",
+        "reason": "rmdir"
+      },
+      {
+        "regex": "(?<![\\w-])-delete\\b",
+        "reason": "find -delete"
+      },
+      {
+        "regex": "\\bunlink(Sync)?\\b",
+        "reason": "unlink"
+      },
+      {
+        "regex": "\\bos\\.remove\\b|\\brmtree\\b|\\brmSync\\b|\\bfs\\.rm\\b|\\bfs\\.promises\\.rm\\b",
+        "reason": "programmatic delete"
+      },
+      {
+        "regex": "reset\\s+--hard",
+        "reason": "git reset --hard"
+      },
+      {
+        "regex": "\\bgit\\s+clean\\b",
+        "reason": "git clean"
+      },
+      {
+        "regex": "\\bbranch\\s+-D\\b",
+        "reason": "git branch -D"
+      },
+      {
+        "regex": "\\bpush\\s+(\\S+\\s+)*(--force\\b|-f\\b|--force-with-lease\\b)",
+        "reason": "force push"
+      },
+      {
+        "regex": "\\bcheckout\\s+--\\s",
+        "reason": "git checkout -- <path> discards changes"
+      },
+      {
+        "regex": "\\bstash\\s+(drop|clear)\\b",
+        "reason": "git stash drop/clear"
+      }
+    ],
+    "destructive_exempt": [
+      {
+        "glob": "*/hooks/*.py",
+        "reason": "guard hooks must name the commands they block, and their tests feed those commands in"
+      },
+      {
+        "glob": "*/hooks/*.sh",
+        "reason": "guard hooks must name the commands they block"
+      },
+      {
+        "glob": "packs/*/hooks/*.py",
+        "reason": "guard hooks must name the commands they block, and their tests feed those commands in"
+      },
+      {
+        "glob": "packs/*/hooks/*.sh",
+        "reason": "guard hooks must name the commands they block"
+      }
+    ],
+    "denylist_private_file": "denylist.private.json"
+  }
+}

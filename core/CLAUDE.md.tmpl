@@ -1,0 +1,45 @@
+<!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
+# CLAUDE.md — {{PROJECT_NAME}}
+
+{{PROJECT_SUMMARY}}
+
+@CLAUDE.kit.md
+
+## Project facts
+
+Commands read `<LIKE_THIS>` values from this table. Change a value here only.
+
+| Fact | Value | Meaning |
+|---|---|---|
+| `PROJECT_NAME` | {{PROJECT_NAME}} | Short name for reports |
+| `PROJECT_SUMMARY` | {{PROJECT_SUMMARY}} | What the product does |
+| `TICKET_SYSTEM` | {{TICKET_SYSTEM}} | The installed ticket pack |
+| `TICKET_PREFIX` | {{TICKET_PREFIX}} | Ticket key prefix |
+| `MAIN_BRANCH` | {{MAIN_BRANCH}} | The only long-lived branch |
+| `BRANCH_PREFIX` | {{BRANCH_PREFIX}} | Feature branch prefix |
+| `HAS_CI` | {{HAS_CI}} | `true`: `/ship` waits for required checks |
+| `TEST_COMMANDS` | listed below | Test command per package |
+| `TYPECHECK_COMMAND` | {{TYPECHECK_COMMAND}} | Type check, or `none` |
+| `BUILD_COMMAND` | {{BUILD_COMMAND}} | Build check, or `none` |
+| `SYNTAX_CHECK_COMMAND` | {{SYNTAX_CHECK_COMMAND}} | Syntax check, or `none` |
+| `DEV_SERVER_COMMAND` | {{DEV_SERVER_COMMAND}} | How `/verify` runs the app locally |
+| `LOG_SINK` | {{LOG_SINK}} | Production logs, or `none` |
+| `CRITICAL_DOMAIN` | {{CRITICAL_DOMAIN}} | S3: the logic that must never be wrong |
+| `CRITICAL_SYSTEMS` | {{CRITICAL_SYSTEMS}} | Areas under the Critical Systems checks |
+| `OWNER_KEPT_GATES` | {{OWNER_KEPT_GATES}} | Gates on top of G1–G7, or `none` |
+| `OPEN_ITEMS_TICKET` | {{OPEN_ITEMS_TICKET}} | Tracker ticket for noted findings |
+| `CO_AUTHOR_TRAILER` | {{CO_AUTHOR_TRAILER}} | Commit trailer line, or `none` |
+| `UI_LANGUAGE` | {{UI_LANGUAGE}} | Language of user-facing copy |
+| `SYNTHETIC_MARKER` | {{SYNTHETIC_MARKER}} | Marks rows that `/verify` creates |
+| `DEPENDENCY_POLICY` | {{DEPENDENCY_POLICY}} | When a new dependency is allowed |
+
+`TEST_COMMANDS`, one `<dir>: <command>` line per package:
+
+```
+{{TEST_COMMANDS}}
+```
+
+## Project rules
+
+Owned by this project; kit upgrades never touch it. One bullet per rule, with a one-line why. A rule Codex must
+see early ends with the `codex-restate` tag and is copied into `AGENTS.md`'s restated block.

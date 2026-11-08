@@ -1,0 +1,35 @@
+{
+  "name": "cloudflare",
+  "version": "1.0.0",
+  "description": "Opt-in extra: the cloudflare skill (choosing and building with Cloudflare products) for Codex, installed from its GitHub source at a pinned commit.",
+  "kind": "extra",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Install the Cloudflare skill for Codex (picking Cloudflare products and debugging Cloudflare errors)? It is third-party."
+  },
+  "facts": [],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/cloudflare.md"}
+  ],
+  "hooks": [],
+  "permissions": {"allow": [], "deny": []},
+  "owner_tasks": [
+    {"task": "Optional: to let an agent run Cloudflare commands, log in once with the Cloudflare CLI the skill recommends (cf, or Wrangler in a project that already uses it)", "why": "the skill installs with no key; only running commands needs a login"}
+  ],
+  "mcp": {},
+  "env": [],
+  "third_party": [
+    {
+      "name": "cloudflare",
+      "source": "github:cloudflare/skills/skills/cloudflare",
+      "ref": "6eb6c781aa9b6438e0c7307bd102788a75fe1a6d",
+      "sha256": "a40c5c77e4b96b0f6603a54e67bf2ff401a872366af48ff8f6ae0e872d4ad324",
+      "license": "Apache-2.0",
+      "dest": ".agents/skills/cloudflare/"
+    }
+  ],
+  "ci": []
+}

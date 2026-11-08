@@ -1,0 +1,11 @@
+<!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
+# Integrations
+
+External services this project calls or receives webhooks from. Commands read this before touching an integration;
+confirm fields against the live docs listed here, never from memory. Delete the example row once you add real ones.
+
+| Service | Used for | Webhook signing | Docs |
+|---|---|---|---|
+| Example Payments | Example only: card payments | HMAC-SHA256 of the raw body in a signature header | the provider's API reference URL |
+
+For each webhook, also note the secret's env var name (never its value) and what a signature mismatch returns.
