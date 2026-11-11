@@ -49,12 +49,15 @@ RULES = {
     "git worktree remove --force": "git worktree remove --force / -f",
 }
 
+# Delete *calls* in inline or stdin code. A name that is only mentioned (a regex, a string being edited) isn't one.
 PROGRAMMATIC_RE = re.compile(
-    r"\bos\.(remove|unlink|rmdir|removedirs)\b|\brmtree\b|\.unlink\s*\(|\.rmdir\s*\("
-    r"|\b(rmSync|rmdirSync|unlinkSync)\b|\bfs(\.promises)?\.(rm|rmdir|unlink)\b|\bfsPromises\.(rm|unlink)\b"
-    r"|\bFileUtils\.(rm|rm_r|rm_rf|remove|remove_dir|remove_entry)\b|\bFile\.(delete|unlink)\b|\bDir\.(delete|rmdir)\b"
-    r"|\bunlink\b|\bremove_tree\b|\brmdir\b"
-    r"|[\"'`]rm\s+-|[\"']rm[\"']"  # shelling out to rm from inside the code
+    r"\bos\.(remove|unlink|rmdir|removedirs)\s*\(|\brmtree\s*\(|\.unlink\s*\(|\.rmdir\s*\("
+    r"|\b(rmSync|rmdirSync|unlinkSync)\s*\(|\bfs(\.promises)?\.(rm|rmdir|unlink)\s*\(|\bfsPromises\.(rm|unlink)\s*\("
+    r"|\bFileUtils\.(rm|rm_r|rm_rf|rm_f|remove|remove_dir|remove_entry)\b|\bFile\.(delete|unlink)\b"
+    r"|\bDir\.(delete|rmdir|unlink)\b|\bremove_tree\s*\("
+    r"|(?<![\w.$])(unlink|rmdir)\s*(\(|[\"'$@])"  # perl: unlink "a", unlink $f, rmdir(...)
+    r"|\b(system|exec\w*|spawn\w*|run|call|check_call|check_output|Popen|popen)\s*\(\s*\[?\s*[\"'`]rm\b"
+    r"|`rm\s"  # backtick shell-out (ruby, perl, node template)
 )
 
 
@@ -218,7 +221,7 @@ def check_git(cmd):
         flags = short_flags(rest, "o")
         if "f" in flags or longs & {"--force", "--force-with-lease"}:
             raise Blocked("force push", argv)
-        pos = positionals(rest, ("-o", "--push-option", "--repo", "--receive-pack", "--exec"))
+        pos = positionals(rest, kit_shell.PUSH_OPTS_WITH_VALUE)
         if any(p.startswith("+") for p in pos[1:]):
             raise Blocked("force push", argv)
     elif sub == "checkout":
@@ -237,6 +240,8 @@ def check_git(cmd):
         if pos and (longs & {"--ours", "--theirs", "--patch"} or "p" in flags):
             raise Blocked("git checkout -- <path> discards changes", argv)
         if any(set(str(p)) & set("*?[") for p in pos) and not creating:  # a glob pathspec
+            raise Blocked("git checkout -- <path> discards changes", argv)
+        if cmd.operands_unknown and not creating and "--detach" not in longs:  # `… | xargs git checkout --`
             raise Blocked("git checkout -- <path> discards changes", argv)
         if len(pos) == 1 and not creating and "--detach" not in longs and pos[0] != "-":
             # `git checkout <path>` discards that path's changes; a branch or commit name is fine

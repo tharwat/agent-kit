@@ -25,8 +25,8 @@ ParseError, and the hooks fail open on it (the shell refuses that command too). 
 import os
 import re
 
-__all__ = ["ParseError", "Cmd", "Word", "parse", "iter_commands", "inline_code", "interpreter_reads_stdin",
-           "git_split", "heredoc_bodies",
+__all__ = ["ParseError", "Cmd", "Word", "parse", "iter_commands", "inline_code", "interpreter_mode",
+           "interpreter_reads_stdin", "git_split", "heredoc_bodies", "PUSH_OPTS_WITH_VALUE",
            "strip_heredocs", "strip_prefix", "has_expansion", "EXEC_FLAGS", "SHELLS", "GIT_OPTS_WITH_VALUE"]
 
 MAX_DEPTH = 4
@@ -41,6 +41,7 @@ EXPANSION_CHARS = set("*?[]$`~{}")
 GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env",
                        "--super-prefix", "--list-cmds", "--attr-source"}
 EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir"}
+PUSH_OPTS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
 class ParseError(ValueError):
@@ -74,8 +75,9 @@ class Cmd:
     """One simple command after prefix stripping: argv (list of Word), the cwd it runs in, its redirects, the bodies
     of its heredocs as (body, quoted), and the stdin text it gets (`stdin`)."""
 
-    def __init__(self, argv, cwd, redirects=(), heredocs=(), cwd_known=True, stdin=()):
+    def __init__(self, argv, cwd, redirects=(), heredocs=(), cwd_known=True, stdin=(), operands_unknown=False):
         self.argv = argv
+        self.operands_unknown = operands_unknown  # run by xargs or find -exec: more operands arrive at run time
         self.cwd = cwd
         self.cwd_known = cwd_known  # False after `cd -`, `cd "$DIR"`, `popd`: cwd is then only a guess
         self.redirects = list(redirects)
@@ -493,6 +495,11 @@ def parse(command, registry=None):
 
 # ---------------------------------------------------------------- prefix stripping
 
+RUNNERS = {"uv": "run", "poetry": "run", "pipenv": "run", "pdm": "run", "hatch": "run", "rye": "run",
+           "pnpm": "exec", "npm": "exec", "yarn": "exec", "bundle": "exec"}
+RUNNER_OPTS_WITH_VALUE = ("--with", "--python", "-p", "--project", "--directory", "--env-file", "--extra", "--group",
+                          "--package", "--index", "--with-requirements", "-e", "--env", "-w", "--workspace")
+
 def _skip_opts(argv, i, with_value=()):
     while i < len(argv):
         a = argv[i]
@@ -520,6 +527,13 @@ def strip_prefix(argv):
             i += 2
             continue
         prog = os.path.basename(a)
+        nxt = argv[i + 1] if i + 1 < len(argv) else ""
+        if prog in RUNNERS and nxt == RUNNERS[prog]:  # uv run …, poetry run …, pnpm exec …
+            i = _skip_opts(argv, i + 2, RUNNER_OPTS_WITH_VALUE)
+            continue
+        if prog in ("npx", "bunx", "pnpx"):  # the package named next is the program
+            i = _skip_opts(argv, i + 1, ("-p", "--package", "-c", "--call"))
+            continue
         if prog == "env":
             j = i + 1
             while j < len(argv) and argv[j].startswith("-") and argv[j] != "--":
@@ -621,13 +635,13 @@ def _find_exec_payloads(args):
     return out
 
 
-def _nested(body, cwd, depth, registry):
+def _nested(body, cwd, depth, registry, known=True):
     """Commands in a nested body. A body that doesn't parse is skipped (the shell would refuse it too); the
     commands around it are still checked."""
     if depth > MAX_DEPTH or not body:
         return []
     try:
-        return list(_walk(body, {"cwd": cwd, "registry": registry}, depth))
+        return list(_walk(body, {"cwd": cwd, "cwd_known": known, "registry": registry}, depth))
     except ParseError:
         return []
 
@@ -689,13 +703,16 @@ def _walk(command, state, depth):
         prev = simple
 
 
-def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, stdin=()):
-    argv = strip_prefix(list(words))
+def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, stdin=(), operands_unknown=False):
+    words = list(words)
+    argv = strip_prefix(words)
     if not argv:
         return
     prog = os.path.basename(argv[0])
     known = state.get("cwd_known", True)
-    cmd = Cmd(argv, state["cwd"], redirects, heredocs, known, stdin)
+    wrappers = words[:max(0, len(words) - len(argv))]
+    operands_unknown = operands_unknown or any(os.path.basename(str(w)) == "xargs" for w in wrappers)
+    cmd = Cmd(argv, state["cwd"], redirects, heredocs, known, stdin, operands_unknown)
     yield cmd
     args = argv[1:]
     registry = state.get("registry", [])
@@ -725,7 +742,19 @@ def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, st
     elif prog == "find":
         for payload in _find_exec_payloads(args):
             yield from _dispatch(payload, {"cwd": state["cwd"], "cwd_known": known, "registry": registry},
-                                 depth + 1)
+                                 depth + 1, operands_unknown=True)
+    elif prog == "git":
+        sub, rest, _cwd = git_split(args, state["cwd"])
+        if sub == "submodule":
+            rest = [a for a in rest if a not in ("-q", "--quiet")]
+            if rest and rest[0] == "foreach":
+                payload = [a for a in rest[1:] if a not in ("--recursive", "-q", "--quiet")]
+                # runs in every submodule's directory, so the cwd is unknown there
+                if len(payload) == 1:
+                    yield from _nested(str(payload[0]), state["cwd"], depth + 1, registry, known=False)
+                elif payload:
+                    yield from _dispatch(payload, {"cwd": state["cwd"], "cwd_known": False, "registry": registry},
+                                         depth + 1)
 
 
 def iter_commands(command, cwd):
@@ -769,14 +798,16 @@ INTERPRETERS = {
 }
 
 
-def inline_code(argv):
-    """The code string passed on the command line to an interpreter, or None (a script file isn't scanned)."""
+def interpreter_mode(argv):
+    """For an interpreter argv: ("code", string) for inline code (`python3 -c`, `node -e`, `perl -e`, `deno eval`),
+    ("stdin", None) when it runs whatever arrives on stdin (`python3`, `python3 -`), ("file", None) for a script or
+    module, or None when argv isn't a known interpreter."""
     if not argv:
         return None
     prog = os.path.basename(argv[0])
     base = re.sub(r"[0-9.]+$", "", prog) or prog
     if base == "deno":
-        return argv[2] if len(argv) > 2 and argv[1] == "eval" else None
+        return ("code", argv[2]) if len(argv) > 2 and argv[1] == "eval" else ("file", None)
     spec = INTERPRETERS.get(base)
     if not spec:
         return None
@@ -785,66 +816,46 @@ def inline_code(argv):
     k = 0
     while k < len(args):
         a = args[k]
+        if a == "-":
+            return ("stdin", None)
         if a == "--":
-            return None
+            return ("file", None) if k + 1 < len(args) else ("stdin", None)
         if a.startswith("--"):
             name = a.split("=", 1)[0]
             if name in code_long:
-                return a.split("=", 1)[1] if "=" in a else (args[k + 1] if k + 1 < len(args) else None)
-            if name in value_long and "=" not in a:
-                k += 2
-                continue
-            k += 1
+                return ("code", a.split("=", 1)[1] if "=" in a else (args[k + 1] if k + 1 < len(args) else None))
+            k += 2 if name in value_long and "=" not in a else 1
             continue
         if a.startswith("-") and len(a) > 1:
             group = a[1:]
             for idx, ch in enumerate(group):
                 if ch in stop_letters:
-                    return None
+                    return ("file", None)  # python -m: a module, not inline code
                 if ch in code_letters:
                     rest = group[idx + 1:]
                     if rest and code_attached:
-                        return rest
-                    return args[k + 1] if k + 1 < len(args) else None
+                        return ("code", rest)
+                    return ("code", args[k + 1] if k + 1 < len(args) else None)
                 if ch in value_letters:
                     if idx == len(group) - 1 and not attached_only:
                         k += 1  # the value is the next arg
                     break
             k += 1
             continue
-        return None  # a script path comes first: not inline code
-    return None
+        return ("file", None)  # a script path
+    return ("stdin", None)
+
+
+def inline_code(argv):
+    """The code string passed on the command line to an interpreter, or None (a script file isn't scanned)."""
+    mode = interpreter_mode(argv)
+    return mode[1] if mode and mode[0] == "code" else None
 
 
 def interpreter_reads_stdin(argv):
-    """True for an interpreter run with no inline code and no script file (`python3`, `python3 -`, `node -`): it
-    runs whatever arrives on stdin."""
-    if not argv:
-        return False
-    prog = os.path.basename(argv[0])
-    base = re.sub(r"[0-9.]+$", "", prog) or prog
-    spec = INTERPRETERS.get(base)
-    if not spec or inline_code(argv) is not None:
-        return False
-    code_letters, value_letters, stop_letters, code_long, value_long, attached_only, _ = spec
-    args = argv[1:]
-    k = 0
-    while k < len(args):
-        a = args[k]
-        if a == "-":
-            return True
-        if a.startswith("--"):
-            k += 2 if a.split("=", 1)[0] in value_long and "=" not in a else 1
-            continue
-        if a.startswith("-") and len(a) > 1:
-            if any(ch in stop_letters for ch in a[1:]):
-                return False
-            if a[-1] in value_letters and not attached_only:
-                k += 1
-            k += 1
-            continue
-        return False  # a script file
-    return True
+    """True for an interpreter run with no inline code and no script file: it runs whatever arrives on stdin."""
+    mode = interpreter_mode(argv)
+    return bool(mode) and mode[0] == "stdin"
 
 
 def has_expansion(word):

@@ -202,6 +202,35 @@ class ReviewRound2(unittest.TestCase):
                 self.assertFalse(ks.interpreter_reads_stdin(argv))
 
 
+class ReviewRound3(unittest.TestCase):
+    def test_runners_are_unwrapped(self):
+        for cmd, want in (("uv run python -c x", ["python", "-c", "x"]), ("poetry run pytest -q", ["pytest", "-q"]),
+                          ("uv run --with rich python x.py", ["python", "x.py"]), ("pnpm exec tsc", ["tsc"]),
+                          ("npx -y rimraf dist", ["rimraf", "dist"]), ("pipenv run rm x", ["rm", "x"])):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(argvs(cmd)[-1], want)
+
+    def test_xargs_and_find_exec_mark_operands_unknown(self):
+        cmds = list(ks.iter_commands("ls | xargs git checkout --", CWD))
+        self.assertTrue(cmds[-1].operands_unknown)
+        cmds = list(ks.iter_commands("find . -exec git checkout {} \\;", CWD))
+        self.assertTrue(cmds[-1].operands_unknown)
+        self.assertFalse(list(ks.iter_commands("git checkout x", CWD))[0].operands_unknown)
+
+    def test_submodule_foreach(self):
+        self.assertIn(["git", "clean", "-fdx"], argvs("git submodule foreach --recursive git clean -fdx"))
+        self.assertIn(["git", "reset", "--hard"], argvs("git submodule foreach 'git reset --hard'"))
+        cmd = [c for c in ks.iter_commands("git submodule foreach 'rm x'", CWD) if c.prog == "rm"][0]
+        self.assertFalse(cmd.cwd_known)
+
+    def test_interpreter_mode(self):
+        self.assertEqual(ks.interpreter_mode(["python3", "-c", "x"]), ("code", "x"))
+        self.assertEqual(ks.interpreter_mode(["python3", "-"]), ("stdin", None))
+        self.assertEqual(ks.interpreter_mode(["python3", "-m", "x"]), ("file", None))
+        self.assertEqual(ks.interpreter_mode(["python3", "app.py"]), ("file", None))
+        self.assertIsNone(ks.interpreter_mode(["ls"]))
+
+
 class GitSplit(unittest.TestCase):
     def test_global_options(self):
         cases = {("status",): ("status", [], CWD), ("-C", "sub", "push", "origin"): ("push", ["origin"], CWD + "/sub"),

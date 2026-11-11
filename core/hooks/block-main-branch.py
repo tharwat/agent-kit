@@ -35,7 +35,6 @@ except ImportError:  # a partial install: fail open in main()
     kit_shell = None
 
 DEFAULT_MAIN = "main"
-PUSH_OPTS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
@@ -103,7 +102,8 @@ def normalize_ref(ref):
     return ref
 
 
-def check_push(args, directory, main):
+def check_push(args, directory, main, branch_of=None):
+    branch_of = branch_of or current_branch
     positionals = []
     everything = False
     i = 0
@@ -116,7 +116,7 @@ def check_push(args, directory, main):
             name = tok.split("=", 1)[0]
             if name in ("--all", "--mirror", "--branches"):
                 everything = True
-            if name in PUSH_OPTS_WITH_VALUE and "=" not in tok:
+            if name in kit_shell.PUSH_OPTS_WITH_VALUE and "=" not in tok:
                 i += 1
         else:
             positionals.append(tok)
@@ -127,7 +127,7 @@ def check_push(args, directory, main):
 
     refspecs = positionals[1:]
     if not refspecs:
-        branch = current_branch(directory)
+        branch = branch_of(directory)
         if branch == main:
             raise Blocked("`git push` with no refspec while on `%s` pushes `%s`" % (main, main))
         return
@@ -140,20 +140,74 @@ def check_push(args, directory, main):
         else:
             src = dst = spec
         if dst == "HEAD":
-            dst = current_branch(directory) or ""
+            dst = branch_of(directory) or ""
         if normalize_ref(dst) == main:
             raise Blocked("`git push` targets `%s`" % main)
 
 
-def check_git(args, directory, main):
+def ref_exists(directory, ref):
+    try:
+        out = subprocess.run(["git", "-C", directory, "show-ref", "--verify", "--quiet", ref],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0
+
+
+def switched_to(sub, rest, directory, main=None):
+    """The branch a `git checkout` / `git switch` in this command moves to: a name, "" for detached, or None when it
+    doesn't switch branches (or we can't tell)."""
+    def value_of(names):
+        for k, a in enumerate(rest):
+            for n in names:
+                if a == n and k + 1 < len(rest):
+                    return rest[k + 1]
+                if n.startswith("--") and a.startswith(n + "="):
+                    return a.split("=", 1)[1]
+                if not n.startswith("--") and a.startswith(n) and len(a) > len(n):
+                    return a[len(n):]
+        return None
+
+    if "--detach" in rest or (sub == "switch" and "-d" in rest):
+        return ""
+    created = value_of(("-b", "-B", "--orphan") if sub == "checkout" else
+                       ("-c", "-C", "--create", "--force-create", "--orphan"))
+    if created:
+        return created
+    if "--" in rest:
+        return None
+    pos = [a for a in rest if not a.startswith("-")]
+    if len(pos) != 1:
+        return None
+    name = pos[0]
+    if sub == "switch" or name == main:
+        return name
+    # `git checkout <name>`: a branch only if one exists by that name (else it may be a path)
+    if ref_exists(directory, "refs/heads/" + name) or ref_exists(directory, "refs/remotes/origin/" + name):
+        return name
+    return None
+
+
+def check_git(args, directory, main, branches=None):
+    """`branches` maps a directory to the branch an earlier command in this same tool call switched it to."""
+    branches = {} if branches is None else branches
+
+    def branch_of(d):
+        key = os.path.normpath(d)
+        return branches[key] if key in branches else current_branch(d)
+
     sub, rest, directory = kit_shell.git_split(args, directory)
     if sub == "commit":
         if "-h" in rest or "--help" in rest:
             return
-        if current_branch(directory) == main:
+        if branch_of(directory) == main:
             raise Blocked("`git commit` on `%s`" % main)
     elif sub == "push":
-        check_push(rest, directory, main)
+        check_push(rest, directory, main, branch_of)
+    elif sub in ("checkout", "switch"):
+        target = switched_to(sub, rest, directory, main)
+        if target is not None:
+            branches[os.path.normpath(directory)] = target or None
 
 
 def check_gh(args):
@@ -162,9 +216,10 @@ def check_gh(args):
 
 
 def check_command(command, cwd, main):
+    branches = {}
     for cmd in kit_shell.iter_commands(command, cwd):
         if cmd.prog == "git":
-            check_git(list(cmd.args), cmd.cwd, main)
+            check_git(list(cmd.args), cmd.cwd, main, branches)
         elif cmd.prog == "gh":
             check_gh(list(cmd.args))
 
