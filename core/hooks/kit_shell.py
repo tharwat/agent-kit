@@ -122,7 +122,7 @@ def _heredocs(command, registry):
                     i = j + 1 if j >= 0 else n
                     if (line.lstrip("\t") if dash else line).strip() == tag:
                         break
-                    lines.append(line)
+                    lines.append(line.lstrip("\t") if dash else line)  # <<- strips leading tabs
                 registry[idx] = (tag, "\n".join(lines), quoted)
             pending = []
             continue

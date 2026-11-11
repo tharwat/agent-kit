@@ -195,6 +195,46 @@ class ReviewRound1(HookCase):
         self.assertAllowed('git commit --squash HEAD -m "more"', self.ticket)
 
 
+class ReviewRound2(HookCase):
+    def test_variables_make_the_message_unknown(self):
+        for cmd in ('git commit -m "$MSG"', 'T=ABC-12; git commit -m "${T}: fix"', 'echo "$MSG" | git commit -F -',
+                    "printf '%s\\n' 'ABC-12: x' | git commit -F -"):
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(cmd, self.ticket)
+        self.assertBlocked("git commit -m 'fix $5 bug'", self.ticket, "ABC-12: ")  # single quotes: known
+
+    def test_dev_stdin(self):
+        self.assertAllowed("git commit -F /dev/stdin <<'EOF'\nABC-12: x\nEOF", self.ticket)
+        self.assertBlocked("git commit -F /dev/stdin <<'EOF'\nABC-12: x\n\n%s\nEOF" % TRAILER, self.ticket,
+                           "AI attribution")
+
+    def test_printf_newlines(self):
+        self.assertBlocked("git commit -m \"$(printf 'ABC-12: x\\n\\n%s')\"" % TRAILER, self.plain,
+                           "AI attribution")
+
+    def test_dash_heredoc_strips_tabs(self):
+        self.assertAllowed("git commit -m \"$(cat <<-'EOF'\n\tABC-12: x\n\tEOF\n)\"", self.ticket)
+
+    def test_message_file_beside_git_dash_c(self):
+        with open(os.path.join(self.project, "msg.txt"), "w", encoding="utf-8") as fh:
+            fh.write("wrong subject\n")
+        self.assertAllowed("git -C ticket commit -F ok.txt", self.project)
+
+    def test_unknown_cwd_skips_the_ticket_check(self):
+        self.assertAllowed('cd "$OTHER_REPO" && git commit -m "tidy"', self.ticket)
+
+    def test_gh_merge_and_review(self):
+        self.assertBlocked("gh pr merge 3 --squash --body $'Summary\\n\\n%s'" % TRAILER, self.plain)
+        self.assertBlocked('gh pr merge 3 --squash -t "x" -b "%s"' % GENERATED, self.plain)
+        self.assertBlocked('gh pr review 3 --approve --body "%s"' % TRAILER, self.plain)
+        self.assertAllowed('gh pr merge 3 --squash --subject "ABC-12: x (#3)"', self.plain)
+
+    def test_ordinary_generator_words(self):
+        self.assertAllowed('git commit -m "ABC-12: x" -m "Generated with sqlc for the cursor pagination queries"',
+                           self.ticket)
+        self.assertAllowed('gh pr comment 3 --body "🤖 bot: regenerated snapshots"', self.plain)
+
+
 class OtherPrefixes(HookCase):
     prefix, branch_prefix = "OPS", "none"
 

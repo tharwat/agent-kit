@@ -265,7 +265,8 @@ Rules for `pack.json`:
   so no `__pycache__` lands in `.claude/hooks/`. If the import fails, the hook fails open. `iter_commands()` yields
   every simple command, including `$(…)`, backticks, `bash -c`, `eval`, `xargs` and `find -exec` payloads.
 - **Project facts in a hook** come from `core/hooks/kit_facts.py` (`read_facts`, `fact`, `current_branch`,
-  `ticket_for_branch`). Don't re-parse the facts table in a hook.
+  `ticket_for_branch`). Don't re-parse the facts table in a new hook. The older pack hooks (hardening, worktrees)
+  still carry their own readers until they're moved over.
 - **Block messages teach.** Say what was blocked, which kit rule it breaks, and the allowed alternative.
 - **Core hooks** are declared in `core/pack.json` `hooks`, the same way packs declare theirs. New hook commands use
   `python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/<x>.py` and an explicit `timeout`.

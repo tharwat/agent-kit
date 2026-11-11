@@ -29,12 +29,13 @@ try:
 except ImportError:  # a partial install: fail open in main()
     kit_shell = kit_facts = None
 
-AI = r"(claude|codex|chatgpt|gpt[-\w.]*|copilot|cursor|gemini|anthropic|openai|ai|llm)"
+AI = r"(claude|claude code|codex|chatgpt|gpt-?[0-9][\w.]*|copilot|gemini|anthropic|openai)"
 ATTRIBUTION = [
     (re.compile(r"^\s*co-authored-by\s*:", re.I | re.M), "a `Co-Authored-By:` trailer"),
     (re.compile(r"^\W*generated with\b.*\b%s\b" % AI, re.I | re.M), "a \"Generated with\" line"),
-    (re.compile(r"^.*🤖.*(claude|generated)", re.I | re.M), "a 🤖 Claude Code line"),
+    (re.compile(r"^.*🤖.*\b(claude|generated)\b", re.I | re.M), "a 🤖 Claude Code line"),
 ]
+STDIN_PATHS = {"-", "/dev/stdin", "/dev/fd/0"}
 MAX_FILE = 256 * 1024
 SUBST_RE = re.compile(r"\$\(\s*cat\s+<<-?\s*__kit_heredoc_(\d+)__\s*\)")
 # `git commit` options that take a value, short (letters) and long
@@ -64,7 +65,10 @@ def read_file(path, cwd):
 
 
 def stdin_text(cmd):
-    return Text("\n".join(cmd.stdin), known=bool(cmd.stdin))
+    """What a command reads on stdin. A `$` or backtick in it, or a printf format, may change at run time."""
+    text = "\n".join(cmd.stdin)
+    known = bool(cmd.stdin) and "$" not in text and "`" not in text and not re.search(r"%[-+ #0-9.]*[sdbqifx]", text)
+    return Text(text, known)
 
 
 def expand(value, registry):
@@ -74,7 +78,10 @@ def expand(value, registry):
         n = int(m.group(1))
         return registry[n][1] if n < len(registry) else m.group(0)
     text = SUBST_RE.sub(body, str(value))
-    known = "$(" not in text and "`" not in text
+    # known only when the shell won't change it: no expansion outside single quotes, other than the heredoc cats
+    raw = SUBST_RE.sub("", getattr(value, "raw", str(value)))
+    raw = re.sub(r"'[^']*'", "", raw)
+    known = "$" not in raw and "`" not in raw
     return Text(text, known)
 
 
@@ -112,8 +119,11 @@ def parse_options(args, short_value, long_value):
 
 
 def check_attribution(text, what):
+    text = text or ""
+    if "\\n" in text:  # `$(printf 'a\\n\\nCo-Authored-By: …')`: the shell makes real newlines of these
+        text += "\n" + text.replace("\\n", "\n")
     for rx, label in ATTRIBUTION:
-        if rx.search(text or ""):
+        if rx.search(text):
             raise Blocked("%s in the %s. agent-kit forbids AI attribution (CLAUDE.kit.md, Git and workflow): remove "
                           "it" % (label, what))
 
@@ -126,7 +136,7 @@ def check_commit(cmd, rest, cwd, registry, facts):
     parts = [expand(v, registry) for n, v in opts if n in ("-m", "--message") and v is not None]
     for n, v in opts:
         if n in ("-F", "--file") and v is not None:
-            parts.append(stdin_text(cmd) if str(v) == "-" else read_file(str(v), cmd.cwd))
+            parts.append(stdin_text(cmd) if str(v) in STDIN_PATHS else read_file(str(v), cwd))
     for n, v in opts:
         if n == "--trailer" and v is not None:
             check_attribution(re.sub(r"\s*[=:]\s*", ": ", str(v), count=1), "commit trailer")
@@ -134,8 +144,8 @@ def check_commit(cmd, rest, cwd, registry, facts):
         return  # the editor, --amend --no-edit, -C <commit>: no message to check
     message = "\n\n".join(p.text for p in parts)
     check_attribution(message, "commit message")
-    if not all(p.known for p in parts) or names & {"--fixup", "--squash"}:
-        return  # we can't see the whole message, or git writes the subject itself
+    if not all(p.known for p in parts) or names & {"--fixup", "--squash"} or not cmd.cwd_known:
+        return  # we can't see the whole message or the repo, or git writes the subject itself
     ticket = kit_facts.ticket_for_branch(kit_facts.current_branch(cwd), facts)
     if not ticket:
         return
@@ -147,18 +157,23 @@ def check_commit(cmd, rest, cwd, registry, facts):
 
 def check_gh(cmd, registry):
     args = list(cmd.args)
-    if len(args) < 2 or args[0] not in ("pr", "issue") or args[1] not in ("create", "edit", "comment"):
+    if len(args) < 2 or args[0] not in ("pr", "issue"):
         return
-    what = "%s %s" % (args[0], "comment" if args[1] == "comment" else "title or body")
-    opts = parse_options(args[2:], "tbFB", {"--title", "--body", "--body-file", "--base", "--head", "--repo",
-                                            "--label", "--assignee", "--reviewer", "--milestone", "--project"})
+    if args[1] not in ("create", "edit", "comment", "review") and not (args[0] == "pr" and args[1] == "merge"):
+        return
+    # pr merge --subject/--body writes the squash commit on main; review/comment bodies are posted as written
+    what = "%s %s" % (args[0], {"comment": "comment", "review": "review", "merge": "merge commit"}.get(
+        args[1], "title or body"))
+    opts = parse_options(args[2:], "tbFBA", {"--title", "--subject", "--body", "--body-file", "--base", "--head",
+                                             "--repo", "--label", "--assignee", "--reviewer", "--milestone",
+                                             "--project", "--author-email", "--match-head-commit"})
     for n, v in opts:
         if v is None:
             continue
-        if n in ("-t", "--title", "-b", "--body"):
+        if n in ("-t", "--title", "--subject", "-b", "--body"):
             check_attribution(expand(v, registry).text, what)
         elif n in ("-F", "--body-file"):
-            check_attribution((stdin_text(cmd) if str(v) == "-" else read_file(str(v), cmd.cwd)).text, what)
+            check_attribution((stdin_text(cmd) if str(v) in STDIN_PATHS else read_file(str(v), cmd.cwd)).text, what)
 
 
 def check_command(command, cwd):

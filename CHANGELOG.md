@@ -7,8 +7,8 @@ installed version before an upgrade.
 ## 1.5.1 — 2026-11-11
 
 - **New hook `guard-commit-message.py` (core).** It checks the message of `git commit` (`-m`, `--message`, `-F` file
-  or stdin, and the `-m "$(cat <<'EOF' … EOF)"` form) and the text of `gh pr` / `gh issue` `create`, `edit` and
-  `comment`.
+  or stdin, and the `-m "$(cat <<'EOF' … EOF)"` form) and the text of `gh pr` / `gh issue` `create`, `edit`,
+  `comment` and `review`, and of `gh pr merge` (`--subject`, `--body`: the squash commit).
   - **Attribution:** blocks a `Co-Authored-By:` trailer (in the text or through `--trailer`), a "Generated with
     <AI tool>" line or a 🤖 Claude Code line, on any branch. Bundled flags (`-am`), `--message=`, `$'…'`, a piped
     `-F -` and several heredoc messages in one command are all read correctly.
