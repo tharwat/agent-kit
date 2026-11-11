@@ -8,7 +8,7 @@ installed version before an upgrade.
 
 - **New hook `block-destructive.py` (core).** It blocks destructive filesystem and git commands that the deny list
   can't see: options before the subcommand (`git -C x reset --hard`), combined short flags (`git push -uf`),
-  `+refspec` force pushes, `git checkout <path>` / `<rev> <path>` / `--ours`, `git branch -f/-M/-C`, `git restore`
+  `+refspec` force pushes, `git checkout <path>` / `<rev> <path>` / `--ours`, `git branch -f`, `git checkout -B` / `git switch -C` / `git branch -M/-C` over a branch that already exists (a new name is allowed), `git restore`
   (allowed: `--staged` alone), `git rm` (allowed: `--cached`), `find -delete`, and deletes passed as arguments
   (`xargs rm`, `find -exec rm`, `bash -c "…"`, `bash <<'EOF'`, `eval`, `git submodule foreach`, and `python3 -c` /
   `node -e` / `perl -e` / `python3 - <<'EOF'` code, also behind `uv run` / `poetry run` / `npx`). `rm` is allowed only when every operand is a plain path inside this session's

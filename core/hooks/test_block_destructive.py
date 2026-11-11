@@ -52,7 +52,7 @@ BLOCKED = {
                   "git submodule foreach --recursive git clean -fdx"],
     "git branch -D": ["git branch -D x", "git branch --delete --force x", "git branch -d -f x", "git branch -df x",
                       "git -C x branch -D y", "git branch -f main HEAD~3", "git -C . branch -f x",
-                      "git branch -M old new", "git branch -C old new", "git branch --force x y"],
+                      "git branch --force x y"],
     "force push": ["git push -f", "git push --force", "git push --force-with-lease", "git push --force-with-lease=x",
                    "git push origin +feature/x", "git push origin feature/x +other", "git push -uf origin x",
                    "git push -fu origin x", "git -C x push --force", "git push origin x --force"],
@@ -89,7 +89,8 @@ ALLOWED = {
     "git clean": ["git clean -n", "git clean --dry-run", "git clean -nd", "git clean -n -d -x", "git clean -Xn",
                   "git clean -X -n"],
     "git branch -D": ["git branch -d x", "git branch --delete x", "git branch -a", "git branch new-feature",
-                      "git branch -m old new", "git branch -u origin/x", "git branch --format=%(refname)"],
+                      "git branch -m old new", "git branch -u origin/x", "git branch --format=%(refname)",
+                      "git branch -M old new", "git branch -C old new"],  # no such branch here: see OverwriteBranch
     "force push": ["git push -u origin feature/x", "git push", "git push origin HEAD", "git push --follow-tags",
                    "git push -o ci.skip origin x", "git push origin feature/x:feature/x"],
     "git checkout -- <path> discards changes": [
@@ -209,6 +210,51 @@ class ScratchDir(HookCase):
 
     def test_scratch_outside_a_temp_root(self):
         self.assertBlocked("rm /%s/scratchpad/x" % SESSION, "rm")
+
+
+
+class OverwriteBranch(HookCase):
+    """Owner decision: -B / -C / -M (and -m / -c with --force) are blocked only when the target branch exists."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.repo = os.path.join(os.path.dirname(cls.project), "repo")
+        os.makedirs(cls.repo)
+
+        def git(*args):
+            subprocess.run(["git", "-C", cls.repo] + list(args), check=True, capture_output=True)
+        git("init", "-q", "-b", "main")
+        git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "i")
+        git("branch", "feature/x")
+
+    def test_existing_target_blocked(self):
+        for cmd in ("git checkout -B feature/x", "git checkout -B feature/x origin/main", "git checkout -qB main",
+                    "git checkout -Bmain", "git switch -C feature/x", "git switch -qC main",
+                    "git switch --force-create feature/x", "git switch --force-create=main",
+                    "git branch -M feature/x", "git branch -M old feature/x", "git branch -C main",
+                    "git branch -m -f old main", "git branch --move --force old main", "git branch -cf old main",
+                    "cd / && git -C %s checkout -B main" % self.repo):
+            with self.subTest(cmd=cmd):
+                self.assertBlocked(cmd, "git branch -D", cwd=self.repo)
+
+    def test_new_target_allowed(self):
+        for cmd in ("git checkout -B new-thing", "git checkout -B new-thing origin/main", "git switch -C new-thing",
+                    "git switch --force-create=new-thing", "git branch -M new-name", "git branch -M main renamed",
+                    "git branch -C main copy", "git checkout -bfixB", "git checkout -b feature/y",
+                    "git switch -cmain2"):
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(cmd, cwd=self.repo)
+
+    def test_unknown_target_blocked(self):
+        for cmd in ('git checkout -B "$BRANCH"', "cd - && git checkout -B new-thing", "git switch -C ${B}"):
+            with self.subTest(cmd=cmd):
+                self.assertBlocked(cmd, "git branch -D", cwd=self.repo)
+
+    def test_delete_and_plain_force_still_blocked(self):
+        for cmd in ("git branch -D new-thing", "git branch -f new-thing", "git branch -d --force new-thing"):
+            with self.subTest(cmd=cmd):
+                self.assertBlocked(cmd, "git branch -D", cwd=self.repo)
 
 
 class FailOpen(HookCase):

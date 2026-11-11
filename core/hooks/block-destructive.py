@@ -4,7 +4,7 @@
 
 The settings deny list refuses the plain prefix forms. This hook covers what a prefix rule can't see: options
 before the subcommand (`git -C x reset --hard`), combined short flags (`git push -uf`), `+refspec` force pushes,
-`git checkout <path>` (a path that exists and isn't a revision), `find -delete`, and deletes passed as arguments
+`git checkout <path>` (a path that exists and isn't a revision), `checkout -B` / `switch -C` / `branch -M` over an existing branch, `find -delete`, and deletes passed as arguments
 (`xargs rm`, `find -exec rm`, `bash -c "rm x"`, `bash <<'EOF'`, `python3 -c` / `node -e` code). Commands are parsed (kit_shell.py), never matched as raw text, so `grep "rm -rf" docs/` and
 `git commit -m "drop the rm call"` are allowed.
 
@@ -40,7 +40,7 @@ RULES = {
     "programmatic delete": "file deletes in python -c / node -e / ruby -e / perl -e code",
     "git reset --hard": "git reset --hard",
     "git clean": "git clean, unless -n/--dry-run without -f/-i",
-    "git branch -D": "git branch -D / -f / --force / -M / -C",
+    "git branch -D": "git branch -D / -f / --force; -M / -C, checkout -B, switch -C over an existing branch",
     "force push": "git push --force / -f / --force-with-lease / +refspec",
     "git checkout -- <path> discards changes": "git checkout -- <path>, <path>, <rev> <path>, ., -f/--force, --ours",
     "git stash drop/clear": "git stash drop / clear",
@@ -214,8 +214,16 @@ def check_git(cmd):
             raise Blocked("git clean", argv)
     elif sub == "branch":
         flags = short_flags(rest, "u")
-        # -D deletes unmerged; -f / --force moves or overwrites a branch; -M / -C rename or copy over an existing one
-        if flags & {"D", "f", "M", "C"} or "--force" in longs:
+        force = "f" in flags or "--force" in longs
+        # -D (or -d with --force) deletes unmerged work
+        if "D" in flags or (force and ("d" in flags or "--delete" in longs)):
+            raise Blocked("git branch -D", argv)
+        # -M / -C (or -m / -c with --force) rename or copy over the target: blocked only when it already exists
+        if flags & {"M", "C"} or (force and (flags & {"m", "c"} or longs & {"--move", "--copy"})):
+            pos = positionals(rest, ("-u", "--set-upstream-to"))
+            if pos and branch_exists(cmd, git_cwd, pos[-1]):
+                raise Blocked("git branch -D", argv)
+        elif force:  # -f moves a branch to another commit
             raise Blocked("git branch -D", argv)
     elif sub == "push":
         flags = short_flags(rest, "o")
@@ -226,6 +234,9 @@ def check_git(cmd):
             raise Blocked("force push", argv)
     elif sub == "checkout":
         flags = short_flags(rest, "bBt")
+        target = option_value(rest, "B", "bBt")
+        if target is not None and branch_exists(cmd, git_cwd, target):  # -B resets an existing branch
+            raise Blocked("git branch -D", argv)
         if "f" in flags or "--force" in longs or "--pathspec-from-file" in longs:
             raise Blocked("git checkout -- <path> discards changes", argv)
         if "--" in rest and rest.index("--") < len(rest) - 1:
@@ -261,6 +272,9 @@ def check_git(cmd):
         flags = short_flags(rest, "cCt")
         if "f" in flags or longs & {"--force", "--discard-changes"}:
             raise Blocked("git switch -f", argv)
+        target = option_value(rest, "C", "cCt", "--force-create")
+        if target is not None and branch_exists(cmd, git_cwd, target):  # -C resets an existing branch
+            raise Blocked("git branch -D", argv)
     elif sub == "worktree":
         if rest and rest[0] == "remove":
             if "f" in short_flags(rest[1:]) or "--force" in long_flags(rest[1:]):
@@ -268,6 +282,45 @@ def check_git(cmd):
     elif sub == "rm":
         if "--cached" not in longs:
             raise Blocked("rm", argv)
+
+
+def option_value(args, letter, value_chars, long_name=None):
+    """The value of short option `letter` (`-B x`, `-Bx`, `-qB x`) or of `long_name` (`--force-create x`, `=x`).
+    A letter in value_chars takes the rest of its group as its value, so `-bfixB` is `-b fixB`, not `-B`.
+    None when the option isn't given; "" when it is given without a value."""
+    for k, a in enumerate(args):
+        if a == "--":
+            break
+        if long_name and (a == long_name or a.startswith(long_name + "=")):
+            if "=" in a:
+                return a.split("=", 1)[1]
+            return args[k + 1] if k + 1 < len(args) else ""
+        if a.startswith("-") and not a.startswith("--") and a != "-":
+            group = a[1:]
+            for i, ch in enumerate(group):
+                if ch == letter:
+                    tail = group[i + 1:]
+                    if tail:
+                        return tail
+                    return args[k + 1] if k + 1 < len(args) else ""
+                if ch in value_chars:
+                    break
+    return None
+
+
+def branch_exists(cmd, directory, name):
+    """True when `name` is an existing local branch, so -B / -C / -M would replace it. When that can't be told (an
+    unknown cwd, an expansion in the name, git failing to run), assume it exists: the safe side is to block."""
+    if not name:
+        return False
+    if not cmd.cwd_known or kit_shell.has_expansion(name):
+        return True
+    try:
+        out = subprocess.run(["git", "-C", directory, "show-ref", "--verify", "--quiet", "refs/heads/" + str(name)],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return out.returncode == 0
 
 
 def is_revision(directory, name):
