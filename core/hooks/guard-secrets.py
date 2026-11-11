@@ -9,6 +9,9 @@ out of what it writes.
     password. Projects add their own globs in `docs/agent/secret-files.md` (one per bullet); the defaults always
     apply. Bash is checked on the file arguments of readers and copiers and on `< file` redirects, and `env`,
     `printenv`, `set`, `export -p` with no names (they dump every secret) and `printenv <secret-name>` are blocked.
+    A recursive `grep -r` (or `rg` / `ag` told to search hidden files) over a tree that holds a secret file is
+    blocked unless the command excludes it (`--exclude='.env*'`, `-g '!.env*'`) or prints only names (`-l`).
+    `source .env` / `. .env` are allowed: loading values prints nothing, and the print checks stay (owner decision).
     Writing a new `.env` with Write is allowed; the content scan below still runs.
 (b) Secret-content scan. Blocks new text (Write content, Edit/MultiEdit new_string, NotebookEdit new_source, the
     Bash command) holding a token shape (the token entries of the kit's manifest denylist) or a URL with an inline
@@ -71,8 +74,8 @@ DEV_PASSWORDS = {"postgres", "password", "pass", "root", "example", "changeme", 
                  "testing", "secret", "admin", "guest", "mysql", "redis", "app", "user"}
 
 READERS = {"cat", "less", "more", "head", "tail", "bat", "batcat", "nl", "tac", "grep", "egrep", "fgrep", "rg", "ag",
-           "awk", "gawk", "sed", "cut", "sort", "uniq", "diff", "base64", "xxd", "od", "hexdump", "strings", "source",
-           ".", "jq", "yq", "openssl", "ssh-keygen"}
+           "awk", "gawk", "sed", "cut", "sort", "uniq", "diff", "base64", "xxd", "od", "hexdump", "strings", "jq",
+           "yq", "openssl", "ssh-keygen"}  # not `source` / `.`: loading a file prints nothing (owner decision)
 COPIERS = {"cp", "mv", "scp", "rsync", "install"}
 ARCHIVERS = {"tar", "zip", "7z", "gzip", "bzip2", "xz", "zstd"}
 DATA_OPTS = {"-d", "--data", "--data-binary", "--data-raw", "--data-urlencode", "--data-ascii", "-F", "--form",
@@ -315,6 +318,117 @@ def check_operand(word, cwd, project, globs, what):
             check_path(hit, project, globs, what)
 
 
+VALUE_SHORT = {"grep": "ABCmdDef", "egrep": "ABCmdDef", "fgrep": "ABCmdDef", "rg": "ABCEMTdefgjmrt",
+               "ag": "ABCGgm"}  # short options that take a value: the rest of the group is that value
+CONTENT_HIDDEN = {"-l", "-L", "-c", "-q", "--files-with-matches", "--files-without-match", "--count", "--quiet",
+                  "--silent", "--count-matches", "--files"}  # these print names, counts or nothing: no file content
+PRUNE_DIRS = {".git", "node_modules", ".venv", "venv", "vendor", "__pycache__"}  # dependencies: their fixtures aren't ours
+WALK_LIMIT = 5000  # directories; past this the walk stops (fail open) so a huge tree never stalls a command
+
+
+def brace_alternatives(pattern):
+    m = re.match(r"^(.*)\{([^}]*)\}(.*)$", pattern)
+    return [m.group(1) + alt + m.group(3) for alt in m.group(2).split(",")] if m else [pattern]
+
+
+def option_values(args, names):
+    """Values of long or short options in `names`: `--exclude=x`, `--exclude x`, `-g x`, `-gx`."""
+    out = []
+    for k, a in enumerate(args):
+        a = str(a)
+        if a == "--":
+            break
+        for n in names:
+            if a == n and k + 1 < len(args):
+                out.append(str(args[k + 1]))
+            elif n.startswith("--") and a.startswith(n + "="):
+                out.append(a.split("=", 1)[1])
+            elif not n.startswith("--") and a.startswith(n) and len(a) > len(n):
+                out.append(a[len(n):])
+    return [alt for v in out for alt in brace_alternatives(v.strip("'\""))]
+
+
+def recursive_search(prog, args):
+    """(excludes, dir_excludes, includes) when this grep / rg / ag searches directory trees and prints matching
+    lines, else None. rg and ag skip hidden files unless told otherwise, so they count only with --hidden / -u."""
+    strs = [str(a) for a in args]
+    if set(strs) & CONTENT_HIDDEN:
+        return None
+    letters = set()
+    for a in strs:
+        if a == "--":
+            break
+        if a.startswith("-") and not a.startswith("--"):
+            for ch in a[1:]:
+                letters.add(ch)
+                if ch in VALUE_SHORT.get(prog, ""):
+                    break
+    if letters & {"l", "L", "c", "q"}:
+        return None
+    if prog in ("grep", "egrep", "fgrep"):
+        recursive = letters & {"r", "R"} or set(strs) & {"--recursive", "--dereference-recursive"} or \
+            "recurse" in option_values(strs, ["--directories", "-d"])
+        if not recursive:
+            return None
+        return (option_values(strs, ["--exclude"]), option_values(strs, ["--exclude-dir"]),
+                option_values(strs, ["--include"]))
+    if prog == "rg":
+        hidden = "--hidden" in strs or "." in letters or any(a.startswith("-uu") or a == "-u" and strs.count("-u") > 1
+                                                              for a in strs)
+        if not hidden:
+            return None
+        globs_ = option_values(strs, ["-g", "--glob", "--iglob"])
+        return ([g[1:] for g in globs_ if g.startswith("!")], [], [g for g in globs_ if not g.startswith("!")])
+    if prog == "ag":
+        if not set(strs) & {"--hidden", "-u", "--unrestricted"}:
+            return None
+        return (option_values(strs, ["--ignore"]), [], [])
+    return None
+
+
+def first_secret_in_tree(top, project, globs, excludes, dir_excludes, includes):
+    """The first secret file a recursive search of `top` would read, as (path, glob), or None."""
+    seen = 0
+    for root, dirs, files in os.walk(top):
+        seen += 1
+        if seen > WALK_LIMIT:
+            return None
+        dirs[:] = [d for d in dirs if d not in PRUNE_DIRS
+                   and not any(fnmatch.fnmatchcase(d, g.rstrip("/")) for g in dir_excludes)]
+        for name in files:
+            if any(fnmatch.fnmatchcase(name, g.split("/")[-1]) for g in excludes):
+                continue
+            if includes and not any(fnmatch.fnmatchcase(name, g.split("/")[-1]) for g in includes):
+                continue
+            full = os.path.join(root, name)
+            reason = secret_reason(full, project, globs)
+            if reason:
+                return full, reason
+    return None
+
+
+def check_recursive_search(prog, args, files, cwd, project, globs):
+    spec = recursive_search(prog, args)
+    if spec is None:
+        return
+    for f in files or ["."]:
+        text = home_expanded(str(f))
+        if set(text) & set("*?[$`"):
+            continue  # a glob or expansion operand: the per-file check above already covers what it selects
+        top = os.path.normpath(os.path.join(cwd, text))
+        if not os.path.isdir(top):
+            continue
+        hit = first_secret_in_tree(top, project, globs, *spec)
+        if hit:
+            name = os.path.basename(hit[0])
+            raise Blocked("`%s` searches %s, which holds the secret file %s (%s), and would print its matching "
+                          "lines. Exclude it and retry: add `--exclude='%s'` (rg: `-g '!%s'`), or search a "
+                          "narrower path. `-l` (file names only) is fine"
+                          % (prog, os.path.relpath(top, cwd) if top != cwd else ".",
+                             os.path.relpath(hit[0], cwd), hit[1], ".env*" if name.startswith(".env") else name,
+                             ".env*" if name.startswith(".env") else name))
+
+
 def check_bash(command, cwd, project, globs):
     scan_text(command, "the command")  # needs no parsing, so it runs even when the parser gives up
     for cmd in kit_shell.iter_commands(command, cwd):
@@ -356,6 +470,8 @@ def check_bash(command, cwd, project, globs):
                 files = files[1:]
             for f in files:
                 check_operand(f, cmd.cwd, project, globs, "read")
+            if prog in PATTERN_FIRST:
+                check_recursive_search(prog, args, files, cmd.cwd, project, globs)
         elif prog in COPIERS:
             ops = positionals(args, COPY_VALUE_OPTS.get(prog, set()), keep=())
             if any(a in ("-t", "--target-directory") or str(a).startswith("--target-directory=") for a in args):
