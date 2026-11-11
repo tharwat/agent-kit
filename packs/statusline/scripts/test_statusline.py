@@ -65,6 +65,24 @@ class StatusLine(unittest.TestCase):
         self.assertEqual(self.run_line(raw="{nope"), "Claude")
         self.assertTrue(self.run_line(raw="").startswith("Claude"))
 
+    def test_wrong_field_types(self):
+        d = self.data(3)
+        d["model"] = "opus"
+        d["context_window"] = 0
+        self.assertEqual(self.run_line(d), "Claude · feature/abc-12-nav · ABC-12 · context –")
+
+    def test_command_finds_the_script_from_a_subdirectory(self):
+        import re
+        pack = json.load(open(os.path.join(HERE, "..", "pack.json"), encoding="utf-8"))
+        cmd = pack["settings"]["statusLine"]["command"]
+        sub = os.path.join(self.project, "packages", "app")
+        os.makedirs(sub)
+        env = dict(os.environ)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        r = subprocess.run(["sh", "-c", cmd], input=json.dumps(self.data(7)), capture_output=True, text=True,
+                           cwd=sub, env=env, timeout=30)
+        self.assertEqual(r.stdout.strip(), "Opus · feature/abc-12-nav · ABC-12 · context 7% used", r.stderr)
+
     def test_bad_percentage(self):
         self.assertEqual(self.run_line(raw=json.dumps(self.data(1)).replace("1,", "NaN,", 1)),
                          "Opus · feature/abc-12-nav · ABC-12 · context –")

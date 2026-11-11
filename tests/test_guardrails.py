@@ -330,6 +330,24 @@ class StatusLinePack(Base):
         self.assertEqual(rc, 0, out + err)
         self.assertEqual(load_json(self.t(".claude/settings.json"))["statusLine"]["padding"], 1)
 
+    def test_removed_key_stays_removed_and_dropped_pack_is_reported(self):
+        self.apply(self.answers(packs=("statusline",)))
+        path = self.t(".claude/settings.json")
+        settings = load_json(path)
+        settings.pop("statusLine")
+        write(path, json.dumps(settings, indent=2))
+        rc, out, err = run(["upgrade", "--target", self.target, "--kit", self.kit])
+        self.assertEqual(rc, 0, out + err)
+        self.assertNotIn("statusLine", load_json(path))
+        # back in, then the pack dropped: the key stays and the plan says so
+        other = self.tmp()
+        self.target = other
+        self.apply(self.answers(packs=("statusline",)))
+        rc, out, err = self.cli("plan", self.answers())
+        self.assertIn("no longer installed", out + err)
+        self.apply(self.answers())
+        self.assertIn("statusLine", load_json(self.t(".claude/settings.json")))
+
     def test_malformed_settings_refused(self):
         for bad in (["statusLine"], {"statusLine": "python3 x.py"}, {"statusLine": {"type": "command"}}):
             with self.subTest(bad=bad):

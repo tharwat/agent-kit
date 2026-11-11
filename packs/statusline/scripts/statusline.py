@@ -35,8 +35,12 @@ def branch_of(directory):
         return None
 
 
+def obj(value):
+    return value if isinstance(value, dict) else {}
+
+
 def context_part(data):
-    window = data.get("context_window") or {}
+    window = obj(data.get("context_window"))
     pct = window.get("used_percentage")
     if isinstance(pct, (int, float)) and not isinstance(pct, bool) and math.isfinite(pct):
         return "context %d%% used" % round(pct)
@@ -44,9 +48,9 @@ def context_part(data):
 
 
 def line_for(data):
-    model = data.get("model") or {}
+    model = obj(data.get("model"))
     name = str(model.get("display_name") or model.get("id") or "Claude")
-    ws = data.get("workspace") or {}
+    ws = obj(data.get("workspace"))
     cwd = ws.get("current_dir") or data.get("cwd") or os.getcwd()
     project = ws.get("project_dir") or os.environ.get("CLAUDE_PROJECT_DIR") or cwd
     parts = [name]

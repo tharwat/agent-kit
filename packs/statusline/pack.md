@@ -10,7 +10,8 @@ the Project facts in `CLAUDE.md`. It makes no network calls and writes nothing.
 - **Ticket** is shown on a `<BRANCH_PREFIX><ticket-lowercase>-<slug>` branch.
 - **A project status line already in `.claude/settings.json` is kept,** and the plan says so. This one is a project
   setting, so it takes precedence over each developer's personal status line in `~/.claude/settings.json`; the plan
-  warns when you have one. Remove the pack (or set your own in `.claude/settings.local.json`) to use yours.
+  warns when you have one. To use yours, remove the `statusLine` key from `.claude/settings.json` (the kit won't add it
+  back), or set yours in `.claude/settings.local.json`.
 - Codex has no status line; this pack does nothing there.
 
 This pack adds no steps to core commands.

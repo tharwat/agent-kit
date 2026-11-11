@@ -1331,10 +1331,17 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
                 plan.errors.append(f"{u}: pack.json settings.{k} is malformed")
                 continue
             if k in claimed:
-                plan.settings["kept"].append({"key": k, "unit": u, "reason": f"the {claimed[k]} pack sets it first"})
+                first = claimed[k]
+                reason = (f"the {first} pack sets it first" if k in written else
+                          "the project sets its own (the %s pack's value was kept out too)" % first)
+                plan.settings["kept"].append({"key": k, "unit": u, "reason": reason})
                 continue
             claimed[k] = u
-            if k not in new:
+            if k not in new and k in kit_wrote:
+                # the kit set it before and the project removed it: that choice stands
+                written[k] = kit_wrote[k]
+                plan.settings["kept"].append({"key": k, "unit": u, "reason": "the project removed it earlier"})
+            elif k not in new:
                 new[k] = copy.deepcopy(v)
                 plan.settings["keys"].append(k)
                 written[k] = v
@@ -1346,7 +1353,7 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
                 written[k] = v
             else:
                 plan.settings["kept"].append({"key": k, "unit": u, "reason": "the project sets its own"})
-            if k == "statusLine" and k in written and personal_setting(k):
+            if k == "statusLine" and k in plan.settings["keys"] and personal_setting(k):
                 plan.warnings.append("statusLine: this project's status line (from the statusline pack) takes "
                                      "precedence over the one in your ~/.claude/settings.json")
     # Permissions: union, existing order first.
@@ -1403,6 +1410,11 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
             lst.append(ng)
             for h in add:
                 plan.settings["hooks"].append(f"{event}[{g.get('matcher', '*')}]: {h.get('command')} ({u})")
+    for k, v in kit_wrote.items():  # set by a pack that's no longer installed: reported, never removed by the kit
+        if k not in claimed and new.get(k) == v:
+            written[k] = v
+            plan.warnings.append(f"{k}: set by a pack that is no longer installed; it stays in .claude/settings.json "
+                                 "until you remove it")
     lock = {"src": src, "unit": unit, "project_owned": False, "merge": "settings-json", "status": "installed"}
     if written:
         lock["pack_settings"] = written
