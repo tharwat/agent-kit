@@ -60,7 +60,7 @@ def template_deny():
     return load_json(os.path.join(KIT, "core", "settings.json.tmpl"))["permissions"]["deny"]
 
 
-class DenyList(Base):
+class DenyRules(unittest.TestCase):
     def test_matcher_semantics(self):
         self.assertTrue(rule_matches("Bash(git checkout * -- *)", "git checkout main --"))
         self.assertTrue(rule_matches("Bash(ls *)", "ls"))
@@ -87,6 +87,8 @@ class DenyList(Base):
             with self.subTest(cmd=cmd):
                 self.assertEqual([r for r in deny if rule_matches(r, cmd)], [], cmd)
 
+
+class DenyListInstall(Base):
     def test_fresh_install_has_every_rule(self):
         self.apply(self.answers())
         deny = load_json(self.t(".claude/settings.json"))["permissions"]["deny"]

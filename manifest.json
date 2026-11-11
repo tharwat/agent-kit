@@ -157,7 +157,7 @@
         "reason": "programmatic delete"
       },
       {
-        "regex": "reset\\s+--hard",
+        "regex": "reset\\s+(\\S+\\s+)*--hard",
         "reason": "git reset --hard"
       },
       {
@@ -165,7 +165,7 @@
         "reason": "git clean"
       },
       {
-        "regex": "\\bbranch\\s+-D\\b",
+        "regex": "\\bbranch\\s+-D\\b|\\bgit\\s+branch\\s+(\\S+\\s+)*(-D\\b|-f\\b|--force\\b)",
         "reason": "git branch -D"
       },
       {
@@ -173,7 +173,7 @@
         "reason": "force push"
       },
       {
-        "regex": "\\bcheckout\\s+--\\s",
+        "regex": "\\bcheckout\\s+--\\s|\\bgit\\s+checkout\\s+(\\S+\\s+)*(--\\s|-f\\b|--force\\b|\\.(?=[\\s/`'\"]|$))",
         "reason": "git checkout -- <path> discards changes"
       },
       {
@@ -185,11 +185,11 @@
         "reason": "git restore"
       },
       {
-        "regex": "\\bswitch\\s+(\\S+\\s+)*(-f\\b|--force\\b|--discard-changes\\b)",
+        "regex": "\\bgit\\s+switch\\s+(\\S+\\s+)*(-f\\b|--force\\b|--discard-changes\\b)",
         "reason": "git switch -f"
       },
       {
-        "regex": "\\bworktree\\s+remove\\s+(\\S+\\s+)*(--force\\b|-f\\b)",
+        "regex": "\\bgit\\s+worktree\\s+remove\\s+(\\S+\\s+)*(--force\\b|-f\\b)",
         "reason": "git worktree remove --force"
       }
     ],

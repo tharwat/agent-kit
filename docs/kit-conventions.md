@@ -165,7 +165,7 @@ A post-merge failure is fixed forward on a new ticket and alerts the owner.
 3. **No destructive commands** in any instruction: no `rm`, `rmdir`, `find -delete`, `unlink`, `git reset --hard`,
    `git clean`, `git push --force` / `-f` / `--force-with-lease`, `git checkout -- <path>` / `.` / `-f`,
    `git switch -f` / `--discard-changes`, `git restore` (except `--staged` alone), `git stash drop` / `clear`,
-   `git worktree remove --force`, `git branch -D`. Instead: rename to
+   `git worktree remove --force`, `git branch -D` / `-f` / `--force`. Instead: rename to
    `<file>.pre-agent-kit`, mark a file `restored`, `git checkout --detach origin/<MAIN_BRANCH>`, `git stash`
    (never drop), or a disposable `git worktree`. Test code uses `tempfile.TemporaryDirectory` or `fs.mkdtemp`, and
    never shells out to `rm`.
