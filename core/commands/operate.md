@@ -10,6 +10,8 @@ argument-hint: "[ticket]"
 
 Invoked with: `/operate [ticket]`. With no ticket, take the key from the branch name.
 
+**Record check.** First run `python3 .claude/hooks/check-record.py --start operate --ticket <ticket>`. The last step runs `--kind operate` the same way, and a Stop hook reminds Claude if the record is still missing. Codex runs both steps too.
+
 The middle step of **`/triage` → `/operate` → `/post-op`** (then the optional `/peer-review`, then `/ship`). It is a
 discipline to follow, not advice to weigh.
 
@@ -214,6 +216,9 @@ Red-team probes: <each probe and lens, with what it found>
 
 The last `Fingerprint:` line in the file is the current record. `/post-op` won't start the code review (Step 1.5)
 unless it equals the current fingerprint.
+
+4. Run `python3 .claude/hooks/check-record.py --kind operate --ticket <ticket>`. Fix the record and re-run until it
+   exits 0.
 
 **Review-ready checklist.** Don't hand code to `/post-op` until:
 1. every contract row has a behavioral proof on the exact runtime path, and its named bad behavior demonstrably

@@ -10,6 +10,8 @@ Values written `<LIKE_THIS>` come from the Project facts block in `CLAUDE.md`.
 
 Invoked as `/triage [<ticket>]`.
 
+**Record check.** First run `python3 .claude/hooks/check-record.py --start triage --ticket <ticket>`. The last step runs `--kind triage` the same way, and a Stop hook reminds Claude if the record is still missing. Codex runs both steps too.
+
 Triage checks a ticket against the current code **before implementation**. It finds stale assumptions, work that's
 already done and the fix's blast radius, and it writes the binding contract that `/operate` discharges. It is
 analysis only: never start implementing.
@@ -284,6 +286,8 @@ state a status:
 2. **Exact copy.** Write `.claude/state/<ticket>/triage.md` (gitignored) with the final design decisions, every
    contract row and every vector **verbatim**, plus the comment ids. A tracker's renderer can drop characters, so
    this file, not the comment, is what `/operate` reads.
+3. **Record check.** Run `python3 .claude/hooks/check-record.py --kind triage --ticket <ticket>`. Fix
+   `.claude/state/<ticket>/triage.md` and re-run until it exits 0.
 
 End the report with `Context: ready to /clear`. Never ask the owner whether clearing is safe.
 
