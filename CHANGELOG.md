@@ -4,6 +4,21 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.5.1 — 2026-11-11
+
+- **New hook `guard-commit-message.py` (core).** It checks the message of `git commit` (`-m`, `--message`, `-F` file
+  or stdin, and the `-m "$(cat <<'EOF' … EOF)"` form) and the text of `gh pr` / `gh issue` `create`, `edit` and
+  `comment`.
+  - **Attribution:** blocks a `Co-Authored-By:` trailer, a "Generated with" line or a 🤖 Claude Code line, on any
+    branch.
+  - **Ticket commits:** on a ticket branch (`<BRANCH_PREFIX><ticket-lowercase>-<n>-<slug>`), the subject must start
+    with `<TICKET>-<n>: `, that exact ticket in upper case. Any subject is fine on other branches.
+  - Commits with no message argument (the editor, `--amend --no-edit`) are allowed.
+- **Shared facts reader `kit_facts.py`** in `.claude/hooks/`: the Project facts table and branch → ticket.
+
+**Upgrade touches:** `.claude/settings.json` (adds the `guard-commit-message.py` PreToolUse hook), `.claude/hooks/`
+(adds `guard-commit-message.py` and `kit_facts.py`).
+
 ## 1.5.0 — 2026-11-11
 
 - **New hook `guard-secrets.py` (core),** on Read, Edit, Write, MultiEdit, NotebookEdit, Bash and Grep.

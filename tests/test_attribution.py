@@ -19,6 +19,15 @@ class NoAttribution(Base):
         self.assertEqual(attr["pr"], "")
         self.assertIs(attr["sessionUrl"], False)
 
+    def test_commit_message_guard_is_wired(self):
+        self.apply(self.answers())
+        settings = load_json(self.t(".claude/settings.json"))
+        cmds = [h["command"] for g in settings["hooks"]["PreToolUse"] if g.get("matcher") == "Bash"
+                for h in g["hooks"]]
+        self.assertIn('python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/guard-commit-message.py', cmds)
+        for f in ("guard-commit-message.py", "kit_facts.py", "kit_shell.py"):
+            self.assertTrue(os.path.isfile(self.t(".claude/hooks/" + f)), f)
+
     def test_projects_own_attribution_setting_is_kept(self):
         write(self.t(".claude/settings.json"), '{"attribution": {"commit": "ours"}}')
         self.apply(self.answers())
