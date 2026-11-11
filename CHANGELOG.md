@@ -9,11 +9,15 @@ installed version before an upgrade.
 - **New hook `guard-commit-message.py` (core).** It checks the message of `git commit` (`-m`, `--message`, `-F` file
   or stdin, and the `-m "$(cat <<'EOF' … EOF)"` form) and the text of `gh pr` / `gh issue` `create`, `edit` and
   `comment`.
-  - **Attribution:** blocks a `Co-Authored-By:` trailer, a "Generated with" line or a 🤖 Claude Code line, on any
-    branch.
+  - **Attribution:** blocks a `Co-Authored-By:` trailer (in the text or through `--trailer`), a "Generated with
+    <AI tool>" line or a 🤖 Claude Code line, on any branch. Bundled flags (`-am`), `--message=`, `$'…'`, a piped
+    `-F -` and several heredoc messages in one command are all read correctly.
   - **Ticket commits:** on a ticket branch (`<BRANCH_PREFIX><ticket-lowercase>-<n>-<slug>`), the subject must start
     with `<TICKET>-<n>: `, that exact ticket in upper case. Any subject is fine on other branches.
-  - Commits with no message argument (the editor, `--amend --no-edit`) are allowed.
+  - Commits with no message argument (the editor, `--amend --no-edit`) are allowed. When the hook can't see the
+    whole message (a file written earlier in the same command, `$(cat msg.txt)`), or with `--fixup` / `--squash`,
+    it skips the ticket check.
+- `block-main-branch.py` now reads the facts through `kit_facts.py`.
 - **Shared facts reader `kit_facts.py`** in `.claude/hooks/`: the Project facts table and branch → ticket.
 
 **Upgrade touches:** `.claude/settings.json` (adds the `guard-commit-message.py` PreToolUse hook), `.claude/hooks/`

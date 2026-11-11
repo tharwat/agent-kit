@@ -148,6 +148,53 @@ class TicketFormat(HookCase):
                 self.assertAllowed(cmd, self.ticket)
 
 
+class ReviewRound1(HookCase):
+    def test_bundled_short_flags(self):
+        self.assertBlocked('git commit -am "wip\n\n%s"' % TRAILER, self.plain, "AI attribution")
+        self.assertBlocked('git commit -am "wip"', self.ticket, "ABC-12: ")
+        self.assertAllowed('git commit -am "ABC-12: wip"', self.ticket)
+        self.assertAllowed('git commit -sm "ABC-12: wip"', self.ticket)
+
+    def test_heredocs_matched_by_marker_not_position(self):
+        cmd = ("cat > notes.txt <<'EOF'\nplain notes\nEOF\n" + heredoc_commit("ABC-12: x\n\n" + TRAILER))
+        self.assertBlocked(cmd, self.ticket, "AI attribution")
+        two = heredoc_commit("ABC-12: one") + " && " + heredoc_commit("ABC-12: two\n\n" + TRAILER)
+        self.assertBlocked(two, self.ticket, "AI attribution")
+
+    def test_piped_stdin_message(self):
+        self.assertAllowed("echo 'ABC-12: x' | git commit -F -", self.ticket)
+        self.assertBlocked("printf 'x\\n\\n%s\\n' | git commit -F -" % TRAILER, self.plain)
+        self.assertBlocked("cat <<'EOF' | gh pr create -t x -F -\nSummary\n\n%s\nEOF" % GENERATED, self.plain)
+
+    def test_unknown_message_skips_the_ticket_check(self):
+        for cmd in ("printf 'ABC-12: x\\n' > m.txt && git commit -F m.txt", 'git commit -m "$(cat msg.txt)"',
+                    "some-tool | git commit -F -"):
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(cmd, self.ticket)
+
+    def test_message_equals_and_attached_forms_expanded(self):
+        cmd = "git commit --message=\"$(cat <<'EOF'\nABC-12: fix\n\n%s\nEOF\n)\"" % TRAILER
+        self.assertBlocked(cmd, self.plain, "AI attribution")
+        self.assertAllowed("git commit --message=\"$(cat <<'EOF'\nABC-12: fix\nEOF\n)\"", self.ticket)
+
+    def test_trailer_option(self):
+        self.assertBlocked('git commit -m "ABC-12: x" --trailer "Co-authored-by: C <n@x>"', self.ticket, "trailer")
+        self.assertBlocked('git commit -m "ABC-12: x" --trailer=co-authored-by=C', self.ticket, "trailer")
+        self.assertAllowed('git commit -m "ABC-12: x" --trailer "Reviewed-by: A <a@b>"', self.ticket)
+
+    def test_ansi_c_message(self):
+        self.assertBlocked("git commit -m $'ABC-12: x\\n\\n%s'" % TRAILER, self.ticket, "AI attribution")
+
+    def test_generated_with_a_code_generator_is_fine(self):
+        self.assertAllowed('git commit -m "ABC-12: regen client" -m "Generated with openapi-generator 7.1"',
+                           self.ticket)
+        self.assertBlocked('git commit -m "ABC-12: x" -m "Generated with Claude Code"', self.ticket)
+
+    def test_fixup_and_squash(self):
+        self.assertAllowed('git commit --fixup=HEAD -m "more"', self.ticket)
+        self.assertAllowed('git commit --squash HEAD -m "more"', self.ticket)
+
+
 class OtherPrefixes(HookCase):
     prefix, branch_prefix = "OPS", "none"
 

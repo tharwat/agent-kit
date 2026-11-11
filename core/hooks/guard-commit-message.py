@@ -29,62 +29,84 @@ try:
 except ImportError:  # a partial install: fail open in main()
     kit_shell = kit_facts = None
 
+AI = r"(claude|codex|chatgpt|gpt[-\w.]*|copilot|cursor|gemini|anthropic|openai|ai|llm)"
 ATTRIBUTION = [
     (re.compile(r"^\s*co-authored-by\s*:", re.I | re.M), "a `Co-Authored-By:` trailer"),
-    (re.compile(r"^\W*generated with\b", re.I | re.M), "a \"Generated with\" line"),
-    (re.compile(r"^.*🤖.*claude", re.I | re.M), "a 🤖 Claude Code line"),
+    (re.compile(r"^\W*generated with\b.*\b%s\b" % AI, re.I | re.M), "a \"Generated with\" line"),
+    (re.compile(r"^.*🤖.*(claude|generated)", re.I | re.M), "a 🤖 Claude Code line"),
 ]
 MAX_FILE = 256 * 1024
+SUBST_RE = re.compile(r"\$\(\s*cat\s+<<-?\s*__kit_heredoc_(\d+)__\s*\)")
+# `git commit` options that take a value, short (letters) and long
+COMMIT_SHORT_VALUE = "mFCct"
+COMMIT_LONG_VALUE = {"--message", "--file", "--reuse-message", "--reedit-message", "--template", "--trailer",
+                     "--author", "--date", "--fixup", "--squash", "--cleanup", "--pathspec-from-file"}
 
 
 class Blocked(Exception):
     pass
 
 
+class Text:
+    """A piece of message text, and whether we could see all of it."""
+
+    def __init__(self, text, known=True):
+        self.text = text or ""
+        self.known = known
+
+
 def read_file(path, cwd):
     try:
         with open(os.path.join(cwd, path), encoding="utf-8", errors="replace") as fh:
-            return fh.read(MAX_FILE)
+            return Text(fh.read(MAX_FILE))
     except OSError:
-        return ""
+        return Text("", known=False)  # written earlier in the same command, or missing: unknown
 
 
 def stdin_text(cmd):
-    return "\n".join(body for body, _quoted in cmd.heredocs) + "".join(
-        "\n" + str(t) for op, t in cmd.redirects if op.endswith("<<<"))
+    return Text("\n".join(cmd.stdin), known=bool(cmd.stdin))
 
 
-def expand(word, bodies):
-    """A message word with `$(cat <<'EOF' … EOF)` substitutions replaced by their heredoc bodies."""
-    text = str(word)
-    if "$(" not in getattr(word, "raw", text) and "`" not in text:
-        return text
-    if bodies:
-        out = re.sub(r"\$\((?:[^()]|\([^()]*\))*\)|`[^`]*`", lambda m: bodies.pop(0) if bodies else m.group(0), text,
-                     count=len(bodies))
-        return out
-    return text
+def expand(value, registry):
+    """A value with each `$(cat <<'EOF' … EOF)` replaced by that heredoc's body. Any other substitution leaves the
+    text unknown."""
+    def body(m):
+        n = int(m.group(1))
+        return registry[n][1] if n < len(registry) else m.group(0)
+    text = SUBST_RE.sub(body, str(value))
+    known = "$(" not in text and "`" not in text
+    return Text(text, known)
 
 
-def option_values(args, short, long_names):
-    """Values of an option given as `-m v`, `-mv`, `--message v` or `--message=v`, in order."""
+def parse_options(args, short_value, long_value):
+    """[(name, value)] for every option in a git/gh argv, short groups (`-am msg`) included. Names are `-m`,
+    `--message`, … ; a flag's value is None."""
     out, k = [], 0
     while k < len(args):
-        a = args[k]
+        a = str(args[k])
         if a == "--":
             break
-        name = a.split("=", 1)[0]
-        if name in long_names:
+        if a.startswith("--"):
+            name = a.split("=", 1)[0]
             if "=" in a:
-                out.append(a.split("=", 1)[1])
-            elif k + 1 < len(args):
-                out.append(args[k + 1])
+                out.append((name, args[k][len(name) + 1:]))
+            elif name in long_value and k + 1 < len(args):
+                out.append((name, args[k + 1]))
                 k += 1
-        elif short and a == short and k + 1 < len(args):
-            out.append(args[k + 1])
-            k += 1
-        elif short and a.startswith(short) and len(a) > 2 and not a.startswith("--"):
-            out.append(a[2:])
+            else:
+                out.append((name, None))
+        elif a.startswith("-") and len(a) > 1:
+            group = a[1:]
+            for idx, ch in enumerate(group):
+                if ch in short_value:
+                    rest = args[k][idx + 2:]
+                    if rest:
+                        out.append(("-" + ch, rest))
+                    elif k + 1 < len(args):
+                        out.append(("-" + ch, args[k + 1]))
+                        k += 1
+                    break
+                out.append(("-" + ch, None))
         k += 1
     return out
 
@@ -96,34 +118,24 @@ def check_attribution(text, what):
                           "it" % (label, what))
 
 
-def commit_message(cmd, rest, bodies):
-    """(message or None, where it came from). None means no message argument (editor or reuse)."""
-    words = list(rest)
-    k, parts = 0, []
-    while k < len(words):
-        a = words[k]
-        if a in ("-m", "--message") and k + 1 < len(words):
-            parts.append(expand(words[k + 1], bodies))
-            k += 2
-            continue
-        if a.startswith("--message="):
-            parts.append(a.split("=", 1)[1])
-        elif a.startswith("-m") and len(a) > 2 and not a.startswith("--"):
-            parts.append(a[2:])
-        k += 1
-    if parts:
-        return "\n\n".join(parts)
-    files = option_values(words, "-F", ("--file",))
-    if files:
-        return "\n".join(stdin_text(cmd) if f == "-" else read_file(f, cmd.cwd) for f in files)
-    return None
-
-
-def check_commit(cmd, rest, cwd, bodies, facts):
-    message = commit_message(cmd, rest, bodies)
-    if message is None:
+def check_commit(cmd, rest, cwd, registry, facts):
+    opts = parse_options(rest, COMMIT_SHORT_VALUE, COMMIT_LONG_VALUE)
+    names = {n for n, _ in opts}
+    if names & {"-h", "--help"}:
         return
+    parts = [expand(v, registry) for n, v in opts if n in ("-m", "--message") and v is not None]
+    for n, v in opts:
+        if n in ("-F", "--file") and v is not None:
+            parts.append(stdin_text(cmd) if str(v) == "-" else read_file(str(v), cmd.cwd))
+    for n, v in opts:
+        if n == "--trailer" and v is not None:
+            check_attribution(re.sub(r"\s*[=:]\s*", ": ", str(v), count=1), "commit trailer")
+    if not parts:
+        return  # the editor, --amend --no-edit, -C <commit>: no message to check
+    message = "\n\n".join(p.text for p in parts)
     check_attribution(message, "commit message")
+    if not all(p.known for p in parts) or names & {"--fixup", "--squash"}:
+        return  # we can't see the whole message, or git writes the subject itself
     ticket = kit_facts.ticket_for_branch(kit_facts.current_branch(cwd), facts)
     if not ticket:
         return
@@ -133,24 +145,25 @@ def check_commit(cmd, rest, cwd, bodies, facts):
                       "workflow: `<ticket>: <what changed>`)" % (ticket, ticket))
 
 
-def check_gh(cmd, bodies):
+def check_gh(cmd, registry):
     args = list(cmd.args)
     if len(args) < 2 or args[0] not in ("pr", "issue") or args[1] not in ("create", "edit", "comment"):
         return
-    rest = args[2:]
     what = "%s %s" % (args[0], "comment" if args[1] == "comment" else "title or body")
-    texts = [expand(v, bodies) if isinstance(v, kit_shell.Word) else v
-             for v in option_values(rest, "-t", ("--title",)) + option_values(rest, "-b", ("--body",))]
-    for f in option_values(rest, "-F", ("--body-file",)):
-        texts.append(stdin_text(cmd) if f == "-" else read_file(f, cmd.cwd))
-    for t in texts:
-        check_attribution(t, what)
+    opts = parse_options(args[2:], "tbFB", {"--title", "--body", "--body-file", "--base", "--head", "--repo",
+                                            "--label", "--assignee", "--reviewer", "--milestone", "--project"})
+    for n, v in opts:
+        if v is None:
+            continue
+        if n in ("-t", "--title", "-b", "--body"):
+            check_attribution(expand(v, registry).text, what)
+        elif n in ("-F", "--body-file"):
+            check_attribution((stdin_text(cmd) if str(v) == "-" else read_file(str(v), cmd.cwd)).text, what)
 
 
 def check_command(command, cwd):
-    cmds = kit_shell.iter_commands(command, cwd)
-    # Heredoc bodies in command order: a `-m "$(cat <<'EOF' … EOF)"` message is the body fed to that `cat`.
-    bodies = [body for c in cmds if c.prog == "cat" for body, _quoted in c.heredocs]
+    registry = []
+    cmds = kit_shell.iter_commands(command, cwd, registry)
     facts = None
     for cmd in cmds:
         if cmd.prog == "git":
@@ -158,9 +171,9 @@ def check_command(command, cwd):
             if sub == "commit":
                 if facts is None:
                     facts = kit_facts.read_facts(cwd)
-                check_commit(cmd, rest, git_cwd, list(bodies), facts)
+                check_commit(cmd, rest, git_cwd, registry, facts)
         elif cmd.prog == "gh":
-            check_gh(cmd, list(bodies))
+            check_gh(cmd, registry)
 
 
 def main():

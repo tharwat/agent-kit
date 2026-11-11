@@ -312,6 +312,22 @@ def _skip_ansi(text, i):
     raise ParseError("unterminated $' string")
 
 
+ANSI_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f",
+                "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def _ansi_decode(body):
+    """The value of an ANSI-C `$'…'` string: `\\n` is a newline, `\\x41` is `A`, and so on."""
+    def sub(m):
+        s = m.group(1)
+        if s[0] == "x":
+            return chr(int(s[1:], 16)) if len(s) > 1 else "x"
+        if s[0] in "01234567":
+            return chr(int(s, 8) & 0xFF)
+        return ANSI_ESCAPES.get(s, "\\" + s)
+    return re.sub(r"\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|.)", sub, body, flags=re.S)
+
+
 def _skip_backtick(text, i):
     n = len(text)
     while i < n:
@@ -388,7 +404,7 @@ def _read_word(text, i):
             continue
         if c == "$" and i + 1 < n and text[i + 1] == "'":
             end = _skip_ansi(text, i + 2)
-            value.append(re.sub(r"\\(.)", r"\1", text[i + 2:end - 1]))
+            value.append(_ansi_decode(text[i + 2:end - 1]))
             i = end
             continue
         value.append(c)
@@ -769,9 +785,11 @@ def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, st
                                          depth + 1)
 
 
-def iter_commands(command, cwd):
-    """Every simple command in `command`, as Cmd objects, in order. Raises ParseError on unbalanced quotes."""
-    return list(_walk(command, {"cwd": cwd, "registry": []}, 0))
+def iter_commands(command, cwd, registry=None):
+    """Every simple command in `command`, as Cmd objects, in order. Raises ParseError on unbalanced quotes.
+    Pass a list as `registry` to get the heredocs back: entry n is (tag, body, quoted) for the marker
+    `__kit_heredoc_<n>__` left in the text where that heredoc's `<<TAG` was."""
+    return list(_walk(command, {"cwd": cwd, "registry": [] if registry is None else registry}, 0))
 
 
 # ---------------------------------------------------------------- git
