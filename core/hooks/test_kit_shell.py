@@ -94,6 +94,68 @@ class Heredocs(unittest.TestCase):
         self.assertEqual(progs("cat <<<EOF\nrm x"), ["cat", "rm"])
 
 
+class ReviewRegressions(unittest.TestCase):
+    """Cases from the step A review: each was missed or mis-scoped by the first parser."""
+
+    def test_nested_parse_error_does_not_hide_later_commands(self):
+        self.assertIn(["rm", "-rf", "x"], argvs('bash -c "echo it\'s"; rm -rf x'))
+        self.assertIn(["git", "reset", "--hard"], argvs('eval "echo it\'s"; git reset --hard'))
+
+    def test_cd_in_a_subshell_or_pipeline_does_not_leak(self):
+        cmds = list(ks.iter_commands("(cd /s; true); rm keep", CWD))
+        self.assertEqual(cmds[-1].cwd, CWD)
+        cmds = list(ks.iter_commands("cd /s | true; rm keep", CWD))
+        self.assertEqual(cmds[-1].cwd, CWD)
+        cmds = list(ks.iter_commands("(cd /s && rm a); cd /t; (rm b)", CWD))
+        self.assertEqual([c.cwd for c in cmds if c.prog == "rm"], ["/s", "/t"])
+
+    def test_heredoc_operator_inside_quotes_is_text(self):
+        self.assertIn(["rm", "-rf", "x"], argvs('echo "use <<EOF in bash"\nrm -rf x'))
+        self.assertIn(["rm", "y"], argvs("echo '<<EOF'\nrm y"))
+
+    def test_heredoc_tags_with_dashes_and_dots(self):
+        self.assertEqual(progs("cat <<END-DOC\nrm x\nEND-DOC\nrm y"), ["cat", "rm"])
+        self.assertEqual(progs("cat <<'END-DOC'\nrm -rf is bad\nEND-DOC"), ["cat"])
+        self.assertEqual(progs("cat <<v1.2\nrm x\nv1.2"), ["cat"])
+
+    def test_arithmetic_shift_is_not_a_heredoc(self):
+        self.assertEqual(progs("echo $((1<<2))\nrm y"), ["echo", "rm"])
+
+    def test_shell_options_with_values(self):
+        for cmd in ('bash -o pipefail -c "rm x"', 'bash -O extglob -c "rm x"', 'bash -e -o pipefail -c "rm x"'):
+            with self.subTest(cmd=cmd):
+                self.assertIn(["rm", "x"], argvs(cmd))
+
+    def test_script_fed_to_a_shell(self):
+        self.assertIn(["rm", "-rf", "build"], argvs("bash <<'EOF'\nrm -rf build\nEOF"))
+        self.assertIn(["rm", "x"], argvs("sh -s <<EOF\nrm x\nEOF"))
+        self.assertIn(["git", "reset", "--hard"], argvs('bash <<< "git reset --hard"'))
+        self.assertNotIn(["rm", "x"], argvs("bash run.sh <<EOF\nrm x\nEOF"))  # stdin is data for run.sh
+        self.assertNotIn(["rm", "x"], argvs("cat <<'EOF'\nrm x\nEOF"))
+
+    def test_unquoted_heredoc_substitutions_run(self):
+        self.assertIn(["rm", "-rf", "x"], argvs("cat <<EOF\n$(rm -rf x)\nEOF"))
+        self.assertIn(["rm", "y"], argvs("cat <<EOF\n`rm y`\nEOF"))
+        self.assertNotIn(["rm", "x"], argvs("cat <<'EOF'\n$(rm x)\nEOF"))
+        self.assertNotIn(["rm", "x"], argvs("cat <<\\EOF\n$(rm x)\nEOF"))
+
+    def test_heredoc_body_inside_substitution_kept(self):
+        cmd = "git commit -m \"$(cat <<'EOF'\nsubject\n\nbody\nEOF\n)\""
+        cmds = list(ks.iter_commands(cmd, CWD))
+        self.assertEqual(cmds[0].heredocs, [("subject\n\nbody", True)])
+
+
+class GitSplit(unittest.TestCase):
+    def test_global_options(self):
+        cases = {("status",): ("status", [], CWD), ("-C", "sub", "push", "origin"): ("push", ["origin"], CWD + "/sub"),
+                 ("--git-dir=.git", "reset", "--hard"): ("reset", ["--hard"], CWD),
+                 ("-c", "a=b", "--no-pager", "log"): ("log", [], CWD),
+                 ("--super-prefix", "x", "push"): ("push", [], CWD), (): (None, [], CWD)}
+        for args, want in cases.items():
+            with self.subTest(args=args):
+                self.assertEqual(ks.git_split(list(args), CWD), want)
+
+
 class Substitutions(unittest.TestCase):
     def test_dollar_paren(self):
         self.assertEqual(argvs("echo $(rm x)")[0], ["rm", "x"])
@@ -210,13 +272,17 @@ class InlineCode(unittest.TestCase):
         cases = [(["python3", "-c", "x"], "x"), (["python", "-c", "x"], "x"), (["python3.11", "-c", "x"], "x"),
                  (["node", "-e", "x"], "x"), (["node", "--eval", "x"], "x"), (["node", "--eval=x"], "x"),
                  (["node", "-p", "x"], "x"), (["ruby", "-e", "x"], "x"), (["perl", "-E", "x"], "x"),
-                 (["python3", "-B", "-c", "x"], "x"), (["python3", "-cx"], "x")]
+                 (["python3", "-B", "-c", "x"], "x"), (["python3", "-cx"], "x"), (["python3", "-Bc", "x"], "x"),
+                 (["python3", "-W", "ignore", "-c", "x"], "x"), (["perl", "-i", "-ne", "x"], "x"),
+                 (["perl", "-pi", "-e", "x"], "x"), (["perl", "-ne", "x"], "x"), (["node", "-r", "dotenv/config",
+                 "-e", "x"], "x"), (["deno", "eval", "x"], "x"), (["ruby", "-rjson", "-e", "x"], "x")]
         for argv, code in cases:
             with self.subTest(argv=argv):
                 self.assertEqual(ks.inline_code(argv), code)
 
     def test_scripts_are_not_inline_code(self):
-        for argv in (["python3", "script.py", "-c", "x"], ["node", "app.js"], ["ls", "-c", "x"], []):
+        for argv in (["python3", "script.py", "-c", "x"], ["node", "app.js"], ["ls", "-c", "x"], [],
+                     ["python3", "-m", "pytest", "-c", "x"], ["python3", "-W", "ignore", "app.py"]):
             with self.subTest(argv=argv):
                 self.assertIsNone(ks.inline_code(argv))
 

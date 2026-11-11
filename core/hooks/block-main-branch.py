@@ -35,7 +35,6 @@ except ImportError:  # a partial install: fail open in main()
     kit_shell = None
 
 DEFAULT_MAIN = "main"
-GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
 PUSH_OPTS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
@@ -147,21 +146,7 @@ def check_push(args, directory, main):
 
 
 def check_git(args, directory, main):
-    i = 0
-    while i < len(args):
-        tok = args[i]
-        if not tok.startswith("-"):
-            break
-        name = tok.split("=", 1)[0]
-        if name in GIT_OPTS_WITH_VALUE and "=" not in tok:
-            if name == "-C" and i + 1 < len(args):
-                directory = os.path.join(directory, args[i + 1])
-            i += 2
-            continue
-        i += 1
-    if i >= len(args):
-        return
-    sub, rest = args[i], args[i + 1:]
+    sub, rest, directory = kit_shell.git_split(args, directory)
     if sub == "commit":
         if "-h" in rest or "--help" in rest:
             return

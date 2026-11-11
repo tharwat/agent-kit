@@ -4,8 +4,8 @@
 
 The settings deny list refuses the plain prefix forms. This hook covers what a prefix rule can't see: options
 before the subcommand (`git -C x reset --hard`), combined short flags (`git push -uf`), `+refspec` force pushes,
-`find -delete`, and deletes passed as arguments (`xargs rm`, `find -exec rm`, `bash -c "rm x"`, `python3 -c` /
-`node -e` code). Commands are parsed (kit_shell.py), never matched as raw text, so `grep "rm -rf" docs/` and
+`git checkout <path>` (a path that exists and isn't a revision), `find -delete`, and deletes passed as arguments
+(`xargs rm`, `find -exec rm`, `bash -c "rm x"`, `bash <<'EOF'`, `python3 -c` / `node -e` code). Commands are parsed (kit_shell.py), never matched as raw text, so `grep "rm -rf" docs/` and
 `git commit -m "drop the rm call"` are allowed.
 
 Allowed forms (owner decisions): `git rm --cached`, `git clean -n` / `--dry-run` without `-f`/`-i`,
@@ -20,6 +20,7 @@ Reads no files, makes no network calls, writes nothing.
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -39,17 +40,15 @@ RULES = {
     "programmatic delete": "file deletes in python -c / node -e / ruby -e / perl -e code",
     "git reset --hard": "git reset --hard",
     "git clean": "git clean, unless -n/--dry-run without -f/-i",
-    "git branch -D": "git branch -D / --delete --force",
+    "git branch -D": "git branch -D / -f / --force / -M / -C",
     "force push": "git push --force / -f / --force-with-lease / +refspec",
-    "git checkout -- <path> discards changes": "git checkout -- <path>, <rev> <path>, ., -f/--force",
+    "git checkout -- <path> discards changes": "git checkout -- <path>, <path>, <rev> <path>, ., -f/--force, --ours",
     "git stash drop/clear": "git stash drop / clear",
     "git restore": "git restore that touches the working tree (only --staged alone is allowed)",
     "git switch -f": "git switch -f / --force / --discard-changes",
     "git worktree remove --force": "git worktree remove --force / -f",
 }
 
-GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env",
-                       "--super-prefix", "--list-cmds"}
 PROGRAMMATIC_RE = re.compile(
     r"\bos\.(remove|unlink|rmdir|removedirs)\b|\brmtree\b|\.unlink\s*\(|\.rmdir\s*\("
     r"|\b(rmSync|rmdirSync|unlinkSync)\b|\bfs(\.promises)?\.(rm|rmdir|unlink)\b|\bfsPromises\.(rm|unlink)\b"
@@ -194,19 +193,9 @@ def check_find(cmd):
 
 
 def check_git(cmd):
-    args = list(cmd.args)
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if not a.startswith("-"):
-            break
-        if a.split("=", 1)[0] in GIT_OPTS_WITH_VALUE and "=" not in a:
-            i += 2
-        else:
-            i += 1
-    if i >= len(args):
+    sub, rest, git_cwd = kit_shell.git_split(list(cmd.args), cmd.cwd)
+    if sub is None:
         return
-    sub, rest = args[i], args[i + 1:]
     shorts, longs = short_flags(rest), long_flags(rest)
     argv = cmd.argv
 
@@ -214,12 +203,14 @@ def check_git(cmd):
         if "--hard" in longs:
             raise Blocked("git reset --hard", argv)
     elif sub == "clean":
-        dry = "n" in short_flags(rest, "eX") or "--dry-run" in longs
+        dry = "n" in short_flags(rest, "e") or "--dry-run" in longs
         forced = bool(short_flags(rest, "e") & {"f", "i"}) or longs & {"--force", "--interactive"}
         if not dry or forced:
             raise Blocked("git clean", argv)
     elif sub == "branch":
-        if "D" in shorts or (("d" in shorts or "--delete" in longs) and ("f" in shorts or "--force" in longs)):
+        flags = short_flags(rest, "u")
+        # -D deletes unmerged; -f / --force moves or overwrites a branch; -M / -C rename or copy over an existing one
+        if flags & {"D", "f", "M", "C"} or "--force" in longs:
             raise Blocked("git branch -D", argv)
     elif sub == "push":
         flags = short_flags(rest, "o")
@@ -241,8 +232,15 @@ def check_git(cmd):
             raise Blocked("git checkout -- <path> discards changes", argv)
         if len(pos) > 1 and not creating:  # `git checkout <rev> <path>…` overwrites those files
             raise Blocked("git checkout -- <path> discards changes", argv)
+        if pos and (longs & {"--ours", "--theirs", "--patch"} or "p" in flags):
+            raise Blocked("git checkout -- <path> discards changes", argv)
+        if len(pos) == 1 and not creating and "--detach" not in longs and pos[0] != "-":
+            # `git checkout <path>` discards that path's changes; a branch or commit name is fine
+            if os.path.exists(os.path.join(git_cwd, pos[0])) and not is_revision(git_cwd, pos[0]):
+                raise Blocked("git checkout -- <path> discards changes", argv)
     elif sub == "stash":
-        if rest and rest[0] in ("drop", "clear"):
+        action = next((a for a in rest if not a.startswith("-")), None)
+        if action in ("drop", "clear"):
             raise Blocked("git stash drop/clear", argv)
     elif sub == "restore":
         flags = short_flags(rest, "s")
@@ -261,6 +259,16 @@ def check_git(cmd):
     elif sub == "rm":
         if "--cached" not in longs:
             raise Blocked("rm", argv)
+
+
+def is_revision(directory, name):
+    """True when `name` resolves to a commit in the repo at `directory` (a branch, tag or SHA)."""
+    try:
+        out = subprocess.run(["git", "-C", directory, "rev-parse", "--verify", "--quiet", name + "^{commit}"],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0
 
 
 def check_command(command, cwd, ctx):

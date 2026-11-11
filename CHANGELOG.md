@@ -8,16 +8,17 @@ installed version before an upgrade.
 
 - **New hook `block-destructive.py` (core).** It blocks destructive filesystem and git commands that the deny list
   can't see: options before the subcommand (`git -C x reset --hard`), combined short flags (`git push -uf`),
-  `+refspec` force pushes, `git checkout <rev> <path>`, `git restore` (allowed: `--staged` alone), `git rm` (allowed:
-  `--cached`), `find -delete`, and deletes passed as arguments (`xargs rm`, `find -exec rm`, `bash -c "…"`, `eval`,
-  `python3 -c` / `node -e` code). `rm` is allowed only when every operand is a plain path inside this session's
+  `+refspec` force pushes, `git checkout <path>` / `<rev> <path>` / `--ours`, `git branch -f/-M/-C`, `git restore`
+  (allowed: `--staged` alone), `git rm` (allowed: `--cached`), `find -delete`, and deletes passed as arguments
+  (`xargs rm`, `find -exec rm`, `bash -c "…"`, `bash <<'EOF'`, `eval`, `python3 -c` / `node -e` / `perl -e` code). `rm` is allowed only when every operand is a plain path inside this session's
   scratch dir or `.claude/state/tmp/` (no globs or `$`, symlinks and `..` resolved, never the root itself). The
   settings deny rules still win, so `rm -rf` stays refused even there. The block message names the rule and the
   allowed alternative.
 - **Shared shell parser `kit_shell.py`** in `.claude/hooks/`. The hooks parse commands instead of matching text, so
   `git commit -m "drop the rm call"` and `grep "rm -rf" docs/` are allowed. It now also reads `$(…)`, backticks,
-  `<(…)`, `eval`, `xargs` and `find -exec` payloads. `block-main-branch.py` uses it, so it now also catches a push to
-  main inside `$(…)`.
+  `<(…)`, `eval`, `xargs` and `find -exec` payloads, scripts fed to a shell (`bash <<'EOF'`, `bash <<< "…"`), and
+  `$(…)` inside an unquoted heredoc. A `cd` inside `( … )` or a pipeline doesn't carry over to later commands.
+  `block-main-branch.py` uses it, so it now also catches a push to main inside `$(…)` or `bash -o pipefail -c`.
 - **Core hooks are declared in `core/pack.json`** (they were in the settings template). The main-branch hook's
   command is unchanged, so an upgrade doesn't add it twice.
 - **Kit test:** every `destructive_patterns` reason in `manifest.json` must have a rule in the hook and a blocked

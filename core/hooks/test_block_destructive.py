@@ -20,7 +20,9 @@ BLOCKED = {
            "find . -exec rm {} +", "find . -name x -exec rm -f {} \\;", 'bash -c "rm x"', "sudo rm x",
            "/bin/rm x", "git rm x", "git rm -r --force dir", 'echo "$(rm x)"', "x=`rm y`", "env FOO=1 rm x",
            "for f in *.log; do rm \"$f\"; done", "rm -- -weird", "rm", 'eval "rm x"', "timeout 5 rm x",
-           "true && (cd sub; rm x)", "rm .claude/state/tmp", "rm ~/x"],
+           "true && (cd sub; rm x)", "rm .claude/state/tmp", "rm ~/x", 'bash -c "echo it\'s"; rm -rf x',
+           'bash -o pipefail -c "rm -rf x"', "bash <<'EOF'\nrm -rf build\nEOF", "cat <<EOF\n$(rm -rf x)\nEOF",
+           'echo "use <<EOF in bash"\nrm -rf x'],
     "rmdir": ["rmdir d", "sudo rmdir d", "find . -type d -exec rmdir {} +"],
     "find -delete": ["find . -name '*.log' -delete", "find build -type f -delete -print"],
     "unlink": ["unlink f", "bash -c 'unlink f'"],
@@ -30,22 +32,28 @@ BLOCKED = {
         "node -e \"fs.rmSync('x',{recursive:true})\"", "node -e \"require('fs').unlinkSync('a')\"",
         "node --eval=\"fs.promises.rm('x')\"", "ruby -e 'FileUtils.rm_rf(\"x\")'", "perl -e 'unlink \"a\"'",
         "python3 -c \"import subprocess; subprocess.run(['rm', '-rf', 'x'])\"",
-        "node -e \"require('child_process').execSync('rm -rf x')\""],
+        "node -e \"require('child_process').execSync('rm -rf x')\"",
+        "python3 -Bc \"import shutil; shutil.rmtree('x')\"", "python3 -W ignore -c \"import shutil; shutil.rmtree('x')\"",
+        "perl -i -ne 'unlink \"a\"'"],
     "git reset --hard": ["git reset --hard", "git reset --hard HEAD~1", "git -C x reset --hard HEAD~1",
                          "git --git-dir=.git reset --hard", "git -c core.x=y reset --hard",
-                         "cd sub && git reset --hard origin/main"],
+                         "cd sub && git reset --hard origin/main", 'bash <<< "git reset --hard"',
+                         'bash -O extglob -c "git reset --hard"', 'eval "echo it\'s"; git reset --hard'],
     "git clean": ["git clean -fd", "git clean -nf", "git clean -fdx", "git clean -n -f", "git clean",
                   "git clean -i", "git clean --dry-run --force", "git -C x clean -fd", "git --work-tree=. clean -f"],
     "git branch -D": ["git branch -D x", "git branch --delete --force x", "git branch -d -f x", "git branch -df x",
-                      "git -C x branch -D y"],
+                      "git -C x branch -D y", "git branch -f main HEAD~3", "git -C . branch -f x",
+                      "git branch -M old new", "git branch -C old new", "git branch --force x y"],
     "force push": ["git push -f", "git push --force", "git push --force-with-lease", "git push --force-with-lease=x",
                    "git push origin +feature/x", "git push origin feature/x +other", "git push -uf origin x",
                    "git push -fu origin x", "git -C x push --force", "git push origin x --force"],
     "git checkout -- <path> discards changes": [
         "git checkout -- path", "git checkout .", "git checkout -f", "git checkout --force main",
         "git checkout HEAD -- src/", "git checkout main a.ts", "git checkout ./src", "git -C x checkout -- a",
-        "git checkout -qf main", "git checkout --pathspec-from-file=list.txt"],
-    "git stash drop/clear": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git -C x stash clear"],
+        "git checkout -qf main", "git checkout --pathspec-from-file=list.txt", "git checkout --ours a.ts",
+        "git checkout keep.txt", "git checkout -p keep.txt"],
+    "git stash drop/clear": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git -C x stash clear",
+                             "git stash -q drop"],
     "git restore": ["git restore f", "git restore --worktree f", "git restore --staged --worktree f",
                     "git restore -s HEAD~1 f", "git restore -SW f", "git restore .", "git restore --source=HEAD f"],
     "git switch -f": ["git switch -f x", "git switch --force x", "git switch --discard-changes x",
@@ -57,15 +65,18 @@ BLOCKED = {
 ALLOWED = {
     "rm": ['grep "rm " f', "echo rm", "git rm --cached x", "git rm -r --cached dir", "rm --help",
            'git commit -m "drop the rm call"', "grep -rn \"rm -rf\" docs/", "echo 'rm -rf /'", "command -v rm",
-           "man rm", "cat <<'EOF'\nrm -rf /\nEOF"],
+           "man rm", "cat <<'EOF'\nrm -rf /\nEOF", "cat <<'EOF'\n$(rm x)\nEOF", 'echo "use <<EOF in bash"',
+           "bash run.sh <<EOF\nrm x\nEOF"],
     "rmdir": ["echo rmdir", "mkdir -p d"],
     "find -delete": ["find . -name '*.log'", "find . -name '-delete'", "grep -- -delete f"],
     "unlink": ["echo unlink", "grep unlink src/"],
     "programmatic delete": ["python3 script.py", "node app.js", "python3 -c 'print(1)'",
                             "node -e \"console.log('ok')\"", "python3 -m unittest discover"],
     "git reset --hard": ["git reset", "git reset --soft HEAD~1", "git reset HEAD a.ts", "git log --grep=reset"],
-    "git clean": ["git clean -n", "git clean --dry-run", "git clean -nd", "git clean -n -d -x"],
-    "git branch -D": ["git branch -d x", "git branch --delete x", "git branch -a", "git branch new-feature"],
+    "git clean": ["git clean -n", "git clean --dry-run", "git clean -nd", "git clean -n -d -x", "git clean -Xn",
+                  "git clean -X -n"],
+    "git branch -D": ["git branch -d x", "git branch --delete x", "git branch -a", "git branch new-feature",
+                      "git branch -m old new", "git branch -u origin/x", "git branch --format=%(refname)"],
     "force push": ["git push -u origin feature/x", "git push", "git push origin HEAD", "git push --follow-tags",
                    "git push -o ci.skip origin x", "git push origin feature/x:feature/x"],
     "git checkout -- <path> discards changes": [
@@ -166,6 +177,11 @@ class ScratchDir(HookCase):
     def test_scratch_root_itself(self):
         self.assertBlocked("rm -r %s" % self.scratch, "rm")
         self.assertBlocked("rm -r .claude/state/tmp", "rm")
+
+    def test_subshell_or_pipeline_cd_does_not_reach_rm(self):
+        self.assertBlocked("(cd %s; true); rm keep.txt" % self.scratch, "rm")
+        self.assertBlocked("cd %s | true; rm keep.txt" % self.scratch, "rm")
+        self.assertAllowed("(cd %s && rm a.txt)" % self.scratch)
 
     def test_mixed_operands(self):
         self.assertBlocked("rm %s/a.txt keep.txt" % self.scratch, "rm")

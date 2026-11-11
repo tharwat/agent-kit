@@ -145,6 +145,12 @@ class BlockTests(HookCase):
     def test_push_main_inside_substitution(self):
         self.assertBlocked('echo "$(git push origin main)"')
 
+    def test_push_main_with_shell_options(self):
+        self.assertBlocked('bash -o pipefail -c "git push origin main"')
+
+    def test_push_main_after_rare_global_option(self):
+        self.assertBlocked("git --super-prefix x push origin main")
+
     def test_push_main_via_xargs_and_eval(self):
         self.assertBlocked("echo main | xargs git push origin main")
         self.assertBlocked('eval "git push origin main"')

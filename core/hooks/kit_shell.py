@@ -6,31 +6,40 @@ The hooks match parsed commands, never raw text, so `git commit -m "drop the rm 
 `grep -rn "rm -rf" docs/` are data, not commands. This module turns a Bash tool command string into the simple
 commands the shell would run:
 
-  iter_commands(command, cwd)  yields Cmd(argv, cwd, redirects) for every simple command, including those in
-                               `$(…)`, backticks, `<(…)`, subshells and control-flow bodies, the code given to
-                               `bash -c` / `sh -c` / `eval`, and the command run by `xargs` or `find -exec`.
-                               Leading `VAR=value` words and wrappers (`env`, `sudo`, `nice`, `timeout <n>`, …) are
-                               stripped. `cd <dir>` updates the tracked cwd for the commands after it.
+  iter_commands(command, cwd)  yields Cmd(argv, cwd, redirects, heredocs) for every simple command, including those
+                               in `$(…)`, backticks, `<(…)`, subshells and control-flow bodies, the code given to
+                               `bash -c` / `sh -c` / `eval`, a script fed to a shell on stdin (`bash <<'EOF'`,
+                               `bash <<< "…"`), substitutions in an unquoted heredoc, and the command run by
+                               `xargs` or `find -exec`. Leading `VAR=value` words and wrappers (`env`, `sudo`, `nice`,
+                               `timeout <n>`, …) are stripped. `cd <dir>` updates the tracked cwd for the commands
+                               after it, within the same subshell, never across a pipe.
   inline_code(argv)            the code string of `python[3] -c`, `node -e/--eval/-p`, `ruby -e`, `perl -e/-E`, or None.
+  git_split(args, cwd)         (subcommand, its args, cwd after `-C`) for a `git` argv, past git's global options.
   heredoc_bodies(command)      [(tag, body)] for every heredoc in the command.
 
-It is a guardrail parser, not a shell: it doesn't expand variables or globs. Unbalanced quotes raise ParseError, and
-the hooks fail open on it (the shell would refuse that command anyway).
+It is a guardrail parser, not a shell: it doesn't expand variables or globs. Unbalanced quotes at the top level raise
+ParseError, and the hooks fail open on it (the shell refuses that command too). A nested body that doesn't parse (a
+`bash -c` string, `$(…)`) is skipped; the commands around it are still checked.
 """
 
 import os
 import re
 
-__all__ = ["ParseError", "Cmd", "Word", "parse", "iter_commands", "inline_code", "heredoc_bodies",
-           "strip_heredocs", "strip_prefix", "has_expansion"]
+__all__ = ["ParseError", "Cmd", "Word", "parse", "iter_commands", "inline_code", "git_split", "heredoc_bodies",
+           "strip_heredocs", "strip_prefix", "has_expansion", "EXEC_FLAGS", "SHELLS", "GIT_OPTS_WITH_VALUE"]
 
 MAX_DEPTH = 4
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 OPERATORS = ("&&", "||", ";;", "|&", ";", "|", "&", "(", ")")
 RESERVED = {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "{", "}"}
 ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
-HEREDOC_RE = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+HEREDOC_OP_RE = re.compile(r"<<(-?)[ \t]*(\\?[A-Za-z_][A-Za-z0-9_.-]*|'[^'\n]*'|\"[^\"\n]*\")")
+HEREDOC_MARK = "__kit_heredoc_%d__"
+HEREDOC_MARK_RE = re.compile(r"^__kit_heredoc_(\d+)__$")
 EXPANSION_CHARS = set("*?[]$`~{}")
+GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env",
+                       "--super-prefix", "--list-cmds", "--attr-source"}
+EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir"}
 
 
 class ParseError(ValueError):
@@ -51,18 +60,22 @@ class Simple:
     def __init__(self):
         self.words = []
         self.redirects = []  # (op, Word)
+        self.depth = 0       # subshell depth at this level of text
+        self.piped = False   # part of a pipeline (runs in its own subshell)
 
     def __bool__(self):
         return bool(self.words or self.redirects)
 
 
 class Cmd:
-    """One simple command after prefix stripping: argv (list of Word), the cwd it runs in, its redirects."""
+    """One simple command after prefix stripping: argv (list of Word), the cwd it runs in, its redirects, and the
+    bodies of its heredocs as (body, quoted)."""
 
-    def __init__(self, argv, cwd, redirects=()):
+    def __init__(self, argv, cwd, redirects=(), heredocs=()):
         self.argv = argv
         self.cwd = cwd
         self.redirects = list(redirects)
+        self.heredocs = list(heredocs)
 
     @property
     def prog(self):
@@ -78,33 +91,120 @@ class Cmd:
 
 # ---------------------------------------------------------------- heredocs
 
-def _heredocs(command):
-    lines = command.split("\n")
-    out, bodies, pending, body = [], [], [], []
-    for line in lines:
-        if pending:
-            tag = pending[0]
-            if line.strip() == tag:
-                bodies.append((tag, "\n".join(body)))
-                body = []
-                pending.pop(0)
-            else:
-                body.append(line)
+def _heredocs(command, registry):
+    """Cut heredoc bodies out of the text. Each `<<TAG` operator in code (not inside quotes or a comment) is replaced
+    by `<<__kit_heredoc_<n>__`, where n indexes registry entries (tag, body, quoted). Returns the cut text."""
+    out = []
+    pending = []  # (tag, strip_tabs, quoted, index)
+    stack = []    # context: "'", '"', "`", "$(", "((" (arithmetic)
+    i, n = 0, len(command)
+    while i < n:
+        c = command[i]
+        top = stack[-1] if stack else None
+        if c == "\n" and pending:
+            out.append(c)
+            i += 1
+            for tag, dash, quoted, idx in pending:
+                lines = []
+                while i < n:
+                    j = command.find("\n", i)
+                    line = command[i:j if j >= 0 else n]
+                    i = j + 1 if j >= 0 else n
+                    if (line.lstrip("\t") if dash else line).strip() == tag:
+                        break
+                    lines.append(line)
+                registry[idx] = (tag, "\n".join(lines), quoted)
+            pending = []
             continue
-        out.append(line)
-        pending.extend(m.group(2) for m in HEREDOC_RE.finditer(line))
-    if pending and body:  # unterminated: the rest is the body
-        bodies.append((pending[0], "\n".join(body)))
-    return "\n".join(out), bodies
+        if top == "'":
+            out.append(c)
+            i += 1
+            if c == "'":
+                stack.pop()
+            continue
+        if c == "\\":
+            out.append(command[i:i + 2])
+            i += 2
+            continue
+        if top == "((":
+            if command.startswith("))", i):
+                stack.pop()
+                out.append("))")
+                i += 2
+                continue
+            out.append(c)
+            i += 1
+            continue
+        if top == '"':
+            if c == '"':
+                stack.pop()
+            elif c == "`":
+                stack.append("`")
+            elif command.startswith("$(", i):
+                stack.append("((" if command.startswith("$((", i) else "$(")
+                out.append(command[i:i + 2])
+                i += 2
+                continue
+            out.append(c)
+            i += 1
+            continue
+        # code: top level, inside $( … ) or backticks
+        if top == "`" and c == "`":
+            stack.pop()
+        elif c in "'\"`":
+            stack.append(c)
+        elif command.startswith("$((", i):
+            stack.append("((")
+            out.append("$((")
+            i += 3
+            continue
+        elif command.startswith("$(", i):
+            stack.append("$(")
+            out.append("$(")
+            i += 2
+            continue
+        elif c == ")" and top == "$(":
+            stack.pop()
+        elif c == "#" and (i == 0 or command[i - 1] in " \t\n;&|()"):
+            j = command.find("\n", i)
+            j = n if j < 0 else j
+            out.append(command[i:j])
+            i = j
+            continue
+        elif command.startswith("<<<", i):  # a here-string, not a heredoc
+            out.append("<<<")
+            i += 3
+            continue
+        elif command.startswith("<<", i):
+            m = HEREDOC_OP_RE.match(command, i)
+            if m and HEREDOC_MARK_RE.match(m.group(2)):  # already cut by an outer parse
+                out.append(m.group(0))
+                i = m.end()
+                continue
+            if m:
+                raw_tag = m.group(2)
+                quoted = raw_tag[0] in "'\"\\"
+                tag = raw_tag.strip("'\"").lstrip("\\")
+                idx = len(registry)
+                registry.append((tag, "", quoted))
+                pending.append((tag, m.group(1) == "-", quoted, idx))
+                out.append("<<" + m.group(1) + HEREDOC_MARK % idx)
+                i = m.end()
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def strip_heredocs(command):
-    """Drop heredoc bodies (they are data, not commands). Keeps the `<<TAG` marker."""
-    return _heredocs(command)[0]
+    """The command with heredoc bodies removed (they are data, not commands)."""
+    return _heredocs(command, [])
 
 
 def heredoc_bodies(command):
-    return _heredocs(command)[1]
+    registry = []
+    _heredocs(command, registry)
+    return [(tag, body) for tag, body, _ in registry]
 
 
 # ---------------------------------------------------------------- tokenizer
@@ -119,7 +219,7 @@ def _match_close(text, i, close):
         if c == "\\":
             i += 2
             continue
-        if c == "'":
+        if c == "'" and close == ")":
             j = text.find("'", i + 1)
             if j < 0:
                 raise ParseError("unterminated single quote")
@@ -173,6 +273,15 @@ def _skip_backtick(text, i):
     raise ParseError("unterminated backtick")
 
 
+def _subst_body(text, i):
+    """For `$(` / `$((` at text[i]: (body or None for arithmetic, index past the group)."""
+    end = _match_close(text, i + 2, ")")
+    body = text[i + 2:end - 1]
+    if body.startswith("(") and body.endswith(")"):  # $(( arithmetic ))
+        return None, end
+    return body, end
+
+
 def _read_word(text, i):
     """Read one word starting at text[i]. Returns (Word, next index)."""
     n = len(text)
@@ -180,14 +289,14 @@ def _read_word(text, i):
     value, subs = [], []
     while i < n:
         c = text[i]
-        if c in " \t\n;&|()<>" and not (c in "<>" and i + 1 < n and text[i + 1] == "(" and not value):
-            break
         if c in "<>" and i + 1 < n and text[i + 1] == "(":  # process substitution <(…) / >(…)
             end = _match_close(text, i + 2, ")")
             subs.append(text[i + 2:end - 1])
             value.append(text[i:end])
             i = end
             continue
+        if c in " \t\n;&|()<>":
+            break
         if c == "\\":
             if i + 1 < n and text[i + 1] != "\n":
                 value.append(text[i + 1])
@@ -213,13 +322,15 @@ def _read_word(text, i):
             value.append(text[i:end])
             i = end
             continue
-        if c == "$" and i + 1 < n and text[i + 1] in "({":
-            end = _match_close(text, i + 2, ")" if text[i + 1] == "(" else "}")
-            if text[i + 1] == "(":
-                body = text[i + 2:end - 1]
-                if body.startswith("(") and body.endswith(")"):  # $(( arithmetic ))
-                    body = body[1:-1]
+        if c == "$" and i + 1 < n and text[i + 1] == "(":
+            body, end = _subst_body(text, i)
+            if body is not None:
                 subs.append(body)
+            value.append(text[i:end])
+            i = end
+            continue
+        if c == "$" and i + 1 < n and text[i + 1] == "{":
+            end = _match_close(text, i + 2, "}")
             value.append(text[i:end])
             i = end
             continue
@@ -229,7 +340,7 @@ def _read_word(text, i):
 
 
 def _subs_in(inner):
-    """Command-substitution bodies inside double-quoted text."""
+    """Command-substitution bodies inside double-quoted (or unquoted-heredoc) text."""
     subs, i, n = [], 0, len(inner)
     while i < n:
         c = inner[i]
@@ -241,14 +352,14 @@ def _subs_in(inner):
             subs.append(inner[i + 1:end - 1].replace("\\`", "`"))
             i = end
             continue
-        if c == "$" and i + 1 < n and inner[i + 1] in "({":
-            end = _match_close(inner, i + 2, ")" if inner[i + 1] == "(" else "}")
-            if inner[i + 1] == "(":
-                body = inner[i + 2:end - 1]
-                if body.startswith("(") and body.endswith(")"):
-                    body = body[1:-1]
+        if c == "$" and i + 1 < n and inner[i + 1] == "(":
+            body, end = _subst_body(inner, i)
+            if body is not None:
                 subs.append(body)
             i = end
+            continue
+        if c == "$" and i + 1 < n and inner[i + 1] == "{":
+            i = _match_close(inner, i + 2, "}")
             continue
         i += 1
     return subs
@@ -257,17 +368,24 @@ def _subs_in(inner):
 REDIRECT_RE = re.compile(r"(?:[0-9]+|&)?(?:>>|>&|>\||<<<|<<-|<<|<>|<&|>|<)")
 
 
-def parse(command):
-    """Split a command string into Simple commands (operators, newlines and parentheses separate them)."""
-    text, _ = _heredocs(command)
+def parse(command, registry=None):
+    """Split a command string into Simple commands. Operators, newlines and parentheses separate them; each Simple
+    records its subshell depth and whether it is part of a pipeline."""
+    registry = [] if registry is None else registry
+    text = _heredocs(command, registry)
     simples, cur = [], Simple()
+    depth = 0
+    next_piped = False
     i, n = 0, len(text)
 
-    def flush():
-        nonlocal cur
+    def flush(piped_after=False):
+        nonlocal cur, next_piped
         if cur:
+            cur.piped = piped_after or next_piped
             simples.append(cur)
+        next_piped = piped_after
         cur = Simple()
+        cur.depth = depth
 
     while i < n:
         c = text[i]
@@ -281,13 +399,12 @@ def parse(command):
             flush()
             i += 1
             continue
-        if c == "#" and not cur.words and not cur.redirects or (c == "#" and text[i - 1] in " \t"):
+        if c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
             j = text.find("\n", i)
             i = n if j < 0 else j
             continue
         m = REDIRECT_RE.match(text, i)
         if m and not (text[i] in "<>" and i + 1 < n and text[i + 1] == "("):
-            # digits only count as an fd when the redirect follows at once (`2>`); else they're a word
             op = m.group(0)
             i = m.end()
             while i < n and text[i] in " \t":
@@ -300,10 +417,21 @@ def parse(command):
             continue
         op = next((o for o in OPERATORS if text.startswith(o, i)), None)
         if op:
-            flush()
+            if op == "(":
+                flush()
+                depth += 1
+                cur.depth = depth
+            elif op == ")":
+                flush()
+                depth = max(0, depth - 1)
+                cur.depth = depth
+            else:
+                flush(piped_after=op in ("|", "|&"))
             i += len(op)
             continue
         word, i = _read_word(text, i)
+        if not cur:
+            cur.depth = depth
         cur.words.append(word)
     flush()
     return simples
@@ -311,7 +439,7 @@ def parse(command):
 
 # ---------------------------------------------------------------- prefix stripping
 
-def _skip_opts(argv, i, with_value=(), stop_at_first_positional=True):
+def _skip_opts(argv, i, with_value=()):
     while i < len(argv):
         a = argv[i]
         if a == "--":
@@ -321,10 +449,8 @@ def _skip_opts(argv, i, with_value=(), stop_at_first_positional=True):
         name = a.split("=", 1)[0]
         if name in with_value and "=" not in a:
             i += 2
-        elif len(a) > 2 and not a.startswith("--") and a[:2] in with_value:
-            i += 1  # attached value: -n5, -uroot
         else:
-            i += 1
+            i += 1  # a flag, or a value attached: -n5, -uroot
     return i
 
 
@@ -383,21 +509,35 @@ def strip_prefix(argv):
 
 # ---------------------------------------------------------------- walking
 
-def _shell_code(args):
-    """The code string given to `bash -c` (also -lc, -ec, …), or None."""
-    for k, a in enumerate(args):
+SHELL_OPTS_WITH_VALUE = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
+
+
+def _shell_mode(args):
+    """For a shell's args: ("code", string) for `-c`, ("stdin", None) when it reads its script from stdin, or
+    ("file", None) when it runs a script file."""
+    k = 0
+    while k < len(args):
+        a = args[k]
         if a == "--":
-            return None
-        if a.startswith("-") and not a.startswith("--") and "c" in a[1:]:
-            rest = [x for x in args[k + 1:] if not (x.startswith("-") and len(x) > 1)]
-            return rest[0] if rest else None
-        if a.startswith("-") or a.startswith("+"):
+            return ("file", None) if k + 1 < len(args) else ("stdin", None)
+        if a in SHELL_OPTS_WITH_VALUE:
+            k += 2
             continue
-        return None  # a script file: not scanned
-    return None
-
-
-EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir"}
+        if a.startswith("--"):
+            k += 1
+            continue
+        if a[:1] in "-+" and len(a) > 1:
+            if a[0] == "-" and "c" in a[1:]:
+                for r in args[k + 1:]:
+                    if not (r[:1] in "-+" and len(r) > 1):
+                        return ("code", r)
+                return ("code", None)
+            if a[0] == "-" and "s" in a[1:]:
+                return ("stdin", None)
+            k += 1
+            continue
+        return ("file", None)
+    return ("stdin", None)
 
 
 def _find_exec_payloads(args):
@@ -414,24 +554,59 @@ def _find_exec_payloads(args):
     return out
 
 
+def _nested(body, cwd, depth, registry):
+    """Commands in a nested body. A body that doesn't parse is skipped (the shell would refuse it too); the
+    commands around it are still checked."""
+    if depth > MAX_DEPTH or not body:
+        return []
+    try:
+        return list(_walk(body, {"cwd": cwd, "registry": registry}, depth))
+    except ParseError:
+        return []
+
+
 def _walk(command, state, depth):
-    for simple in parse(command):
+    registry = state.setdefault("registry", [])
+    level_cwds = []  # cwd on entry to each open subshell
+    cur_depth = 0
+    for simple in parse(command, registry):
+        while cur_depth < simple.depth:
+            level_cwds.append(state["cwd"])
+            cur_depth += 1
+        while cur_depth > simple.depth:
+            state["cwd"] = level_cwds.pop()
+            cur_depth -= 1
         for w in simple.words + [t for _, t in simple.redirects]:
             for body in w.subs:
-                if depth < MAX_DEPTH:
-                    yield from _walk(body, {"cwd": state["cwd"]}, depth + 1)
-        yield from _dispatch(simple.words, state, depth, simple.redirects)
+                yield from _nested(body, state["cwd"], depth + 1, registry)
+        heredocs = []
+        for op, target in simple.redirects:
+            m = HEREDOC_MARK_RE.match(str(target)) if op in ("<<", "<<-") else None
+            if m and int(m.group(1)) < len(registry):
+                _tag, body, quoted = registry[int(m.group(1))]
+                heredocs.append((body, quoted))
+                if not quoted:  # bash expands $(…) and backticks inside an unquoted heredoc
+                    try:
+                        subs = _subs_in(body)
+                    except ParseError:
+                        subs = []
+                    for sub in subs:
+                        yield from _nested(sub, state["cwd"], depth + 1, registry)
+        yield from _dispatch(simple.words, state, depth, simple.redirects, heredocs, simple.piped)
 
 
-def _dispatch(words, state, depth, redirects=()):
+def _dispatch(words, state, depth, redirects=(), heredocs=(), piped=False):
     argv = strip_prefix(list(words))
     if not argv:
         return
     prog = os.path.basename(argv[0])
-    cmd = Cmd(argv, state["cwd"], redirects)
+    cmd = Cmd(argv, state["cwd"], redirects, heredocs)
     yield cmd
     args = argv[1:]
+    registry = state.get("registry", [])
     if prog == "cd":
+        if piped:
+            return  # each part of a pipeline runs in its own subshell
         target = next((a for a in args if not a.startswith("-") or a == "-"), None)
         if target and target != "-":
             state["cwd"] = os.path.normpath(os.path.join(state["cwd"], os.path.expanduser(target)))
@@ -441,27 +616,58 @@ def _dispatch(words, state, depth, redirects=()):
     if depth >= MAX_DEPTH:
         return
     if prog in SHELLS:
-        code = _shell_code(args)
-        if code is not None:
-            yield from _walk(code, {"cwd": state["cwd"]}, depth + 1)
+        mode, code = _shell_mode(args)
+        if mode == "code" and code is not None:
+            yield from _nested(code, state["cwd"], depth + 1, registry)
+        elif mode == "stdin":
+            for body, _quoted in heredocs:
+                yield from _nested(body, state["cwd"], depth + 1, registry)
+            for op, target in redirects:
+                if op.endswith("<<<"):
+                    yield from _nested(str(target), state["cwd"], depth + 1, registry)
     elif prog == "eval" and args:
-        yield from _walk(" ".join(args), state, depth + 1)
+        yield from _nested(" ".join(args), state["cwd"], depth + 1, registry)
     elif prog == "find":
         for payload in _find_exec_payloads(args):
-            yield from _dispatch(payload, {"cwd": state["cwd"]}, depth + 1)
+            yield from _dispatch(payload, {"cwd": state["cwd"], "registry": registry}, depth + 1)
 
 
 def iter_commands(command, cwd):
     """Every simple command in `command`, as Cmd objects, in order. Raises ParseError on unbalanced quotes."""
-    yield from _walk(command, {"cwd": cwd}, 0)
+    return list(_walk(command, {"cwd": cwd, "registry": []}, 0))
+
+
+# ---------------------------------------------------------------- git
+
+def git_split(args, cwd):
+    """(subcommand, its args, cwd after any `-C dir`) for the args after `git`. subcommand is None if absent."""
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if not a.startswith("-"):
+            return a, list(args[i + 1:]), cwd
+        name = a.split("=", 1)[0]
+        if name in GIT_OPTS_WITH_VALUE and "=" not in a:
+            if name == "-C" and i + 1 < len(args):
+                cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(args[i + 1])))
+            i += 2
+            continue
+        i += 1
+    return None, [], cwd
 
 
 # ---------------------------------------------------------------- inline code
 
-INLINE_FLAGS = {
-    "python": ("-c",), "python3": ("-c",), "python2": ("-c",),
-    "node": ("-e", "--eval", "-p", "--print"), "deno": ("eval",), "bun": ("-e", "--eval"),
-    "ruby": ("-e",), "perl": ("-e", "-E"),
+# interpreter -> (letters that introduce code, letters that take a value, letters that mean "not inline code",
+#                 long options that introduce code, long options that take a value,
+#                 True when a value letter only takes an attached value: perl -Idir, -i.bak)
+INTERPRETERS = {
+    "python": ("c", "WXQ", "m", (), ("--check-hash-based-pycs",), False),
+    "node": ("ep", "r", "", ("--eval", "--print"), ("--require", "--import", "--loader", "--experimental-loader",
+                                                    "--input-type", "--env-file", "--conditions", "--title"), False),
+    "bun": ("e", "r", "", ("--eval", "--print"), ("--preload", "--cwd", "--env-file"), False),
+    "ruby": ("e", "rICFE", "", (), (), False),
+    "perl": ("eE", "IMmixl0", "", (), (), True),
 }
 
 
@@ -471,19 +677,42 @@ def inline_code(argv):
         return None
     prog = os.path.basename(argv[0])
     base = re.sub(r"[0-9.]+$", "", prog) or prog
-    flags = INLINE_FLAGS.get(prog) or INLINE_FLAGS.get(base)
-    if not flags:
+    if base == "deno":
+        return argv[2] if len(argv) > 2 and argv[1] == "eval" else None
+    spec = INTERPRETERS.get(base)
+    if not spec:
         return None
-    for k, a in enumerate(argv[1:], 1):
-        name = a.split("=", 1)[0]
-        if name in flags:
-            if "=" in a and a.startswith("--"):
-                return a.split("=", 1)[1]
-            return argv[k + 1] if k + 1 < len(argv) else None
-        if len(a) > 2 and a[:2] in flags and not a.startswith("--"):
-            return a[2:]  # -c'code' written together
-        if not a.startswith("-"):
-            return None  # a script path comes first: not inline code
+    code_letters, value_letters, stop_letters, code_long, value_long, attached_only = spec
+    args = argv[1:]
+    k = 0
+    while k < len(args):
+        a = args[k]
+        if a == "--":
+            return None
+        if a.startswith("--"):
+            name = a.split("=", 1)[0]
+            if name in code_long:
+                return a.split("=", 1)[1] if "=" in a else (args[k + 1] if k + 1 < len(args) else None)
+            if name in value_long and "=" not in a:
+                k += 2
+                continue
+            k += 1
+            continue
+        if a.startswith("-") and len(a) > 1:
+            group = a[1:]
+            for idx, ch in enumerate(group):
+                if ch in stop_letters:
+                    return None
+                if ch in code_letters:
+                    rest = group[idx + 1:]
+                    return rest if rest else (args[k + 1] if k + 1 < len(args) else None)
+                if ch in value_letters:
+                    if idx == len(group) - 1 and not attached_only:
+                        k += 1  # the value is the next arg
+                    break
+            k += 1
+            continue
+        return None  # a script path comes first: not inline code
     return None
 
 
