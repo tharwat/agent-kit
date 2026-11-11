@@ -259,6 +259,10 @@ class PackGuardrails(Base):
                     "pnpm -C packages/api audit --fix", "pnpm audit --prod --json --ignore-unfixable"):
             with self.subTest(fix=cmd):
                 self.assertTrue(any(rule_matches(r, cmd) for r in deny), cmd)
+        for cmd in ("npm audit --omit=dev --json", "pnpm audit --prod --json",
+                    "npm audit --omit=dev --json --prefix fixtures/app", "pnpm audit --ignore-registry-errors"):
+            with self.subTest(not_denied=cmd):
+                self.assertFalse(any(rule_matches(r, cmd) for r in deny), cmd)
         for cmd in ("npm audit --omit=dev --json", "pnpm audit --prod --json"):
             with self.subTest(read=cmd):
                 self.assertTrue(any(rule_matches(r, cmd) for r in allow))

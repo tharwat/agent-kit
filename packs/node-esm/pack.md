@@ -28,15 +28,18 @@ At Step 4 (run the suite):
 At Step 8 (pack checks): **dependency vulnerability audit.** If both the node-esm and typescript packs are installed,
 run it once.
 
-1. For each package dir in `<TEST_COMMANDS>`, find its lockfile: in that dir, or the nearest one above it up to the
-   repo root (a workspace keeps one lockfile at the root). Run each lockfile's audit once, in the lockfile's dir:
+1. Find every JavaScript lockfile in the repo (`git ls-files` for `package-lock.json`, `npm-shrinkwrap.json`,
+   `pnpm-lock.yaml`, `yarn.lock`, `bun.lock*`), not only those under `<TEST_COMMANDS>` dirs. A workspace keeps one at
+   its root. Run each lockfile's audit once, in its dir. The package manager is the one `package.json`
+   `packageManager` names. Without that field, it is the one whose lockfile is there; if a dir holds several, audit
+   each and say which is stale.
 
    | Lockfile | Command |
    |---|---|
    | `package-lock.json` or `npm-shrinkwrap.json` | `npm audit --omit=dev --json` |
    | `pnpm-lock.yaml` | `pnpm audit --prod --json` |
-   | `yarn.lock`, Yarn 1 (no `.yarnrc.yml`; `yarn --version` is 1.x) | `yarn audit --groups dependencies --json` |
-   | `yarn.lock`, Yarn 2+ (`.yarnrc.yml`, or `yarn --version` is 2 or later) | `yarn npm audit --all --recursive --environment production --json` |
+   | `yarn.lock`, Yarn 1 (`packageManager: yarn@1…`, or no `.yarnrc.yml` and no `packageManager`) | `yarn audit --groups dependencies --json` |
+   | `yarn.lock`, Yarn 2+ (`packageManager: yarn@2…` or later, or a `.yarnrc.yml`) | `yarn npm audit --all --recursive --environment production --json` |
    | none, or only `bun.lock` / `bun.lockb` | none: report `Dependency audit: not run (no supported lockfile)` |
 
 2. For each advisory, record the package, severity, whether it is **direct** (in `package.json`) or **transitive**

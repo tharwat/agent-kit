@@ -98,7 +98,9 @@ def main():
         problem = [l for l in (r.stderr or "").splitlines() if l.startswith("notify:")]
         if r.returncode != 0 or problem:
             sys.stderr.write("notify-waiting: %s\n" % (problem[-1][:200] if problem else "send failed"))
-            return 0  # not recorded, so the next wait can try again
+            if not (problem and "not configured" in problem[-1]):
+                return 0  # a failed send isn't recorded, so the next wait can try again
+            # not configured yet: throttle it too, rather than spawn notify on every wait
         try:
             record_ping(state_path, session, now)
         except OSError as exc:
