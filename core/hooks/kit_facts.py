@@ -218,14 +218,15 @@ def open_markers(state, prefix=".started-"):
 def ticket_dir(state, ticket):
     """`<state>/<ticket>/`, matching an existing dir whatever its case (`abc-12/` for `ABC-12`)."""
     exact = os.path.join(state, ticket)
-    if os.path.isdir(exact):
-        return exact
     try:
-        for name in os.listdir(state):
-            if name.upper() == ticket.upper() and os.path.isdir(os.path.join(state, name)):
-                return os.path.join(state, name)
+        names = [n for n in os.listdir(state) if os.path.isdir(os.path.join(state, n))]
     except OSError:
-        pass
+        return exact
+    if ticket in names:
+        return exact
+    for name in names:  # the name as it is on disk, also on a case-insensitive filesystem
+        if name.upper() == ticket.upper():
+            return os.path.join(state, name)
     return exact
 
 
