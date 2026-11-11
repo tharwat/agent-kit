@@ -12,8 +12,9 @@ installed version before an upgrade.
   failed send is reported and doesn't use up the 10-minute slot. It is installed only with the pack.
 - **node-esm 1.1.0, typescript 1.1.0: dependency vulnerability audit.** A `## /security` section runs
   `npm audit --omit=dev --json` (or the pnpm / yarn form for that lockfile) and reports direct vs transitive and
-  whether a fix exists. A reachable critical or high advisory in a runtime dependency is S2 must-fix; the rest is
-  `noted`. `/release` runs the same audit.
+  whether a fix exists. A reachable critical or high advisory in a runtime dependency is S2. A ticket must fix an
+  S2 only when its own lockfile change brought it in; one already on main is noted as a pre-existing S2 and filed on
+  the open-items ticket. The rest is `noted`. `/release` runs the same audit and blocks on any open S2.
   - A workspace is audited once, at its root lockfile.
   - Yarn 2+ audits transitive dependencies (`--all --recursive`).
   - Non-zero exits with JSON advisories are results. No lockfile, a Bun lockfile, or output with no JSON (offline,

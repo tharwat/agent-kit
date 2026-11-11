@@ -114,11 +114,15 @@ run it once.
 2. For each advisory, record the package, severity, whether it is **direct** (in `package.json`) or **transitive**
    (and through which direct dependency), and whether a fixed version exists.
 3. **Severity.** A `critical` or `high` advisory in a runtime dependency whose vulnerable code this project can reach
-   is **S2 must-fix**: upgrade the dependency (a dependency change under `<DEPENDENCY_POLICY>`; say why in the PR).
-   Everything else, including dev-only and unreachable advisories, is `noted` with the reason.
-4. **Never run `npm audit fix`** (or `pnpm` / `yarn` equivalents). It rewrites the lockfile, which is a dependency
+   is **S2**. Everything else, including dev-only and unreachable advisories, is `noted` with the reason.
+4. **Which S2s this ticket fixes.** An S2 is **must-fix** only when this ticket brought it in: the lockfile diff
+   (`git diff origin/<MAIN_BRANCH>...HEAD -- <lockfile>`) adds the vulnerable package or changes it to a vulnerable
+   version. Fix it by upgrading the dependency (a dependency change under `<DEPENDENCY_POLICY>`; say why in the PR).
+   An S2 already on `<MAIN_BRANCH>` is `noted` as `pre-existing S2: <package> <advisory id>` and goes to
+   `<OPEN_ITEMS_TICKET>` with the other noted findings; it doesn't block this ticket. `/release` still blocks on it.
+5. **Never run `npm audit fix`** (or `pnpm` / `yarn` equivalents). It rewrites the lockfile, which is a dependency
    change you must make on purpose.
-5. **Exit codes.** These commands exit non-zero when they *find* advisories: a non-zero exit with JSON advisories in
+6. **Exit codes.** These commands exit non-zero when they *find* advisories: a non-zero exit with JSON advisories in
    the output is a result, not an error. Only when there is no parseable JSON (offline, a registry error, a retired
    audit endpoint, a missing lockfile) report `Dependency audit: not run (<reason>)`. That, or an empty answer, is
    never a pass.
