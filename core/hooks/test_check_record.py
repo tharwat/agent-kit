@@ -110,6 +110,16 @@ class Kinds(Case):
                 self.write(PATHS["post-op"], text)
                 self.assertEqual(self.check("post-op").returncode, 0)
 
+    def test_last_fingerprint_line_is_the_record(self):
+        self.write(PATHS["operate"], GOOD["operate"] + "\nSelf-review: ABC-12\nFingerprint: <h>\n")
+        self.assertEqual(self.check("operate").returncode, 1)
+        self.write(PATHS["operate"], "Fingerprint: <h>\n\n" + GOOD["operate"])
+        self.assertEqual(self.check("operate").returncode, 0)
+
+    def test_lower_case_ticket(self):
+        self.write(PATHS["triage"], GOOD["triage"])
+        self.assertEqual(self.run_cli("--kind", "triage", "--ticket", "abc-12").returncode, 0)
+
     def test_stale_record_from_before_the_start(self):
         self.write(PATHS["operate"], GOOD["operate"], age=600)
         self.start("operate")
@@ -152,17 +162,59 @@ class Stop(Case):
 
     def test_stale_marker_is_abandoned_once(self):
         self.start("operate", age=25 * 3600)
-        r = self.stop()
-        self.assertEqual(r.returncode, 0)
-        self.assertIn("abandoned", r.stderr)
+        self.assertEqual(self.stop().returncode, 0)
         self.assertTrue(os.path.exists(self.marker("operate", "abandoned")))
+        self.assertEqual(self.stop().stderr, "")
+
+    def test_stale_but_complete_record_is_checked(self):
+        self.write(PATHS["triage"], GOOD["triage"])
+        self.start("triage", age=25 * 3600)
+        os.utime(os.path.join(self.project, PATHS["triage"]))
+        self.assertEqual(self.stop().returncode, 0)
+        self.assertTrue(os.path.exists(self.marker("triage", "checked")))
+
+    def test_one_nudge_per_marker(self):
+        # /post-op waiting on its background review: reminded once, never trapped
+        self.start("post-op")
         r = self.stop()
-        self.assertEqual(r.stderr, "")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("won't repeat", r.stderr)
+        self.assertIn("--cancel post-op", r.stderr)
+        self.assertEqual(self.stop().returncode, 0)
+        self.assertTrue(os.path.exists(self.marker("post-op", "started")))  # still open, just quiet
+
+    def test_cancel(self):
+        self.start("triage")
+        r = self.run_cli("--cancel", "triage", "--ticket", TICKET)
+        self.assertEqual(r.returncode, 0)
+        self.assertTrue(os.path.exists(self.marker("triage", "cancelled")))
+        self.assertEqual(self.stop().returncode, 0)
+
+    def test_renames_never_overwrite(self):
+        for _ in range(2):
+            self.start("triage")
+            self.write(PATHS["triage"], GOOD["triage"])
+            self.assertEqual(self.check("triage").returncode, 0)
+        d = os.path.dirname(self.marker("triage", "checked"))
+        self.assertEqual(len([f for f in os.listdir(d) if f.startswith(".checked-triage")]), 2)
 
     def test_fail_open(self):
         r = self.run_cli("--stop", stdin="{nope")
         self.assertEqual(r.returncode, 0)
         self.assertIn("allowing the stop", r.stderr)
+
+
+class OtherTickets(Case):
+    def test_only_the_current_branchs_ticket_is_checked(self):
+        with open(os.path.join(self.project, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+            fh.write("| Fact | Value |\n|---|---|\n| `TICKET_PREFIX` | ABC |\n| `BRANCH_PREFIX` | feature/ |\n")
+        subprocess.run(["git", "init", "-q", self.project], check=True)
+        subprocess.run(["git", "-C", self.project, "symbolic-ref", "HEAD", "refs/heads/feature/abc-99-other"],
+                       check=True)
+        self.start("operate")  # ABC-12, paused
+        self.assertEqual(self.stop().returncode, 0)
+        subprocess.run(["git", "-C", self.project, "symbolic-ref", "HEAD", "refs/heads/feature/abc-12-x"], check=True)
+        self.assertEqual(self.stop().returncode, 2)
 
 
 class TicketFromBranch(Case):

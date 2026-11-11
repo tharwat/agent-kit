@@ -7,10 +7,15 @@
   --kind <kind> [--ticket <T>]   Last step of the command (Claude and Codex). Checks the record; exit 0 when it's
                                  complete (the marker is renamed `.checked-<kind>`, never deleted), exit 1 with
                                  what's missing.
-  --stop                         The Stop hook. Acts only when a `.started-*` marker exists, meaning a command began
-                                 and never passed its check: it runs that check and exits 2 with what's missing.
-                                 One nudge only (`stop_hook_active` passes). A marker older than 24 h is renamed
-                                 `.abandoned-<kind>` and reported once.
+  --cancel <kind> [--ticket <T>] A command that stops early on purpose (BLOCKED, nothing to do, Node missing) closes
+                                 its marker: renamed `.cancelled-<kind>`.
+  --stop                         The Stop hook. Acts only when a `.started-*` marker exists for the current branch's
+                                 ticket (any ticket on a branch that names none) or for /handoff, meaning a command
+                                 began and never passed its check. It sends Claude back **once per marker** with
+                                 what's missing, and says what to do if the command is waiting (a background review,
+                                 the owner) or stopped on purpose. `stop_hook_active` passes. A marker older than
+                                 24 h is closed: `.checked-<kind>` if its record is complete, else `.abandoned-<kind>`
+                                 (session-context reports those).
 
 | kind     | record                              | must contain                                                    |
 |----------|-------------------------------------|-----------------------------------------------------------------|
@@ -20,8 +25,10 @@
 |          |                                     | `Result: clean, capped or escalate`                             |
 | handoff  | .claude/handoffs/latest.md          | written after the start, with the `## Git state` / `Branch:` block |
 
-The ticket comes from `--ticket`, else from the current `<BRANCH_PREFIX><ticket-lowercase>-<slug>` branch. With no
-ticket the check can't run, and it fails open. Writes only under `.claude/state/`. No network.
+The ticket comes from `--ticket` (upper-cased), else from the current `<BRANCH_PREFIX><ticket-lowercase>-<slug>`
+branch. With no ticket the check can't run, and it fails open. The project is the git checkout the session is in (a
+worktree's own root). Markers are renamed between states, never deleted or overwritten. Writes only under
+`.claude/state/`. No network.
 """
 
 import argparse
@@ -40,13 +47,15 @@ except ImportError:
     kit_facts = None
 
 KINDS = ("triage", "operate", "post-op", "handoff")
+NUDGED = "nudged"
 STALE_SECONDS = 24 * 3600
 TICKET_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*-[0-9]+$")
 TRIAGE_HEADER = ("| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | "
                  "Independent vector | Discharge |")
 TRIAGE_ROW_RE = re.compile(r"^\|\s*C[0-9]+\s*\|", re.M)
 HEX64 = r"[0-9a-f]{64}"
-OPERATE_RE = re.compile(r"^Fingerprint:\s*%s\s*$" % HEX64, re.M)
+OPERATE_RE = re.compile(r"^Fingerprint:\s*%s\s*$" % HEX64)
+FINGERPRINT_LINE_RE = re.compile(r"^Fingerprint:.*$", re.M)
 POSTOP_FP_RE = re.compile(r"^Fingerprint:\s*(%s|none \(no reviewable change\))\s*$" % HEX64, re.M)
 POSTOP_RESULT_RE = re.compile(r"^Result:\s*(clean|capped|escalate)\s*$", re.M)
 HANDOFF_BRANCH_RE = re.compile(r"^Branch:\s*\S", re.M)
@@ -59,6 +68,8 @@ def norm(line):
 # ---------------------------------------------------------------- paths
 
 def project_dir(cwd=None):
+    if kit_facts is not None:
+        return kit_facts.project_root(cwd)
     return os.environ.get("CLAUDE_PROJECT_DIR") or cwd or os.getcwd()
 
 
@@ -92,15 +103,21 @@ def rel(project, path):
 
 # ---------------------------------------------------------------- checks
 
-def read_started(marker):
+def read_marker(marker):
+    """(start time, already nudged)."""
     try:
         with open(marker, encoding="utf-8") as fh:
-            return float(fh.read().strip().split()[0])
+            words = fh.read().split()
+        return float(words[0]), NUDGED in words[1:]
     except (OSError, ValueError, IndexError):
         try:
-            return os.path.getmtime(marker)
+            return os.path.getmtime(marker), False
         except OSError:
-            return None
+            return None, False
+
+
+def read_started(marker):
+    return read_marker(marker)[0]
 
 
 def problems(project, kind, ticket, started=None):
@@ -121,9 +138,10 @@ def problems(project, kind, ticket, started=None):
         elif not TRIAGE_ROW_RE.search(text):
             out.append("%s has a contract table with no `| C1 |` row" % shown)
     elif kind == "operate":
-        if not OPERATE_RE.search(text):
-            out.append("%s has no `Fingerprint: <64-hex>` line (take it with node .claude/scripts/kit-tools.mjs "
-                       "fingerprint)" % shown)
+        lines = FINGERPRINT_LINE_RE.findall(text)
+        if not lines or not OPERATE_RE.match(lines[-1].strip()):  # the last Fingerprint: line is the record
+            out.append("%s: its last `Fingerprint:` line isn't `Fingerprint: <64-hex>` (take it with node "
+                       ".claude/scripts/kit-tools.mjs fingerprint)" % shown)
     elif kind == "post-op":
         if not POSTOP_FP_RE.search(text):
             out.append("%s has no `Fingerprint: <64-hex>` (or `none (no reviewable change)`) line" % shown)
@@ -136,8 +154,11 @@ def problems(project, kind, ticket, started=None):
 
 
 def rename(src, dst):
+    """Rename a marker to its next state. An earlier marker of that name is kept: the new one gets a time suffix."""
+    if os.path.exists(dst):
+        dst = "%s.%d" % (dst, int(time.time() * 1000))
     try:
-        os.replace(src, dst)  # a rename: the marker is kept under its new name, never deleted
+        os.rename(src, dst)
     except OSError:
         pass
 
@@ -150,6 +171,14 @@ def cmd_start(project, kind, ticket):
     with open(os.path.join(d, ".started-" + kind), "w", encoding="utf-8") as fh:
         fh.write("%f\n" % time.time())
     print("check-record: /%s started%s." % (kind, "" if kind == "handoff" else " for " + ticket))
+    return 0
+
+
+def cmd_cancel(project, kind, ticket):
+    marker = os.path.join(marker_dir(project, kind, ticket), ".started-" + kind)
+    if os.path.exists(marker):
+        rename(marker, os.path.join(os.path.dirname(marker), ".cancelled-" + kind))
+    print("check-record: /%s closed without a record (stopped on purpose)." % kind)
     return 0
 
 
@@ -189,24 +218,35 @@ def cmd_stop(project, event):
     if event.get("stop_hook_active"):
         return 0  # one nudge only; never a loop
     now = time.time()
+    current = ticket_from_branch(project)
     messages = []
     for kind, ticket, marker in open_markers(project):
-        started = read_started(marker)
+        if current and ticket is not None and ticket.upper() != current.upper():
+            continue  # another ticket's run: session-context lists it, this turn isn't about it
+        started, nudged = read_marker(marker)
         if started is None:
-            continue
-        if now - started > STALE_SECONDS:
-            rename(marker, os.path.join(os.path.dirname(marker), ".abandoned-" + kind))
-            sys.stderr.write("check-record: an old /%s%s run never finished its record; marked abandoned.\n"
-                             % (kind, "" if ticket is None else " for " + ticket))
             continue
         found = problems(project, kind, ticket, started)
         if not found:
             rename(marker, os.path.join(os.path.dirname(marker), ".checked-" + kind))
             continue
-        how = "python3 .claude/hooks/check-record.py --kind %s%s" % (kind, "" if ticket is None else
-                                                                     " --ticket " + ticket)
-        messages.append("/%s%s started but its record is incomplete: %s. Finish the record, then run `%s`."
-                        % (kind, "" if ticket is None else " for " + ticket, "; ".join(found), how))
+        if now - started > STALE_SECONDS:
+            rename(marker, os.path.join(os.path.dirname(marker), ".abandoned-" + kind))
+            continue
+        if nudged:
+            continue  # said once already; the command may be waiting on a review or the owner
+        try:
+            with open(marker, "a", encoding="utf-8") as fh:
+                fh.write(" %s\n" % NUDGED)
+        except OSError:
+            pass
+        suffix = "" if ticket is None else " --ticket " + ticket
+        messages.append(
+            "/%s%s started but its record is incomplete: %s. If the command is finished, complete the record and "
+            "run `python3 .claude/hooks/check-record.py --kind %s%s`. If it is waiting (a background review, the "
+            "owner's answer), just say so and stop: this reminder won't repeat. If it stopped early on purpose, run "
+            "`python3 .claude/hooks/check-record.py --cancel %s%s`. Never write a record you haven't earned."
+            % (kind, "" if ticket is None else " for " + ticket, "; ".join(found), kind, suffix, kind, suffix))
     if messages:
         sys.stderr.write("Record check: " + " ".join(messages) + "\n")
         return 2
@@ -218,6 +258,7 @@ def main(argv=None):
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--start", choices=KINDS)
     mode.add_argument("--kind", choices=KINDS)
+    mode.add_argument("--cancel", choices=KINDS)
     mode.add_argument("--stop", action="store_true")
     ap.add_argument("--ticket")
     args = ap.parse_args(argv)
@@ -232,15 +273,17 @@ def main(argv=None):
             return 0
 
     project = project_dir()
-    kind = args.start or args.kind
+    kind = args.start or args.kind or args.cancel
     ticket = None
     if kind != "handoff":
-        ticket = args.ticket or ticket_from_branch(project)
+        ticket = (args.ticket or ticket_from_branch(project) or "").upper()
         if not ticket or not TICKET_RE.match(ticket):
             print("check-record: no ticket (pass --ticket <ticket>, or run on a ticket branch); nothing checked.")
             return 0
     if args.start:
         return cmd_start(project, kind, ticket)
+    if args.cancel:
+        return cmd_cancel(project, kind, ticket)
     return cmd_check(project, kind, ticket)
 
 

@@ -10,7 +10,7 @@ argument-hint: "[ticket]"
 
 Invoked with: `/operate [ticket]`. With no ticket, take the key from the branch name.
 
-**Record check.** First run `python3 .claude/hooks/check-record.py --start operate --ticket <ticket>`. The last step runs `--kind operate` the same way, and a Stop hook reminds Claude if the record is still missing. Codex runs both steps too.
+**Record check.** First run `python3 .claude/hooks/check-record.py --start operate --ticket <ticket>`. The last step runs `--kind operate` the same way, and a Stop hook reminds Claude once if the record is still missing. If the command stops early on purpose (BLOCKED, nothing to do), run `--cancel operate` the same way instead. Codex runs these steps too.
 
 The middle step of **`/triage` → `/operate` → `/post-op`** (then the optional `/peer-review`, then `/ship`). It is a
 discipline to follow, not advice to weigh.

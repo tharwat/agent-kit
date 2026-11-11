@@ -11,7 +11,7 @@ argument-hint: "[ticket]"
 Invoked with: `/post-op [ticket]`. With no ticket, take the key from the branch name. Post-op reads the branch's
 diff against `origin/<MAIN_BRANCH>`, committed or not.
 
-**Record check.** First run `python3 .claude/hooks/check-record.py --start post-op --ticket <ticket>`. The last step runs `--kind post-op` the same way, and a Stop hook reminds Claude if the record is still missing. Codex runs both steps too.
+**Record check.** First run `python3 .claude/hooks/check-record.py --start post-op --ticket <ticket>`. The last step runs `--kind post-op` the same way, and a Stop hook reminds Claude once if the record is still missing. If the command stops early on purpose (BLOCKED, nothing to do), run `--cancel post-op` the same way instead. Codex runs these steps too.
 
 ## Purpose
 

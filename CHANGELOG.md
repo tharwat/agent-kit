@@ -14,9 +14,12 @@ installed version before an upgrade.
   - **post-op:** `Fingerprint:` and `Result:`;
   - **handoff:** a fresh `latest.md` with its git block.
 
-  A **Stop hook** catches a command that started and never passed its check, and sends Claude back once with what's
-  missing. It costs nothing when no command is open. A marker older than 24 h is marked abandoned, never left to
-  nag. Codex runs the same two steps from the command text.
+  A **Stop hook** catches a command that started and never passed its check, and sends Claude back with what's
+  missing, **once per run**: a command waiting on a background review or the owner isn't pushed to fake a record.
+  It checks only the current branch's ticket, and costs nothing when no command is open. A command that stops early
+  on purpose runs `check-record.py --cancel <kind>`. A marker older than 24 h is closed (checked or abandoned), and
+  session-context reports abandoned runs. Markers are renamed, never deleted or overwritten. Codex runs the same steps
+  from the command text.
 - **Session context (`session-context.py`, core).** On startup, resume and after a compaction, a SessionStart hook
   prints up to 15 lines:
   - the branch, ticket, commits ahead and changed files;
@@ -24,7 +27,8 @@ installed version before an upgrade.
   - an unfinished command;
   - "run `/resume`" when a handoff is newer than the last commit.
 
-  It prints paths and status words only, never file contents. Codex has no session hooks; `/resume` stays the
+  It works in the checkout the session is in (a worktree's own root), shows the handoff hint only for the branch the
+  handoff was written on, and prints paths and status words only, never file contents. Codex has no session hooks; `/resume` stays the
   manual path.
 - **Allow rule** `Bash(python3 .claude/hooks/check-record.py *)`.
 

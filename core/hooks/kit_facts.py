@@ -5,6 +5,7 @@
   read_facts(cwd)                  {NAME: value} from the Project facts table in CLAUDE.md (in $CLAUDE_PROJECT_DIR,
                                    else the nearest one at or above cwd). Missing or unreadable file: {}.
   fact(facts, name, default)       one value, or the default when absent, empty or an unfilled template placeholder.
+  project_root(cwd)                the checkout a session works in (a worktree's own root when in one).
   current_branch(directory)        the checked-out branch's short name, or None (detached, not a repo, error).
   ticket_for_branch(branch, facts) the ticket key (`ABC-12`) a `<BRANCH_PREFIX><ticket-lowercase>-<slug>` branch
                                    names, or None.
@@ -62,6 +63,20 @@ def fact(facts, name, default=None):
     if not value or "{{" in value:
         return default
     return value
+
+
+def project_root(cwd=None):
+    """The checkout a session works in: the git top level of cwd (a worktree's own root), else
+    $CLAUDE_PROJECT_DIR, else cwd."""
+    cwd = cwd or os.getcwd()
+    try:
+        out = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                             timeout=5)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return os.environ.get("CLAUDE_PROJECT_DIR") or cwd
 
 
 def current_branch(directory):

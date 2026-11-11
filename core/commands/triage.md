@@ -10,7 +10,7 @@ Values written `<LIKE_THIS>` come from the Project facts block in `CLAUDE.md`.
 
 Invoked as `/triage [<ticket>]`.
 
-**Record check.** First run `python3 .claude/hooks/check-record.py --start triage --ticket <ticket>`. The last step runs `--kind triage` the same way, and a Stop hook reminds Claude if the record is still missing. Codex runs both steps too.
+**Record check.** First run `python3 .claude/hooks/check-record.py --start triage --ticket <ticket>`. The last step runs `--kind triage` the same way, and a Stop hook reminds Claude once if the record is still missing. If the command stops early on purpose (BLOCKED, nothing to do), run `--cancel triage` the same way instead. Codex runs these steps too.
 
 Triage checks a ticket against the current code **before implementation**. It finds stale assumptions, work that's
 already done and the fix's blast radius, and it writes the binding contract that `/operate` discharges. It is

@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 sys.dont_write_bytecode = True  # never leave __pycache__ in .claude/hooks/
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -29,6 +30,9 @@ except ImportError:
 
 MAX_LINES = 15
 RESULTS = ("clean", "capped", "escalate")
+KINDS = ("triage", "operate", "post-op", "handoff")
+STALE_SECONDS = 24 * 3600
+MAX_MARKER_LINES = 5
 
 
 def git(project, *args):
@@ -37,6 +41,35 @@ def git(project, *args):
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout.strip() if out.returncode == 0 else None
+
+
+def handoff_branch(path):
+    """The `branch:` value in the handoff's frontmatter (a status word, never printed)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i > 10:
+                    break
+                if line.startswith("branch:"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
+def markers(state, prefix, max_age=None):
+    """[(kind, ticket or None)] for `.started-*` / `.abandoned-*` markers of known kinds."""
+    out, now = [], time.time()
+    for path in sorted(glob.glob(os.path.join(state, prefix + "*")) +
+                       glob.glob(os.path.join(state, "*", prefix + "*"))):
+        kind = os.path.basename(path)[len(prefix):].split(".")[0]
+        if kind not in KINDS:
+            continue
+        if max_age is not None and now - os.path.getmtime(path) > max_age:
+            continue
+        parent = os.path.dirname(path)
+        out.append((kind, None if parent == state else os.path.basename(parent)))
+    return out
 
 
 def post_op_result(path):
@@ -81,22 +114,27 @@ def lines_for(project, source):
         if "triage.md" in have:
             out.append("- Read `.claude/state/%s/triage.md` (the contract) before continuing." % ticket)
 
-    for marker in sorted(glob.glob(os.path.join(state, ".started-*")) + glob.glob(os.path.join(state, "*",
-                                                                                              ".started-*"))):
-        kind = os.path.basename(marker)[len(".started-"):]
-        parent = os.path.basename(os.path.dirname(marker))
-        where = "" if os.path.dirname(marker) == state else " for %s" % parent
-        out.append("- /%s%s started and hasn't written its record yet." % (kind, where))
-
     handoff = os.path.join(project, ".claude", "handoffs", "latest.md")
     if os.path.isfile(handoff):
         last = git(project, "log", "-1", "--format=%ct")
-        if not last or os.path.getmtime(handoff) > float(last):
+        made_on = handoff_branch(handoff)
+        same_branch = made_on in (None, "", "none", branch)
+        if same_branch and (not last or os.path.getmtime(handoff) > float(last)):
             if source == "compact":
-                out.append("- Context was just compacted and a handoff exists: run /resume now, before anything "
-                           "else.")
+                out.insert(1, "- Context was just compacted and a handoff exists for this branch: run /resume now, "
+                              "before anything else.")
             else:
-                out.append("- A handoff exists (.claude/handoffs/latest.md): run /resume.")
+                out.insert(1, "- A handoff exists for this branch (.claude/handoffs/latest.md): run /resume.")
+
+    open_runs = markers(state, ".started-", STALE_SECONDS)
+    for kind, tk in open_runs[:MAX_MARKER_LINES]:
+        out.append("- /%s%s started and hasn't written its record yet." % (kind, "" if tk is None else " for " + tk))
+    if len(open_runs) > MAX_MARKER_LINES:
+        out.append("- …and %d more unfinished runs under .claude/state/." % (len(open_runs) - MAX_MARKER_LINES))
+    abandoned = markers(state, ".abandoned-", 7 * 86400)
+    if abandoned:
+        out.append("- %d run(s) were left unfinished for over a day (.claude/state/*/.abandoned-*): check their "
+                   "records." % len(abandoned))
     return out[:MAX_LINES]
 
 
@@ -106,7 +144,7 @@ def main():
         event = json.loads(raw) if raw.strip() else {}
         if kit_facts is None:
             raise ImportError("kit_facts.py is missing")
-        project = os.environ.get("CLAUDE_PROJECT_DIR") or event.get("cwd") or os.getcwd()
+        project = kit_facts.project_root(event.get("cwd") or os.getcwd())
         out = lines_for(project, event.get("source") or "startup")
         if out:
             sys.stdout.write("\n".join(out) + "\n")
