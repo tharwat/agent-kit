@@ -61,6 +61,9 @@ PROGRAMMATIC_RE = re.compile(
 )
 
 
+GIT_ENV_RE = re.compile(r"\bGIT_(DIR|WORK_TREE)=")  # git pointed at another repo by the environment
+
+
 class Blocked(Exception):
     def __init__(self, reason, argv):
         super().__init__(reason)
@@ -197,10 +200,13 @@ def check_find(cmd):
         k += 1
 
 
-def check_git(cmd):
+def check_git(cmd, ctx=None):
     sub, rest, git_cwd = kit_shell.git_split(list(cmd.args), cmd.cwd)
     if sub is None:
         return
+    head = [str(a) for a in cmd.args[:len(cmd.args) - len(rest) - 1]]  # git's own options, before the subcommand
+    other_repo = any(a.split("=", 1)[0] in ("--git-dir", "--work-tree") for a in head) or \
+        bool((ctx or {}).get("git_env"))
     shorts, longs = short_flags(rest), long_flags(rest)
     argv = cmd.argv
 
@@ -221,7 +227,7 @@ def check_git(cmd):
         # -M / -C (or -m / -c with --force) rename or copy over the target: blocked only when it already exists
         if flags & {"M", "C"} or (force and (flags & {"m", "c"} or longs & {"--move", "--copy"})):
             pos = positionals(rest, ("-u", "--set-upstream-to"))
-            if pos and branch_exists(cmd, git_cwd, pos[-1]):
+            if pos and branch_exists(cmd, git_cwd, pos[-1], other_repo):
                 raise Blocked("git branch -D", argv)
         elif force:  # -f moves a branch to another commit
             raise Blocked("git branch -D", argv)
@@ -235,7 +241,7 @@ def check_git(cmd):
     elif sub == "checkout":
         flags = short_flags(rest, "bBt")
         target = option_value(rest, "B", "bBt")
-        if target is not None and branch_exists(cmd, git_cwd, target):  # -B resets an existing branch
+        if target is not None and branch_exists(cmd, git_cwd, target, other_repo):  # -B resets an existing branch
             raise Blocked("git branch -D", argv)
         if "f" in flags or "--force" in longs or "--pathspec-from-file" in longs:
             raise Blocked("git checkout -- <path> discards changes", argv)
@@ -272,8 +278,8 @@ def check_git(cmd):
         flags = short_flags(rest, "cCt")
         if "f" in flags or longs & {"--force", "--discard-changes"}:
             raise Blocked("git switch -f", argv)
-        target = option_value(rest, "C", "cCt", "--force-create")
-        if target is not None and branch_exists(cmd, git_cwd, target):  # -C resets an existing branch
+        target = option_value(rest, "C", "cCt", "--force-create", "--force-c")
+        if target is not None and branch_exists(cmd, git_cwd, target, other_repo):  # -C resets an existing branch
             raise Blocked("git branch -D", argv)
     elif sub == "worktree":
         if rest and rest[0] == "remove":
@@ -284,43 +290,46 @@ def check_git(cmd):
             raise Blocked("rm", argv)
 
 
-def option_value(args, letter, value_chars, long_name=None):
-    """The value of short option `letter` (`-B x`, `-Bx`, `-qB x`) or of `long_name` (`--force-create x`, `=x`).
-    A letter in value_chars takes the rest of its group as its value, so `-bfixB` is `-b fixB`, not `-B`.
-    None when the option isn't given; "" when it is given without a value."""
+def option_value(args, letter, value_chars, long_name=None, shortest=None):
+    """The value of short option `letter` (`-B x`, `-Bx`, `-qB x`) or of `long_name` (`--force-create x`, `=x`, or
+    any prefix of it at least as long as `shortest`, since git accepts an unambiguous abbreviation). Given twice,
+    the last one wins, as in git. A letter in value_chars takes the rest of its group as its value, so `-bfixB` is
+    `-b fixB`, not `-B`. None when the option isn't given; "" when it is given without a value."""
+    found = None
     for k, a in enumerate(args):
         if a == "--":
             break
-        if long_name and (a == long_name or a.startswith(long_name + "=")):
-            if "=" in a:
-                return a.split("=", 1)[1]
-            return args[k + 1] if k + 1 < len(args) else ""
-        if a.startswith("-") and not a.startswith("--") and a != "-":
+        nxt = args[k + 1] if k + 1 < len(args) else ""
+        if long_name and a.startswith("--"):
+            name = a.split("=", 1)[0]
+            if name == long_name or (shortest and name.startswith(shortest) and long_name.startswith(name)):
+                found = a.split("=", 1)[1] if "=" in a else nxt
+            continue
+        if a.startswith("-") and a != "-":
             group = a[1:]
             for i, ch in enumerate(group):
                 if ch == letter:
-                    tail = group[i + 1:]
-                    if tail:
-                        return tail
-                    return args[k + 1] if k + 1 < len(args) else ""
+                    found = group[i + 1:] or nxt
+                    break
                 if ch in value_chars:
                     break
-    return None
+    return found
 
 
-def branch_exists(cmd, directory, name):
+def branch_exists(cmd, directory, name, other_repo=False):
     """True when `name` is an existing local branch, so -B / -C / -M would replace it. When that can't be told (an
-    unknown cwd, an expansion in the name, git failing to run), assume it exists: the safe side is to block."""
+    unknown cwd, another repo named by --git-dir / --work-tree / GIT_DIR, an expansion in the name, git failing),
+    assume it exists: the safe side is to block."""
     if not name:
         return False
-    if not cmd.cwd_known or kit_shell.has_expansion(name):
+    if not cmd.cwd_known or other_repo or kit_shell.has_expansion(name):
         return True
     try:
         out = subprocess.run(["git", "-C", directory, "show-ref", "--verify", "--quiet", "refs/heads/" + str(name)],
                              capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return True
-    return out.returncode == 0
+    return out.returncode != 1  # show-ref --verify --quiet exits 1 exactly when the ref is missing
 
 
 def is_revision(directory, name):
@@ -334,6 +343,7 @@ def is_revision(directory, name):
 
 
 def check_command(command, cwd, ctx):
+    ctx = dict(ctx, git_env=bool(GIT_ENV_RE.search(command)))
     for cmd in kit_shell.iter_commands(command, cwd):
         prog = cmd.prog
         if prog == "rm":
@@ -345,7 +355,7 @@ def check_command(command, cwd, ctx):
         elif prog == "find":
             check_find(cmd)
         elif prog == "git":
-            check_git(cmd)
+            check_git(cmd, ctx)
         else:
             code = kit_shell.inline_code(cmd.argv)
             if code and PROGRAMMATIC_RE.search(code):

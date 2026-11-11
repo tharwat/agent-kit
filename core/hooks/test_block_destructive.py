@@ -89,13 +89,12 @@ ALLOWED = {
     "git clean": ["git clean -n", "git clean --dry-run", "git clean -nd", "git clean -n -d -x", "git clean -Xn",
                   "git clean -X -n"],
     "git branch -D": ["git branch -d x", "git branch --delete x", "git branch -a", "git branch new-feature",
-                      "git branch -m old new", "git branch -u origin/x", "git branch --format=%(refname)",
-                      "git branch -M old new", "git branch -C old new"],  # no such branch here: see OverwriteBranch
+                      "git branch -m old new", "git branch -u origin/x", "git branch --format=%(refname)"],
     "force push": ["git push -u origin feature/x", "git push", "git push origin HEAD", "git push --follow-tags",
                    "git push -o ci.skip origin x", "git push origin feature/x:feature/x"],
     "git checkout -- <path> discards changes": [
         "git checkout feature/x", "git checkout --detach origin/main", "git checkout -b feature/x origin/main",
-        "git checkout -", "git checkout main", "git checkout -B feature/x", "git checkout -t origin/x"],
+        "git checkout -", "git checkout main", "git checkout -t origin/x"],
     "git stash drop/clear": ["git stash", "git stash list", "git stash pop", "git stash push -m wip",
                              "git stash show -p"],
     "git restore": ["git restore --staged f", "git restore -S f", "git restore --staged -s HEAD~1 f"],
@@ -234,7 +233,12 @@ class OverwriteBranch(HookCase):
                     "git switch --force-create feature/x", "git switch --force-create=main",
                     "git branch -M feature/x", "git branch -M old feature/x", "git branch -C main",
                     "git branch -m -f old main", "git branch --move --force old main", "git branch -cf old main",
-                    "cd / && git -C %s checkout -B main" % self.repo):
+                    "cd / && git -C %s checkout -B main" % self.repo, "git checkout -B newx -B feature/x main",
+                    "git switch -C newx -C feature/x", "git switch --force-c feature/x HEAD", "git switch --force-cr=main",
+                    "cd / && git checkout -B feature/x",  # git fails outside a repo: unknown, so blocked
+                    "git --git-dir=%s/.git checkout -B new-thing" % self.repo,
+                    "git --work-tree=. checkout -B new-thing", "GIT_DIR=%s/.git git branch -M main new-thing" % self.repo,
+                    "export GIT_DIR=x; git switch -C new-thing"):
             with self.subTest(cmd=cmd):
                 self.assertBlocked(cmd, "git branch -D", cwd=self.repo)
 
@@ -242,7 +246,7 @@ class OverwriteBranch(HookCase):
         for cmd in ("git checkout -B new-thing", "git checkout -B new-thing origin/main", "git switch -C new-thing",
                     "git switch --force-create=new-thing", "git branch -M new-name", "git branch -M main renamed",
                     "git branch -C main copy", "git checkout -bfixB", "git checkout -b feature/y",
-                    "git switch -cmain2"):
+                    "git switch -cmain2", "git checkout -B feature/x -B new-thing"):
             with self.subTest(cmd=cmd):
                 self.assertAllowed(cmd, cwd=self.repo)
 
