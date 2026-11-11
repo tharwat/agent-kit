@@ -22,7 +22,10 @@ DENIED = ["rmdir build", "unlink a.txt", "git stash drop", "git stash drop stash
           "git worktree remove ../wt -f", "git push --force", "git push --force origin x", "git push -f",
           "git push --force-with-lease", "git push --force-with-lease origin x", "git push origin x --force",
           "git push origin x -f", "git push origin x --force-with-lease", "rm -rf build", "git reset --hard",
-          "git reset --hard HEAD~1", "git clean -fd", "git branch -D x"]
+          "git reset --hard HEAD~1", "git clean -fd", "git branch -D x", "git checkout main -f",
+          "git checkout main --force", "git checkout HEAD .", "git switch main -f", "git switch main --force",
+          "git switch main --discard-changes", "git reset HEAD~1 --hard", "git branch x -D",
+          "git branch --delete --force x", "git branch -d -f x", "git push -f origin x"]
 
 # Commands the kit tells agents to run, or the hook allows: no deny rule may refuse them.
 ALLOWED = ["git stash", "git stash list", "git stash pop", "git stash push -m wip", "git checkout feature/abc-1-x",
@@ -31,7 +34,9 @@ ALLOWED = ["git stash", "git stash list", "git stash pop", "git stash push -m wi
            "git worktree remove ../wt", "git worktree list", "git push -u origin feature/abc-1-x",
            "git push origin HEAD", "git push --follow-tags origin x", "git restore --staged a.ts",
            "git rm --cached a.ts", "git branch -d x", "git reset", "git reset --soft HEAD~1", "rm a.txt",
-           "git commit -m \"fix the -f flag\"", "git log --oneline -- src/"]
+           "git commit -m \"fix the -f flag\"", "git log --oneline -- src/", "git branch --format=%(refname) --list",
+           "git checkout -b feature/abc-1-fix origin/main", "git switch -c fix-x", "git push origin feature/fix-x",
+           "git branch -a", "git reset HEAD a.ts"]
 
 
 def rule_matches(rule, command):
@@ -41,9 +46,13 @@ def rule_matches(rule, command):
     if not m:
         return False
     pat = m.group(1)
-    rx = ".*".join(re.escape(part) for part in pat.split("*"))
+
+    def wild(p):
+        return ".*".join(re.escape(part) for part in p.split("*"))
+
+    rx = wild(pat)
     if pat.endswith(" *"):
-        rx = "(?:%s|%s)" % (rx, re.escape(pat[:-2]))
+        rx = "(?:%s|%s)" % (rx, wild(pat[:-2]))
     return re.fullmatch(rx, command) is not None
 
 
@@ -53,6 +62,7 @@ def template_deny():
 
 class DenyList(Base):
     def test_matcher_semantics(self):
+        self.assertTrue(rule_matches("Bash(git checkout * -- *)", "git checkout main --"))
         self.assertTrue(rule_matches("Bash(ls *)", "ls"))
         self.assertTrue(rule_matches("Bash(ls *)", "ls -la"))
         self.assertFalse(rule_matches("Bash(ls *)", "lsof"))
@@ -70,7 +80,8 @@ class DenyList(Base):
                 self.assertTrue(any(rule_matches(r, cmd) for r in deny), cmd)
 
     def test_no_rule_refuses_an_allowed_form(self):
-        # The hook owns `rm` (scratch-dir exception), `git restore` and `git rm` (`--staged` / `--cached` allowed).
+        # `rm` (scratch-dir exception), `git restore` and `git rm` (`--staged` / `--cached` allowed) are left to the
+        # destructive-command guard hook: a prefix rule would also refuse the allowed form.
         deny = template_deny()
         for cmd in ALLOWED:
             with self.subTest(cmd=cmd):
@@ -102,7 +113,7 @@ class DenyList(Base):
             if rule not in DENY_1_3_0:
                 self.assertIn(rule, added)
         self.assertEqual(len(deny), len(set(deny)))
-        self.assertNotEqual(load_json(lock_path)["kit"]["version"], "1.3.0")
+        self.assertEqual(load_json(lock_path)["kit"]["version"], load_json(os.path.join(KIT, "manifest.json"))["version"])
 
 
 if __name__ == "__main__":

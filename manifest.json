@@ -179,6 +179,18 @@
       {
         "regex": "\\bstash\\s+(drop|clear)\\b",
         "reason": "git stash drop/clear"
+      },
+      {
+        "regex": "\\bgit\\s+restore\\s+(?!(--staged|-S)\\b)|\\bgit\\s+restore\\b.*(--worktree\\b|\\s-W\\b)",
+        "reason": "git restore"
+      },
+      {
+        "regex": "\\bswitch\\s+(\\S+\\s+)*(-f\\b|--force\\b|--discard-changes\\b)",
+        "reason": "git switch -f"
+      },
+      {
+        "regex": "\\bworktree\\s+remove\\s+(\\S+\\s+)*(--force\\b|-f\\b)",
+        "reason": "git worktree remove --force"
       }
     ],
     "destructive_exempt": [
