@@ -232,7 +232,9 @@ class RecordsAndContext(Base):
 
 class PackGuardrails(Base):
     NOTIFY = 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/notify-waiting.py'
-    AUDIT = ["Bash(npm audit *)", "Bash(pnpm audit *)", "Bash(yarn audit *)", "Bash(yarn npm audit *)"]
+    AUDIT = ["Bash(npm audit --omit=dev --json*)", "Bash(pnpm audit --prod --json*)",
+             "Bash(yarn audit --groups dependencies --json*)",
+             "Bash(yarn npm audit --all --recursive --environment production --json*)"]
 
     def test_notify_hook_only_with_its_pack(self):
         self.apply(self.answers())
@@ -250,6 +252,16 @@ class PackGuardrails(Base):
         allow = load_json(self.t(".claude/settings.json"))["permissions"]["allow"]
         for rule in self.AUDIT:
             self.assertIn(rule, allow)
+        settings = load_json(self.t(".claude/settings.json"))
+        deny = settings["permissions"]["deny"]
+        for cmd in ("npm audit fix", "npm audit fix --force", "npm audit --omit=dev fix", "pnpm audit --fix",
+                    "pnpm audit --prod --fix"):
+            with self.subTest(fix=cmd):
+                self.assertTrue(any(rule_matches(r, cmd) for r in deny), cmd)
+        for cmd in ("npm audit --omit=dev --json", "pnpm audit --prod --json"):
+            with self.subTest(read=cmd):
+                self.assertTrue(any(rule_matches(r, cmd) for r in allow))
+                self.assertFalse(any(rule_matches(r, cmd) for r in deny))
         text = read(self.t(".claude/packs/node-esm.md"))
         self.assertIn("## /security", text)
         self.assertIn("npm audit --omit=dev --json", text)

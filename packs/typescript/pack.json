@@ -38,7 +38,7 @@
   "hooks": [
     {"event": "PostToolUse", "matcher": "Edit|Write|MultiEdit", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/typecheck.sh", "timeout": 90}
   ],
-  "permissions": {"allow": ["Bash(npm audit *)", "Bash(pnpm audit *)", "Bash(yarn audit *)", "Bash(yarn npm audit *)"], "deny": []},
+  "permissions": {"allow": ["Bash(npm audit --omit=dev --json*)", "Bash(pnpm audit --prod --json*)", "Bash(yarn audit --groups dependencies --json*)", "Bash(yarn npm audit --all --recursive --environment production --json*)"], "deny": ["Bash(npm audit fix*)", "Bash(npm audit * fix*)", "Bash(pnpm audit --fix*)", "Bash(pnpm audit * --fix*)", "Bash(yarn npm audit * --fix*)"]},
   "owner_tasks": [
     {"task": "If TEST_FRAMEWORK is none: add a test runner (vitest or jest), add its command to TEST_COMMANDS, and set TEST_FRAMEWORK with an installer upgrade", "why": "until then, contract tests are plain node:test scripts, and a row they can't drive is BLOCKED"}
   ],

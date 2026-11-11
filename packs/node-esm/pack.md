@@ -28,14 +28,16 @@ At Step 4 (run the suite):
 At Step 8 (pack checks): **dependency vulnerability audit.** If both the node-esm and typescript packs are installed,
 run it once.
 
-1. Pick the command from the lockfile in each package dir from `<TEST_COMMANDS>`:
+1. For each package dir in `<TEST_COMMANDS>`, find its lockfile: in that dir, or the nearest one above it up to the
+   repo root (a workspace keeps one lockfile at the root). Run each lockfile's audit once, in the lockfile's dir:
 
    | Lockfile | Command |
    |---|---|
-   | `package-lock.json` (or none) | `npm audit --omit=dev --json` |
+   | `package-lock.json` or `npm-shrinkwrap.json` | `npm audit --omit=dev --json` |
    | `pnpm-lock.yaml` | `pnpm audit --prod --json` |
    | `yarn.lock`, Yarn 1 | `yarn audit --groups dependencies --json` |
-   | `yarn.lock`, Yarn 2+ | `yarn npm audit --environment production --json` |
+   | `yarn.lock`, Yarn 2+ | `yarn npm audit --all --recursive --environment production --json` |
+   | none, or only `bun.lock` / `bun.lockb` | none: report `Dependency audit: not run (no supported lockfile)` |
 
 2. For each advisory, record the package, severity, whether it is **direct** (in `package.json`) or **transitive**
    (and through which direct dependency), and whether a fixed version exists.
@@ -44,8 +46,8 @@ run it once.
    Everything else, including dev-only and unreachable advisories, is `noted` with the reason.
 4. **Never run `npm audit fix`** (or `pnpm` / `yarn` equivalents). It rewrites the lockfile, which is a dependency
    change you must make on purpose.
-5. The audit needs the network. If it can't reach the registry, report `Dependency audit: not run (offline)`. That is
-   not a pass.
+5. The audit needs the network. If the command errors (offline, a registry error, a retired audit endpoint, a missing
+   lockfile), report `Dependency audit: not run (<reason>)`. An error or an empty answer is never a pass.
 
 ## /release
 

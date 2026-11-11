@@ -77,6 +77,23 @@ class Ping(Case):
         self.assertEqual(len(self.sent()), 3)
 
 
+class ReviewRound1(Case):
+    def test_hyphenated_mcp_tool(self):
+        self.fire(message="Claude needs your permission to use mcp__my-server__deploy")
+        self.assertEqual(self.sent(), ["[Acme] Waiting for you: a permission prompt (mcp__my-server__deploy)"])
+
+    def test_failed_send_is_reported_and_not_throttled(self):
+        with open(self.notify, "w", encoding="utf-8") as fh:
+            fh.write("import sys\nsys.stderr.write('notify: send failed\\n')\n")
+        r = self.fire()
+        self.assertIn("notify: send failed", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.project, ".claude", "state", "notify-waiting.json")))
+        with open(self.notify, "w", encoding="utf-8") as fh:
+            fh.write(FAKE_NOTIFY)
+        self.fire()
+        self.assertEqual(len(self.sent()), 1)  # the next wait still pings
+
+
 class NeverFails(Case):
     def test_no_notify_script(self):
         os.rename(self.notify, self.notify + ".off")

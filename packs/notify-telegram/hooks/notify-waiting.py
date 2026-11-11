@@ -27,7 +27,7 @@ except ImportError:
 
 THROTTLE_SECONDS = 600
 MAX_SESSIONS = 50
-TOOL_RE = re.compile(r"permission to use ([A-Za-z][A-Za-z0-9_]{0,63})\b")
+TOOL_RE = re.compile(r"permission to use ([A-Za-z][A-Za-z0-9_-]{0,79})")  # MCP names hold hyphens
 REASONS = {"permission_prompt": "a permission prompt", "idle_prompt": "idle, waiting for your input"}
 
 
@@ -51,28 +51,33 @@ def reason_for(event):
     return reason
 
 
-def throttled(state_path, session, now):
-    """True if this session pinged in the last 10 minutes; otherwise records this ping."""
+def load_state(state_path):
     try:
         with open(state_path, encoding="utf-8") as fh:
             state = json.load(fh)
-        if not isinstance(state, dict):
-            state = {}
+        return state if isinstance(state, dict) else {}
     except (OSError, ValueError):
-        state = {}
-    last = state.get(session)
-    if isinstance(last, (int, float)) and now - last < THROTTLE_SECONDS:
-        return True
+        return {}
+
+
+def throttled(state_path, session, now):
+    """True if this session pinged in the last 10 minutes."""
+    last = load_state(state_path).get(session)
+    return isinstance(last, (int, float)) and now - last < THROTTLE_SECONDS
+
+
+def record_ping(state_path, session, now):
+    """Remember this session's ping. Written to a per-process temp file, then moved into place."""
+    state = load_state(state_path)
     state[session] = now
     if len(state) > MAX_SESSIONS:  # keep the file small: newest sessions only
         state = dict(sorted(state.items(), key=lambda kv: kv[1] if isinstance(kv[1], (int, float)) else 0)
                      [-MAX_SESSIONS:])
     os.makedirs(os.path.dirname(state_path), exist_ok=True)
-    tmp = state_path + ".tmp"
+    tmp = "%s.%d.tmp" % (state_path, os.getpid())
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(state, fh)
     os.replace(tmp, state_path)
-    return False
 
 
 def main():
@@ -83,10 +88,17 @@ def main():
         if not os.path.isfile(notify):
             return 0
         session = str(event.get("session_id") or "unknown")[:80]
-        if throttled(os.path.join(project, ".claude", "state", "notify-waiting.json"), session, time.time()):
+        state_path = os.path.join(project, ".claude", "state", "notify-waiting.json")
+        now = time.time()
+        if throttled(state_path, session, now):
             return 0
         text = "[%s] Waiting for you: %s" % (project_name(project), reason_for(event))
-        subprocess.run([sys.executable, notify, text], capture_output=True, text=True, timeout=12, cwd=project)
+        r = subprocess.run([sys.executable, notify, text], capture_output=True, text=True, timeout=12, cwd=project)
+        problem = (r.stderr or "").strip().splitlines()
+        if r.returncode != 0 or problem:  # notify reports a failed or unconfigured send on stderr
+            sys.stderr.write("notify-waiting: %s\n" % (problem[-1][:200] if problem else "send failed"))
+            return 0  # not recorded, so the next wait can try again
+        record_ping(state_path, session, now)
     except Exception as exc:  # never fail: this is a courtesy ping
         sys.stderr.write("notify-waiting: no ping sent (%s).\n" % type(exc).__name__)
     return 0
