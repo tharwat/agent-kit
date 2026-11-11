@@ -323,6 +323,12 @@ class Prefixes(unittest.TestCase):
     def test_command_v_is_a_lookup(self):
         self.assertEqual(argvs("command -v rm"), [])
 
+    def test_wrapper_alone_is_the_command(self):
+        self.assertEqual(argvs("env"), [["env"]])
+        self.assertEqual(argvs("FOO=1 env -u BAR"), [["env", "-u", "BAR"]])
+        self.assertEqual(argvs("sudo env"), [["env"]])
+        self.assertEqual(argvs("ls | xargs"), [["ls"], ["xargs"]])
+
     def test_bare_assignment(self):
         self.assertEqual(argvs("FOO=bar"), [])
 
@@ -333,6 +339,10 @@ class Redirects(unittest.TestCase):
         self.assertEqual(list(cmds[0].argv), ["cat"])
         self.assertEqual([(op, str(t)) for op, t in cmds[0].redirects],
                          [("<", ".env"), ("2>", "/dev/null"), (">>", "out.txt")])
+
+    def test_redirect_on_a_keyword_is_kept(self):
+        cmds = list(ks.iter_commands("while read l; do echo $l; done < .env", CWD))
+        self.assertEqual([(op, str(t)) for c in cmds for op, t in c.redirects], [("<", ".env")])
 
     def test_fd_duplication(self):
         cmds = list(ks.iter_commands("make 2>&1 | tee log", CWD))

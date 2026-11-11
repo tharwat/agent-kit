@@ -6,7 +6,7 @@ import os
 import re
 import unittest
 
-from kit_testlib import KIT, load_json, run, write
+from kit_testlib import KIT, load_json, read, run, write
 from test_installer import Base
 
 # The deny list as 1.3.0 installed it.
@@ -150,6 +150,46 @@ class DestructiveHook(Base):
         self.assertEqual(cmds[0], HOOKS_1_3_0["PreToolUse"][0]["hooks"][0]["command"])
         self.assertEqual(len(cmds), len(set(cmds)))
         self.assertTrue(any(c.endswith("/.claude/hooks/block-destructive.py") for c in cmds), cmds)
+
+
+
+def hook_commands(settings, event="PreToolUse"):
+    return [(g.get("matcher"), h["command"]) for g in settings.get("hooks", {}).get(event, []) for h in g["hooks"]]
+
+
+class SecretGuard(Base):
+    MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|Grep"
+
+    def test_fresh_install_wires_the_hook_and_seeds_the_list(self):
+        self.apply(self.answers())
+        hooks = hook_commands(load_json(self.t(".claude/settings.json")))
+        self.assertIn((self.MATCHER, 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/guard-secrets.py'), hooks)
+        self.assertTrue(os.path.isfile(self.t(".claude/hooks/guard-secrets.py")))
+        self.assertIn("- `.env`", read(self.t("docs/agent/secret-files.md")))
+
+    def test_upgrade_from_1_3_0_adds_the_hook_and_creates_the_list_once(self):
+        self.apply(self.answers())
+        path = self.t(".claude/settings.json")
+        settings = load_json(path)
+        settings["hooks"] = json.loads(json.dumps(HOOKS_1_3_0))
+        write(path, json.dumps(settings, indent=2))
+        # A 1.3.0 project: no secret-files.md, and no lock entry for it.
+        os.rename(self.t("docs/agent/secret-files.md"), self.t("docs/agent/secret-files.md.gone"))
+        lock_path = self.t(".claude/agent-kit.lock.json")
+        lock = load_json(lock_path)
+        lock["files"].pop("docs/agent/secret-files.md")
+        lock["kit"]["version"] = "1.3.0"
+        write(lock_path, json.dumps(lock, indent=2))
+        rc, out, err = run(["upgrade", "--target", self.target, "--kit", self.kit])
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn((self.MATCHER, 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/guard-secrets.py'),
+                      hook_commands(load_json(path)))
+        self.assertTrue(os.path.isfile(self.t("docs/agent/secret-files.md")))
+        # The project owns it from now on: an upgrade never rewrites it.
+        write(self.t("docs/agent/secret-files.md"), "# ours\n\n- `*.tfvars`\n")
+        rc, out, err = run(["upgrade", "--target", self.target, "--kit", self.kit])
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(read(self.t("docs/agent/secret-files.md")), "# ours\n\n- `*.tfvars`\n")
 
 
 if __name__ == "__main__":

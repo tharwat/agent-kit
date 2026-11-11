@@ -207,6 +207,25 @@ class HooksEnforcePatterns(unittest.TestCase):
                 self.assertTrue(cases.BLOCKED.get(p["reason"]), "no blocked test case")
         self.assertEqual(set(hook.RULES), {p["reason"] for p in CHECKS["destructive_patterns"]})
 
+    # Denylist entries that are not token shapes: the secret guard doesn't scan for them.
+    NOT_TOKENS = {"source-project branch model (the kit is main-only)", "owner's absolute path", "absolute home path",
+                  "Telegram chat ID shape", "a real Supabase project URL", "UUID-shaped ID (cloud IDs, project IDs)"}
+
+    def test_token_shapes_have_a_hook_rule_and_a_blocked_case(self):
+        hook = load_hook("core/hooks/guard-secrets.py", "guard_secrets")
+        cases = load_hook("core/hooks/test_guard_secrets.py", "test_guard_secrets")
+        tokens = [p for p in CHECKS["denylist"] if p["reason"] not in self.NOT_TOKENS]
+        self.assertTrue(tokens)
+        for p in tokens:
+            with self.subTest(reason=p["reason"], regex=p["regex"]):
+                self.assertIn(p["reason"], hook.SHAPES)
+                samples = cases.SHAPE_SAMPLES.get(p["reason"]) or []
+                rx = re.compile(p["regex"], re.I if p.get("ignore_case") else 0)
+                hit = [s for s in samples if rx.search(s)]
+                self.assertTrue(hit, "no blocked sample matches this manifest pattern")
+                self.assertTrue(all(re.search(hook.SHAPES[p["reason"]], s) for s in hit))
+        self.assertEqual(set(hook.SHAPES), {p["reason"] for p in tokens})
+
 
 class Placeholders(unittest.TestCase):
     def setUp(self):

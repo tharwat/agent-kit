@@ -32,6 +32,7 @@ __all__ = ["ParseError", "Cmd", "Word", "parse", "iter_commands", "inline_code",
 MAX_DEPTH = 4
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 OPERATORS = ("&&", "||", ";;", "|&", ";", "|", "&", "(", ")")
+WRAPPERS = {"env", "command", "builtin", "exec", "nohup", "time", "stdbuf", "sudo", "nice", "timeout", "xargs"}
 RESERVED = {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "{", "}"}
 ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 HEREDOC_OP_RE = re.compile(r"<<(-?)[ \t]*(\\?[A-Za-z_][A-Za-z0-9_.-]*|'[^'\n]*'|\"[^\"\n]*\")")
@@ -516,8 +517,10 @@ def _skip_opts(argv, i, with_value=()):
 
 
 def strip_prefix(argv):
-    """Remove leading assignments, reserved words and wrappers. Returns the argv of the command that runs, or []."""
+    """Remove leading assignments, reserved words and wrappers. Returns the argv of the command that runs, or [].
+    A wrapper with no command after it (`env`, `sudo -l`) is itself the command: `env` alone prints the environment."""
     i = 0
+    wrapper_at = None
     while i < len(argv):
         a = argv[i]
         if ASSIGN_RE.match(a) or a in RESERVED:
@@ -534,6 +537,8 @@ def strip_prefix(argv):
         if prog in ("npx", "bunx", "pnpx"):  # the package named next is the program
             i = _skip_opts(argv, i + 1, ("-p", "--package", "-c", "--call"))
             continue
+        if prog in WRAPPERS:
+            wrapper_at = i
         if prog == "env":
             j = i + 1
             while j < len(argv) and argv[j].startswith("-") and argv[j] != "--":
@@ -575,6 +580,8 @@ def strip_prefix(argv):
                                          "--eof", "--replace"))
             continue
         break
+    if i >= len(argv) and wrapper_at is not None:
+        return argv[wrapper_at:]
     return argv[i:]
 
 
@@ -707,6 +714,8 @@ def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, st
     words = list(words)
     argv = strip_prefix(words)
     if not argv:
+        if redirects:  # `done < file`, `> out`: no command, but the redirects still happen
+            yield Cmd([], state["cwd"], redirects)
         return
     prog = os.path.basename(argv[0])
     known = state.get("cwd_known", True)

@@ -4,6 +4,29 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.5.0 — 2026-11-11
+
+- **New hook `guard-secrets.py` (core),** on Read, Edit, Write, MultiEdit, NotebookEdit, Bash and Grep.
+  - **Secret files:** blocks opening, printing or copying `.env` / `.env.*` (templates such as `.env.example` are
+    fine), private keys (`*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`),
+    `.claude/notify.env`, `.netrc`, and `.npmrc` / `.pypirc` that hold a token. In Bash it checks the files given to
+    readers and copiers (`cat`, `grep`, `sed`, `cp`, `source`, …) and `< file` redirects. Writing a *new* `.env` is
+    allowed.
+  - **Environment dumps:** blocks `env`, `printenv`, `set` and `export -p` with no names, and `printenv` of a
+    secret-looking name.
+  - **Secret content:** blocks writing a token shape (JWT, `sk-`, GitHub, AWS, Slack, Supabase, Render, Atlassian,
+    Telegram bot, private key) or a URL with an inline password into a file or a command. The message names the
+    shape and line, never the value. A line marked `agent-kit: allow-secret-shape` (for test fixtures) and
+    `*.example` / `*.sample` files are skipped.
+- **New project-owned file `docs/agent/secret-files.md`:** your extra secret-file globs, one per bullet. The kit
+  defaults are always enforced; the file only adds.
+- **Parser:** `env` or `sudo` with nothing after it is now reported as the command itself, and a redirect on a
+  keyword (`done < file`) is kept.
+- **Kit test:** every token-shape entry in the manifest denylist must have a rule in the hook and a blocked sample.
+
+**Upgrade touches:** `.claude/settings.json` (adds the `guard-secrets.py` PreToolUse hook), `.claude/hooks/` (adds
+`guard-secrets.py`, updates `kit_shell.py`), `docs/agent/secret-files.md` (created if absent, never overwritten).
+
 ## 1.4.0 — 2026-11-11
 
 - **New hook `block-destructive.py` (core).** It blocks destructive filesystem and git commands that the deny list
