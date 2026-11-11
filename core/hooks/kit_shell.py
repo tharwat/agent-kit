@@ -715,7 +715,7 @@ def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, st
     argv = strip_prefix(words)
     if not argv:
         if redirects:  # `done < file`, `> out`: no command, but the redirects still happen
-            yield Cmd([], state["cwd"], redirects)
+            yield Cmd([], state["cwd"], redirects, heredocs)
         return
     prog = os.path.basename(argv[0])
     known = state.get("cwd_known", True)
