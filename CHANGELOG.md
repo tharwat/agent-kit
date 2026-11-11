@@ -4,6 +4,19 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.3.1 — 2026-11-11
+
+- **Wider destructive-command deny list.** The installed `.claude/settings.json` now also denies `rmdir`, `unlink`,
+  `git stash drop` / `clear`, `git checkout -- <path>` / `-f`, `git switch -f` / `--discard-changes`,
+  `git worktree remove --force` / `-f`, `git push --force-with-lease`, and a force flag after the push target
+  (`git push origin x --force`, `git push origin x -f`). Claude Code applies deny rules to every sub-command,
+  including inside `$(…)` and subshells. Forms a prefix rule can't express (options before the subcommand, deletes
+  passed as arguments) are left to the guard hook in a later release.
+- **Kept on purpose:** `Bash(rm -rf *)` and `Bash(git clean *)` stay denied, so `git clean -n` stays refused too.
+
+**Upgrade touches:** `.claude/settings.json` (the new deny rules are appended; your own rules and their order are
+kept).
+
 ## 1.3.0 — 2026-11-08
 
 - **No AI attribution.** The installed `.claude/settings.json` sets Claude Code's `attribution` off (`commit` and

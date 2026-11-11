@@ -181,8 +181,10 @@ Installed with the kit and binding on Claude and Codex alike:
 | `block_main_repo_writes.py` | `worktrees` | Writes into the main checkout from a worktree session |
 | `block-push-before-review.py` | `hardening` | Push to `main`, merges and migrations during a hardening run until its review passes |
 
-`.claude/settings.json` adds a deny list for destructive commands and an allow list for the read-only commands the
-workflow runs, so routine steps don't prompt you.
+`.claude/settings.json` adds a deny list for destructive commands (`rm -rf`, `rmdir`, `unlink`, `git reset --hard`,
+`git clean`, force pushes, `git branch -D`, `git checkout --`, `git switch -f`, `git stash drop`/`clear`,
+`git worktree remove --force`) and an allow list for the read-only commands the workflow runs, so routine steps don't
+prompt you.
 
 ## Packs
 
