@@ -20,6 +20,7 @@ line) on internal errors. Reads only the project's secret-files list and, for `.
 """
 
 import fnmatch
+import glob
 import json
 import os
 import re
@@ -40,7 +41,8 @@ ENV_TEMPLATES = (".example", ".sample", ".template", ".dist")
 DEFAULT_GLOBS = [".env", ".env.*", "*.pem", "*.key", "*.p8", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*", "id_ecdsa*",
                  ".claude/notify.env", ".netrc"]
 TOKEN_FILES = {".npmrc", ".pypirc"}  # secret only when they hold a credential
-TOKEN_FILE_RE = re.compile(r"_authToken|_auth\s*=|_password|password\s*[=:]", re.I)
+# a credential with a literal value (an `${ENV}` reference is not one)
+TOKEN_FILE_RE = re.compile(r"(_authToken|_auth|_password|password)\s*[=:]\s*(?!\$\{|\$[A-Za-z_]|\s*$)\S", re.I | re.M)
 
 # Token shapes, keyed by the manifest denylist `reason`. Kept in step with manifest.json by a kit test.
 SHAPES = {
@@ -56,13 +58,17 @@ SHAPES = {
     "private key": r"-----BEGIN [A-Z ]*PRIVATE" + r" KEY-----",
 }
 COMPILED = [(name, re.compile(rx)) for name, rx in SHAPES.items()]
-URL_PASSWORD_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://([^\s/:@'\"]+):([^\s/@'\"]+)@", re.I)
-PLACEHOLDER_PASSWORD_RE = re.compile(r"^(\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|<[^>]*>|\*+|password|x+|\.\.\.)$", re.I)
+URL_PASSWORD_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://([^\s/:@'\"]*):([^\s/@'\"]+)@([^\s/:'\"?#]*)", re.I)
+# ${VAR}, $VAR, <placeholder>, ***, the word password, xxx, ..., f-string {var}, {{template}}, %s / %(name)s
+PLACEHOLDER_PASSWORD_RE = re.compile(r"^(\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|<[^>]*>|\*+|password|x+|\.\.\.|"
+                                     r"\{\{?[^}]*\}\}?|%(\([A-Za-z_]+\))?s)$", re.I)
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]"}
 
 READERS = {"cat", "less", "more", "head", "tail", "bat", "batcat", "nl", "tac", "grep", "egrep", "fgrep", "rg", "ag",
            "awk", "gawk", "sed", "cut", "sort", "uniq", "diff", "base64", "xxd", "od", "hexdump", "strings", "source",
            ".", "jq", "yq", "openssl", "ssh-keygen"}
 COPIERS = {"cp", "mv", "scp", "rsync", "install"}
+ARCHIVERS = {"tar", "zip", "7z", "gzip", "bzip2", "xz", "zstd"}
 VALUE_OPTS = {  # options whose value is the next argument, so it isn't read as a file
     "grep": {"-A", "-B", "-C", "-m", "-d", "-D", "--max-count", "--context", "--after-context", "--before-context"},
     "rg": {"-A", "-B", "-C", "-m", "-g", "-t", "-T", "-M", "-j", "--glob", "--type", "--max-count", "--context"},
@@ -71,7 +77,20 @@ VALUE_OPTS = {  # options whose value is the next argument, so it isn't read as 
 }
 PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg", "ag"}  # first positional is the pattern
 SCRIPT_FIRST = {"awk", "gawk", "sed", "jq", "yq"}         # first positional is the program
-SECRET_NAME_RE = re.compile(r"TOKEN|SECRET|KEY|PASSWORD|PASSWD|PASS$|_PAT$|CREDENTIAL|PRIVATE|AUTH", re.I)
+SECRET_PARTS = {"TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASS", "PAT", "CREDENTIAL", "CREDENTIALS", "PWD"}
+
+
+def secret_name(name):
+    """GITHUB_TOKEN, API_KEY, DB_PASSWORD, NPM_PAT, AWS_SECRET_ACCESS_KEY: yes. SSH_AUTH_SOCK, KEYBOARD, PWD: no."""
+    name = str(name).upper()
+    if name == "PWD" or not re.match(r"^[A-Z_][A-Z0-9_]*$", name):
+        return False
+    parts = [p for p in name.split("_") if p]
+    return any(p in SECRET_PARTS or p.endswith("KEY") or p.endswith("TOKEN") for p in parts[1:] or parts) or \
+        any(p in SECRET_PARTS for p in parts)
+
+
+VAR_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
 
 
 class Blocked(Exception):
@@ -85,22 +104,29 @@ def project_dir(cwd):
 
 
 def project_globs(project):
-    """Extra globs from docs/agent/secret-files.md: the first `code` span (or the text) of each `- ` bullet."""
+    """Extra globs from docs/agent/secret-files.md: the first `code` span (or the text) of each `- ` bullet. Bullets
+    under a `## Kit defaults` heading only document the built-in list and are skipped."""
     try:
         with open(os.path.join(project, PROJECT_LIST), encoding="utf-8") as fh:
             text = fh.read()
     except (OSError, UnicodeDecodeError):
         return []
     out = []
+    in_defaults = False
     for line in text.split("\n"):
+        if line.startswith("#"):
+            in_defaults = bool(re.match(r"^#+\s*kit defaults", line, re.I))
+            continue
+        if in_defaults:
+            continue
         m = re.match(r"^\s*[-*]\s+(.*)$", line)
         if not m:
             continue
         item = m.group(1).strip()
         code = re.search(r"`([^`]+)`", item)
-        glob = (code.group(1) if code else item.split()[0] if item else "").strip()
-        if glob and not glob.startswith("!"):
-            out.append(glob)
+        pattern = (code.group(1) if code else item.split()[0] if item else "").strip()
+        if pattern and not pattern.startswith("!"):
+            out.append(pattern)
     return out
 
 
@@ -151,7 +177,7 @@ def scan_text(text, where):
             if rx.search(line):
                 raise Blocked("%s at line %d of %s. Name the env var instead of the value" % (name, n, where))
         for m in URL_PASSWORD_RE.finditer(line):
-            if not PLACEHOLDER_PASSWORD_RE.match(m.group(2)):
+            if not PLACEHOLDER_PASSWORD_RE.match(m.group(2)) and m.group(3).lower() not in LOCAL_HOSTS:
                 raise Blocked("a URL with an inline password at line %d of %s. Put the password in an env var and "
                               "reference it as ${NAME}" % (n, where))
 
@@ -169,18 +195,20 @@ def glob_targets_secrets(glob, project, globs):
             g = g.split("/")[-1]
             if not g or g.startswith("!") or fnmatch.fnmatchcase("README.md", g) or fnmatch.fnmatchcase("index.ts", g):
                 continue
-            if any(fnmatch.fnmatchcase(sample, g) for sample in SECRET_SAMPLES) or secret_reason(g, project, globs):
+            if any(fnmatch.fnmatchcase(sample, g) for sample in SECRET_SAMPLES):
+                return True
+            if not set(g) & set("*?[") and secret_reason(g, project, globs):
                 return True
     return False
 
 
 def is_template_target(path):
-    return bool(path) and os.path.basename(path).endswith((".example", ".sample"))
+    return bool(path) and os.path.basename(path).endswith(ENV_TEMPLATES)
 
 
 # ---------------------------------------------------------------- Bash
 
-def positionals(args, value_opts=()):
+def positionals(args, value_opts=(), keep=("-in", "-f")):
     out, k = [], 0
     while k < len(args):
         a = args[k]
@@ -188,32 +216,58 @@ def positionals(args, value_opts=()):
             out.extend(args[k + 1:])
             break
         if a.startswith("-") and a != "-":
-            if a in value_opts and a not in ("-in", "-f"):
-                k += 1  # skip the option's value (-in / -f name the file itself: keep it)
+            if a in value_opts and a not in keep:
+                k += 1  # skip the option's value (by default -in / -f name the file read: keep it)
         else:
             out.append(a)
         k += 1
     return out
 
 
+def check_operand(word, cwd, project, globs, what):
+    """A file operand. A glob (`.env*`) is checked by what it selects and by what it matches on disk."""
+    text = str(word)
+    if not set(text) & set("*?["):
+        check_path(os.path.join(cwd, text), project, globs, what)
+    else:
+        if glob_targets_secrets(text, project, globs):
+            raise Blocked("`%s` selects secret files; agents never %s one" % (text, what))
+        for hit in glob.glob(os.path.join(cwd, text))[:200]:
+            check_path(hit, project, globs, what)
+
+
 def check_bash(command, cwd, project, globs):
+    scan_text(command, "the command")  # needs no parsing, so it runs even when the parser gives up
     for cmd in kit_shell.iter_commands(command, cwd):
         prog, args = cmd.prog, list(cmd.args)
         for op, target in cmd.redirects:
             if op.endswith("<") or op in ("<", "<>"):
-                check_path(os.path.join(cmd.cwd, str(target)), project, globs, "read")
-        if prog in ("env", "printenv") and not positionals(args):
-            raise Blocked("`%s` with no names prints every secret in the environment. Print one non-secret "
+                check_operand(target, cmd.cwd, project, globs, "read")
+        if prog in ("env", "printenv") and (prog == "env" or not positionals(args)):
+            # `env` reaching here has no command after it (kit_shell strips `env … cmd`), so it prints everything
+            raise Blocked("`%s` with no command prints every secret in the environment. Print one non-secret "
                           "variable by name, or check that a secret is set with `test -n \"$NAME\"`" % prog)
-        if prog in ("set", "export", "declare", "typeset") and (not args or set(args) <= {"-p", "-x", "-px"}):
+        if (prog == "set" and not args) or (prog in ("export", "declare", "typeset") and
+                                            (not args or set(args) <= {"-p", "-x", "-px", "-xp"})):
             raise Blocked("`%s` with no names prints every variable, secrets included. Check one by name" % prog)
-        if prog == "printenv":
+        if prog in ("printenv", "declare", "typeset"):
             for name in positionals(args):
-                if SECRET_NAME_RE.search(name):
-                    raise Blocked("`printenv %s` prints a secret. Check that it's set with `test -n \"$%s\"`"
-                                  % (name, name))
+                if secret_name(name):
+                    raise Blocked("`%s %s` prints a secret. Check that it's set with `test -n \"$%s\"`"
+                                  % (prog, name, name))
+        if prog in ("echo", "printf"):
+            for a in args:
+                expanded = re.sub(r"'[^']*'", "", getattr(a, "raw", str(a)))  # '$X' isn't expanded
+                for name in VAR_RE.findall(expanded):
+                    if secret_name(name):
+                        raise Blocked("`%s $%s` prints a secret. Check that it's set with `test -n \"$%s\"`"
+                                      % (prog, name, name))
         if prog in READERS:
-            files = positionals(args, VALUE_OPTS.get(prog, ()))
+            opts = VALUE_OPTS.get(prog, ())
+            if prog == "ssh-keygen" and not set(args) & {"-y", "-l", "-p", "-e", "-lf", "-yf"}:
+                opts = {"-f", "-t", "-b", "-C", "-N", "-a", "-Z"}  # generating a key: -f names the new file
+            reading_key = prog != "ssh-keygen" or opts is VALUE_OPTS.get(prog)
+            files = positionals(args, opts) if reading_key else positionals(args, opts, keep=())
             if prog in PATTERN_FIRST and not any(a in ("-e", "-f", "--regexp", "--file") or
                                                  a.startswith(("--regexp=", "--file=")) for a in args):
                 files = files[1:]
@@ -221,11 +275,37 @@ def check_bash(command, cwd, project, globs):
                                                 a.startswith(("--expression=", "--file=")) for a in args):
                 files = files[1:]
             for f in files:
-                check_path(os.path.join(cmd.cwd, str(f)), project, globs, "read")
+                check_operand(f, cmd.cwd, project, globs, "read")
         elif prog in COPIERS:
-            for f in positionals(args)[:-1]:  # the last operand is the destination
-                check_path(os.path.join(cmd.cwd, str(f)), project, globs, "copy")
-    scan_text(command, "the command")
+            ops = positionals(args, {"-t", "--target-directory", "-S", "--suffix"})
+            if any(a in ("-t", "--target-directory") or str(a).startswith("--target-directory=") for a in args):
+                sources = ops  # cp -t <dir> <sources…>: every operand is a source
+            else:
+                sources = ops[:-1]  # the last operand is the destination
+            for f in sources:
+                check_operand(f, cmd.cwd, project, globs, "copy")
+        elif prog in ARCHIVERS:
+            for f in positionals(args, {"-C", "--directory", "-X", "--exclude-from", "-T", "--files-from"}):
+                check_operand(f, cmd.cwd, project, globs, "copy")
+        elif prog in ("curl", "wget", "http", "https"):
+            for k, a in enumerate(args):
+                a = str(a)
+                value = a.split("=", 1)[1] if "=" in a and a.startswith("--") else a
+                if "@" in value:
+                    path = value.split("@", 1)[1].split(";", 1)[0]
+                    if path and path != "-":
+                        check_operand(kit_shell.Word(path, path), cmd.cwd, project, globs, "send")
+                if a in ("-T", "--upload-file", "--post-file", "--body-file") and k + 1 < len(args):
+                    check_operand(args[k + 1], cmd.cwd, project, globs, "send")
+        elif prog == "git":
+            sub, rest, gcwd = kit_shell.git_split(args, cmd.cwd)
+            if sub in ("show", "cat-file", "archive", "diff", "log", "blame", "grep"):
+                for a in rest:
+                    if ":" in str(a) and not str(a).startswith("-"):
+                        check_path(str(a).split(":", 1)[1], gcwd, globs, "read")  # HEAD:.env
+                if sub in ("show", "diff", "log", "blame") and "--" in rest:
+                    for a in rest[rest.index("--") + 1:]:
+                        check_path(os.path.join(gcwd, str(a)), project, globs, "read")
 
 
 # ---------------------------------------------------------------- entry point
@@ -263,9 +343,9 @@ def check_event(event):
         path = ti.get("path") or ""
         if path:
             check_path(path, project, globs, "search")
-        glob = ti.get("glob") or ""
-        if glob and glob_targets_secrets(glob, project, globs):
-            raise Blocked("the glob `%s` selects secret files; agents never read one" % glob)
+        pattern = ti.get("glob") or ""
+        if pattern and glob_targets_secrets(pattern, project, globs):
+            raise Blocked("the glob `%s` selects secret files; agents never read one" % pattern)
     elif tool == "Bash":
         if kit_shell is None:
             raise ImportError("kit_shell.py is missing")
