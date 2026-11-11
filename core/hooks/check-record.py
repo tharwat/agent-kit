@@ -32,7 +32,6 @@ worktree's own root). Markers are renamed between states, never deleted or overw
 """
 
 import argparse
-import glob
 import json
 import os
 import re
@@ -47,7 +46,7 @@ except ImportError:
     kit_facts = None
 
 KINDS = ("triage", "operate", "post-op", "handoff")
-NUDGED = "nudged"
+NUDGED = "nudged"  # kept in step with kit_facts.NUDGED
 STALE_SECONDS = 24 * 3600
 TICKET_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*-[0-9]+$")
 TRIAGE_HEADER = ("| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | "
@@ -56,8 +55,9 @@ TRIAGE_ROW_RE = re.compile(r"^\|\s*C[0-9]+\s*\|", re.M)
 HEX64 = r"[0-9a-f]{64}"
 OPERATE_RE = re.compile(r"^Fingerprint:\s*%s\s*$" % HEX64)
 FINGERPRINT_LINE_RE = re.compile(r"^Fingerprint:.*$", re.M)
-POSTOP_FP_RE = re.compile(r"^Fingerprint:\s*(%s|none \(no reviewable change\))\s*$" % HEX64, re.M)
-POSTOP_RESULT_RE = re.compile(r"^Result:\s*(clean|capped|escalate)\s*$", re.M)
+POSTOP_FP_RE = re.compile(r"^Fingerprint:\s*(%s|none \(no reviewable change\))\s*$" % HEX64)
+POSTOP_RESULT_RE = re.compile(r"^Result:\s*(clean|capped|escalate)\s*$")
+RESULT_LINE_RE = re.compile(r"^Result:.*$", re.M)
 HANDOFF_BRANCH_RE = re.compile(r"^Branch:\s*\S", re.M)
 
 
@@ -84,17 +84,32 @@ def ticket_from_branch(project):
     return kit_facts.ticket_for_branch(kit_facts.current_branch(project), facts)
 
 
+def ticket_dir(project, ticket):
+    """`.claude/state/<ticket>/`, matching an existing dir whatever its case (`abc-12/` for `ABC-12`)."""
+    base = state_dir(project)
+    exact = os.path.join(base, ticket)
+    if os.path.isdir(exact):
+        return exact
+    try:
+        for name in os.listdir(base):
+            if name.upper() == ticket.upper() and os.path.isdir(os.path.join(base, name)):
+                return os.path.join(base, name)
+    except OSError:
+        pass
+    return exact
+
+
 def marker_dir(project, kind, ticket):
     if kind == "handoff":
         return state_dir(project)
-    return os.path.join(state_dir(project), ticket)
+    return ticket_dir(project, ticket)
 
 
 def record_path(project, kind, ticket):
     if kind == "handoff":
         return os.path.join(project, ".claude", "handoffs", "latest.md")
     name = {"triage": "triage.md", "operate": "self-review.md", "post-op": "post-op.md"}[kind]
-    return os.path.join(state_dir(project), ticket, name)
+    return os.path.join(ticket_dir(project, ticket), name)
 
 
 def rel(project, path):
@@ -105,15 +120,9 @@ def rel(project, path):
 
 def read_marker(marker):
     """(start time, already nudged)."""
-    try:
-        with open(marker, encoding="utf-8") as fh:
-            words = fh.read().split()
-        return float(words[0]), NUDGED in words[1:]
-    except (OSError, ValueError, IndexError):
-        try:
-            return os.path.getmtime(marker), False
-        except OSError:
-            return None, False
+    if kit_facts is not None:
+        return kit_facts.read_marker(marker)
+    return None, False
 
 
 def read_started(marker):
@@ -143,10 +152,13 @@ def problems(project, kind, ticket, started=None):
             out.append("%s: its last `Fingerprint:` line isn't `Fingerprint: <64-hex>` (take it with node "
                        ".claude/scripts/kit-tools.mjs fingerprint)" % shown)
     elif kind == "post-op":
-        if not POSTOP_FP_RE.search(text):
-            out.append("%s has no `Fingerprint: <64-hex>` (or `none (no reviewable change)`) line" % shown)
-        if not POSTOP_RESULT_RE.search(text):
-            out.append("%s has no `Result: clean | capped | escalate` line" % shown)
+        fps, results = FINGERPRINT_LINE_RE.findall(text), RESULT_LINE_RE.findall(text)
+        # the closing lines are the record: the last of each
+        if not fps or not POSTOP_FP_RE.match(fps[-1].strip()):
+            out.append("%s: its last `Fingerprint:` line isn't `Fingerprint: <64-hex>` (or `none (no reviewable "
+                       "change)`)" % shown)
+        if not results or not POSTOP_RESULT_RE.match(results[-1].strip()):
+            out.append("%s: its last `Result:` line isn't `Result: clean`, `capped` or `escalate`" % shown)
     elif kind == "handoff":
         if "## Git state" not in text or not HANDOFF_BRANCH_RE.search(text):
             out.append("%s has no `## Git state` section with a `Branch:` line" % shown)
@@ -198,29 +210,21 @@ def cmd_check(project, kind, ticket):
     return 0
 
 
-def open_markers(project):
-    """(kind, ticket or None, marker path) for every `.started-*` marker."""
-    out = []
-    base = state_dir(project)
-    for path in sorted(glob.glob(os.path.join(base, ".started-*")) + glob.glob(os.path.join(base, "*", ".started-*"))):
-        kind = os.path.basename(path)[len(".started-"):]
-        if kind not in KINDS:
-            continue
-        parent = os.path.dirname(path)
-        ticket = None if parent == base else os.path.basename(parent)
-        if (kind == "handoff") != (ticket is None):
-            continue
-        out.append((kind, ticket, path))
-    return out
-
-
-def cmd_stop(project, event):
-    if event.get("stop_hook_active"):
+def cmd_stop(event):
+    if event.get("stop_hook_active") or kit_facts is None:
         return 0  # one nudge only; never a loop
+    # Filesystem only until a marker turns up: an ordinary turn costs a couple of directory lookups, no git.
+    found_markers = [(d, m) for d in kit_facts.state_dirs(event.get("cwd")) for m in kit_facts.open_markers(d)]
+    if not found_markers:
+        return 0
     now = time.time()
-    current = ticket_from_branch(project)
     messages = []
-    for kind, ticket, marker in open_markers(project):
+    currents = {}
+    for state, (kind, ticket, marker) in found_markers:
+        project = os.path.dirname(os.path.dirname(state))
+        if project not in currents:
+            currents[project] = ticket_from_branch(project)
+        current = currents[project]
         if current and ticket is not None and ticket.upper() != current.upper():
             continue  # another ticket's run: session-context lists it, this turn isn't about it
         started, nudged = read_marker(marker)
@@ -236,8 +240,10 @@ def cmd_stop(project, event):
         if nudged:
             continue  # said once already; the command may be waiting on a review or the owner
         try:
+            st = os.stat(marker)
             with open(marker, "a", encoding="utf-8") as fh:
                 fh.write(" %s\n" % NUDGED)
+            os.utime(marker, (st.st_atime, st.st_mtime))  # keep the start time for the 24 h close
         except OSError:
             pass
         suffix = "" if ticket is None else " --ticket " + ticket
@@ -267,7 +273,7 @@ def main(argv=None):
         try:
             raw = sys.stdin.read()
             event = json.loads(raw) if raw.strip() else {}
-            return cmd_stop(project_dir(event.get("cwd")), event)
+            return cmd_stop(event)
         except Exception as exc:  # fail open on anything unexpected
             sys.stderr.write("check-record: could not check records (%s); allowing the stop.\n" % type(exc).__name__)
             return 0
@@ -281,7 +287,11 @@ def main(argv=None):
             print("check-record: no ticket (pass --ticket <ticket>, or run on a ticket branch); nothing checked.")
             return 0
     if args.start:
-        return cmd_start(project, kind, ticket)
+        try:
+            return cmd_start(project, kind, ticket)
+        except OSError as exc:
+            print("check-record: couldn't write the start marker (%s); continuing without it." % type(exc).__name__)
+            return 0
     if args.cancel:
         return cmd_cancel(project, kind, ticket)
     return cmd_check(project, kind, ticket)

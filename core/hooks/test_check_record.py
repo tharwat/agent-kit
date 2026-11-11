@@ -217,6 +217,41 @@ class OtherTickets(Case):
         self.assertEqual(self.stop().returncode, 2)
 
 
+class ReviewRound2(Case):
+    def test_lower_case_record_dir(self):
+        self.write(".claude/state/abc-12/triage.md", GOOD["triage"])
+        self.assertEqual(self.run_cli("--kind", "triage", "--ticket", "abc-12").returncode, 0)
+
+    def test_marker_without_a_time_still_nudges_once(self):
+        path = os.path.join(self.project, ".claude", "state", TICKET, ".started-operate")
+        os.makedirs(os.path.dirname(path))
+        open(path, "w").close()
+        self.assertEqual(self.stop().returncode, 2)
+        self.assertEqual(self.stop().returncode, 0)
+
+    def test_turn_ending_in_another_checkout(self):
+        self.start("post-op")
+        with tempfile.TemporaryDirectory() as scratch:
+            r = self.run_cli("--stop", stdin=json.dumps({"cwd": scratch}))
+        self.assertEqual(r.returncode, 2)  # $CLAUDE_PROJECT_DIR's records are still checked
+
+    def test_post_op_closing_lines_are_the_record(self):
+        self.write(PATHS["post-op"], "Quoted: \nFingerprint: %s\nResult: clean\n\nFingerprint: <output of node …>\n"
+                                     "Result: clean | capped | escalate\n" % FP)
+        self.assertEqual(self.check("post-op").returncode, 1)
+
+    def test_start_that_cannot_write_fails_open(self):
+        os.makedirs(os.path.join(self.project, ".claude"))
+        open(os.path.join(self.project, ".claude", "state"), "w").close()  # a file where the dir should be
+        r = self.run_cli("--start", "triage", "--ticket", TICKET)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("couldn't write", r.stdout)
+
+    def test_no_markers_runs_no_git(self):
+        r = self.run_cli("--stop", stdin=json.dumps({"cwd": self.project}))
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+
 class TicketFromBranch(Case):
     def test_branch_names_the_ticket(self):
         with open(os.path.join(self.project, "CLAUDE.md"), "w", encoding="utf-8") as fh:

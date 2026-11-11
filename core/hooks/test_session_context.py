@@ -97,7 +97,7 @@ class Context(Case):
 
     def test_open_command_marker(self):
         self.repo()
-        self.write(".claude/state/ABC-12/.started-operate", "1\n")
+        self.write(".claude/state/ABC-12/.started-operate", "%f\n" % time.time())
         self.assertIn("/operate for ABC-12 started and hasn't written its record yet", self.run_hook())
 
     def test_handoff_newer_than_last_commit(self):
@@ -122,7 +122,7 @@ class Context(Case):
     def test_resume_line_survives_many_markers(self):
         self.repo()
         for n in range(30):
-            self.write(".claude/state/ABC-%d/.started-operate" % n, "1\n")
+            self.write(".claude/state/ABC-%d/.started-operate" % n, "%f\n" % time.time())
         self.write(".claude/handoffs/latest.md", "x", mtime=time.time() + 60)
         out = self.run_hook("compact")
         self.assertIn("run /resume now", out)
@@ -130,9 +130,9 @@ class Context(Case):
 
     def test_stale_and_unknown_markers_and_abandoned_runs(self):
         self.repo()
-        self.write(".claude/state/ABC-1/.started-operate", "1\n", mtime=time.time() - 2 * 86400)
-        self.write(".claude/state/ABC-2/.started-foo", "1\n")
-        self.write(".claude/state/ABC-3/.abandoned-triage", "1\n")
+        self.write(".claude/state/ABC-1/.started-operate", "%f\n" % (time.time() - 2 * 86400))
+        self.write(".claude/state/ABC-2/.started-foo", "%f\n" % time.time())
+        self.write(".claude/state/ABC-3/.abandoned-triage", "%f\n" % time.time())
         out = self.run_hook()
         self.assertNotIn("/operate for ABC-1", out)
         self.assertNotIn("/foo", out)

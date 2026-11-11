@@ -16,6 +16,7 @@
 Reads files and local git state only. No network, no writes.
 """
 
+import glob
 import os
 import re
 import subprocess
@@ -164,3 +165,70 @@ class BranchTracker:
             target = switched_to(sub, rest, directory, self.main)
             if target is not None:
                 self.branches[os.path.normpath(directory)] = target or None
+
+
+# ---------------------------------------------------------------- record-check markers (check-record, session-context)
+
+RECORD_KINDS = ("triage", "operate", "post-op", "handoff")
+STALE_SECONDS = 24 * 3600
+NUDGED = "nudged"
+
+
+def read_marker(path):
+    """(start time or None, already nudged). The start time is the marker's first word, else its mtime."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            words = fh.read().split()
+    except OSError:
+        return None, False
+    nudged = NUDGED in words
+    try:
+        return float(words[0]), nudged
+    except (ValueError, IndexError):
+        try:
+            return os.path.getmtime(path), nudged
+        except OSError:
+            return None, nudged
+
+
+def open_markers(state, prefix=".started-"):
+    """[(kind, ticket or None, path)] for the markers of known kinds in a `.claude/state` dir: `/handoff`'s at its
+    top, the others one level down in their ticket's dir."""
+    out = []
+    try:
+        paths = sorted(glob.glob(os.path.join(state, prefix + "*")) +
+                       glob.glob(os.path.join(state, "*", prefix + "*")))
+    except OSError:
+        return out
+    for path in paths:
+        kind = os.path.basename(path)[len(prefix):].split(".")[0]
+        if kind not in RECORD_KINDS:
+            continue
+        parent = os.path.dirname(path)
+        ticket = None if os.path.normpath(parent) == os.path.normpath(state) else os.path.basename(parent)
+        if (kind == "handoff") != (ticket is None):
+            continue
+        out.append((kind, ticket, path))
+    return out
+
+
+def state_dirs(cwd=None):
+    """Every `.claude/state` a session may have records in, without running git: the nearest one at or above cwd
+    (a worktree's own), and $CLAUDE_PROJECT_DIR's."""
+    out = []
+    here = os.path.abspath(cwd or os.getcwd())
+    while True:
+        d = os.path.join(here, ".claude", "state")
+        if os.path.isdir(d):
+            out.append(d)
+            break
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    env = os.environ.get("CLAUDE_PROJECT_DIR")
+    if env:
+        d = os.path.join(env, ".claude", "state")
+        if os.path.isdir(d) and os.path.realpath(d) not in [os.path.realpath(x) for x in out]:
+            out.append(d)
+    return out

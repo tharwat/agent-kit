@@ -14,7 +14,6 @@ Never prints file contents, only paths and status words. Not a git repo: prints 
 line on an internal error. Reads local files and git state only. No network, no writes.
 """
 
-import glob
 import json
 import os
 import subprocess
@@ -30,8 +29,6 @@ except ImportError:
 
 MAX_LINES = 15
 RESULTS = ("clean", "capped", "escalate")
-KINDS = ("triage", "operate", "post-op", "handoff")
-STALE_SECONDS = 24 * 3600
 MAX_MARKER_LINES = 5
 
 
@@ -58,31 +55,28 @@ def handoff_branch(path):
 
 
 def markers(state, prefix, max_age=None):
-    """[(kind, ticket or None)] for `.started-*` / `.abandoned-*` markers of known kinds."""
+    """[(kind, ticket or None)] for markers of known kinds, by the start time check-record reads."""
     out, now = [], time.time()
-    for path in sorted(glob.glob(os.path.join(state, prefix + "*")) +
-                       glob.glob(os.path.join(state, "*", prefix + "*"))):
-        kind = os.path.basename(path)[len(prefix):].split(".")[0]
-        if kind not in KINDS:
-            continue
-        if max_age is not None and now - os.path.getmtime(path) > max_age:
-            continue
-        parent = os.path.dirname(path)
-        out.append((kind, None if parent == state else os.path.basename(parent)))
+    for kind, ticket, path in kit_facts.open_markers(state, prefix):
+        if max_age is not None:
+            started, _ = kit_facts.read_marker(path)
+            if started is None or now - started > max_age:
+                continue
+        out.append((kind, ticket))
     return out
 
 
 def post_op_result(path):
+    """The word on the last `Result:` line (the record's closing line), as check-record reads it."""
+    last = None
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if line.startswith("Result:"):
-                    word = line.split(":", 1)[1].strip().split(" ")[0]
-                    if word in RESULTS:
-                        return word
+                    last = line.split(":", 1)[1].strip()
     except OSError:
         pass
-    return "no Result line"
+    return last if last in RESULTS else "no Result line"
 
 
 def lines_for(project, source):
@@ -126,7 +120,7 @@ def lines_for(project, source):
             else:
                 out.insert(1, "- A handoff exists for this branch (.claude/handoffs/latest.md): run /resume.")
 
-    open_runs = markers(state, ".started-", STALE_SECONDS)
+    open_runs = markers(state, ".started-", kit_facts.STALE_SECONDS)
     for kind, tk in open_runs[:MAX_MARKER_LINES]:
         out.append("- /%s%s started and hasn't written its record yet." % (kind, "" if tk is None else " for " + tk))
     if len(open_runs) > MAX_MARKER_LINES:
