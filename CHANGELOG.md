@@ -16,8 +16,10 @@ installed version before an upgrade.
   `noted`. `/release` runs the same audit.
   - A workspace is audited once, at its root lockfile.
   - Yarn 2+ audits transitive dependencies (`--all --recursive`).
-  - No lockfile, a Bun lockfile or a registry error reads as "not run", never as a pass.
-  - Allow rules cover only the read-only audit forms. `npm audit fix` and `pnpm audit --fix` are denied.
+  - Non-zero exits with JSON advisories are results. No lockfile, a Bun lockfile, or output with no JSON (offline,
+    registry error) reads as "not run", never as a pass.
+  - Allow rules cover only the exact read-only audit commands. `npm audit fix`, `pnpm audit --fix` and
+    `pnpm audit --ignore…` are denied, global flags before `audit` included.
 - **Conventions:** future stack packs add their ecosystem's audit the same way (`pip-audit`, `govulncheck`).
 
 **Upgrade touches:** with notify-telegram, `.claude/settings.json` (adds the Notification hook) and

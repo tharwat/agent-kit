@@ -94,11 +94,16 @@ def main():
             return 0
         text = "[%s] Waiting for you: %s" % (project_name(project), reason_for(event))
         r = subprocess.run([sys.executable, notify, text], capture_output=True, text=True, timeout=12, cwd=project)
-        problem = (r.stderr or "").strip().splitlines()
-        if r.returncode != 0 or problem:  # notify reports a failed or unconfigured send on stderr
+        # notify reports a failed or unconfigured send as a `notify: …` line on stderr; other stderr is noise
+        problem = [l for l in (r.stderr or "").splitlines() if l.startswith("notify:")]
+        if r.returncode != 0 or problem:
             sys.stderr.write("notify-waiting: %s\n" % (problem[-1][:200] if problem else "send failed"))
             return 0  # not recorded, so the next wait can try again
-        record_ping(state_path, session, now)
+        try:
+            record_ping(state_path, session, now)
+        except OSError as exc:
+            sys.stderr.write("notify-waiting: ping sent, but the 10-minute throttle wasn't saved (%s).\n"
+                             % type(exc).__name__)
     except Exception as exc:  # never fail: this is a courtesy ping
         sys.stderr.write("notify-waiting: no ping sent (%s).\n" % type(exc).__name__)
     return 0

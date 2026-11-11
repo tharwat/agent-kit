@@ -104,8 +104,8 @@ run it once.
    |---|---|
    | `package-lock.json` or `npm-shrinkwrap.json` | `npm audit --omit=dev --json` |
    | `pnpm-lock.yaml` | `pnpm audit --prod --json` |
-   | `yarn.lock`, Yarn 1 | `yarn audit --groups dependencies --json` |
-   | `yarn.lock`, Yarn 2+ | `yarn npm audit --all --recursive --environment production --json` |
+   | `yarn.lock`, Yarn 1 (no `.yarnrc.yml`; `yarn --version` is 1.x) | `yarn audit --groups dependencies --json` |
+   | `yarn.lock`, Yarn 2+ (`.yarnrc.yml`, or `yarn --version` is 2 or later) | `yarn npm audit --all --recursive --environment production --json` |
    | none, or only `bun.lock` / `bun.lockb` | none: report `Dependency audit: not run (no supported lockfile)` |
 
 2. For each advisory, record the package, severity, whether it is **direct** (in `package.json`) or **transitive**
@@ -115,8 +115,10 @@ run it once.
    Everything else, including dev-only and unreachable advisories, is `noted` with the reason.
 4. **Never run `npm audit fix`** (or `pnpm` / `yarn` equivalents). It rewrites the lockfile, which is a dependency
    change you must make on purpose.
-5. The audit needs the network. If the command errors (offline, a registry error, a retired audit endpoint, a missing
-   lockfile), report `Dependency audit: not run (<reason>)`. An error or an empty answer is never a pass.
+5. **Exit codes.** These commands exit non-zero when they *find* advisories: a non-zero exit with JSON advisories in
+   the output is a result, not an error. Only when there is no parseable JSON (offline, a registry error, a retired
+   audit endpoint, a missing lockfile) report `Dependency audit: not run (<reason>)`. That, or an empty answer, is
+   never a pass.
 
 ## /release
 

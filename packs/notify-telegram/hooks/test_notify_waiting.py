@@ -94,6 +94,15 @@ class ReviewRound1(Case):
         self.assertEqual(len(self.sent()), 1)  # the next wait still pings
 
 
+class ReviewRound2(Case):
+    def test_stderr_noise_is_not_a_failure(self):
+        with open(self.notify, "w", encoding="utf-8") as fh:
+            fh.write(FAKE_NOTIFY + "import sys\nsys.stderr.write('DeprecationWarning: something\\n')\n")
+        self.fire()
+        self.fire()
+        self.assertEqual(len(self.sent()), 1)  # the first ping was recorded, so the second is throttled
+
+
 class NeverFails(Case):
     def test_no_notify_script(self):
         os.rename(self.notify, self.notify + ".off")
