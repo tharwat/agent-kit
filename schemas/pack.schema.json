@@ -108,6 +108,14 @@
       }
     },
     "gitignore": {"type": "array", "items": {"type": "string", "pattern": "^[^\\n#!][^\\n]*$"}},
+    "settings": {
+      "type": "object",
+      "description": "Top-level .claude/settings.json keys a pack sets, added only when the project has none. An allow-list: statusLine only.",
+      "additionalProperties": false,
+      "properties": {
+        "statusLine": {"type": "object", "required": ["type", "command"]}
+      }
+    },
     "always_loaded_reason": {"type": "string"}
   },
   "$defs": {

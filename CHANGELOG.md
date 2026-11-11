@@ -4,6 +4,18 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.7.0 — 2026-11-11
+
+- **New pack `statusline` (extra, asked at install).** A Claude Code status line:
+  `<model> · <branch> · <ticket> · context <n>% used`, from the status-line JSON, local git and the Project facts.
+  It shows `context –` before the first reply and after a compaction. No network, no writes.
+- **Packs can set top-level settings,** through a new `settings` key in `pack.json`. It is an allow-list:
+  `statusLine` only, for now. A key is added only when the project has none, and the install plan says when the
+  project's own value is kept.
+
+**Upgrade touches:** nothing unless you add the `statusline` pack. Then `.claude/settings.json` (adds `statusLine`
+if absent), `.claude/scripts/statusline.py` and `.claude/packs/statusline.md`.
+
 ## 1.6.1 — 2026-11-11
 
 - **notify-telegram 1.1.0: waiting pings.** A Notification hook (`notify-waiting.py`) pings the project's chat when

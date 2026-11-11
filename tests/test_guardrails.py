@@ -6,7 +6,7 @@ import os
 import re
 import unittest
 
-from kit_testlib import KIT, load_json, read, run, write
+from kit_testlib import KIT, copy_kit, load_json, read, run, write
 from test_installer import Base
 
 # The deny list as 1.3.0 installed it.
@@ -293,6 +293,39 @@ class AuditSectionsInStep(unittest.TestCase):
         a = load_json(os.path.join(KIT, "packs", "node-esm", "pack.json"))["permissions"]
         b = load_json(os.path.join(KIT, "packs", "typescript", "pack.json"))["permissions"]
         self.assertEqual(a, b)
+
+
+class StatusLinePack(Base):
+    def test_fresh_install_sets_the_status_line(self):
+        self.apply(self.answers(packs=("statusline",)))
+        sl = load_json(self.t(".claude/settings.json"))["statusLine"]
+        self.assertEqual(sl["type"], "command")
+        self.assertIn(".claude/scripts/statusline.py", sl["command"])
+        self.assertTrue(os.path.isfile(self.t(".claude/scripts/statusline.py")))
+        self.assertFalse(os.path.exists(self.t(".claude/scripts/test_statusline.py")))
+
+    def test_not_set_without_the_pack(self):
+        self.apply(self.answers())
+        self.assertNotIn("statusLine", load_json(self.t(".claude/settings.json")))
+
+    def test_projects_own_status_line_is_kept_and_reported(self):
+        ours = {"type": "command", "command": "echo ours"}
+        write(self.t(".claude/settings.json"), json.dumps({"statusLine": ours}))
+        rc, out, err = self.cli("plan", self.answers(packs=("statusline",)))
+        self.assertIn("`statusLine` kept", out)
+        self.apply(self.answers(packs=("statusline",)))
+        self.assertEqual(load_json(self.t(".claude/settings.json"))["statusLine"], ours)
+
+    def test_only_allow_listed_settings(self):
+        kit = copy_kit(os.path.join(self.tmp(), "kit"))
+        p = os.path.join(kit, "packs", "statusline", "pack.json")
+        pack = load_json(p)
+        pack["settings"]["model"] = "x"
+        write(p, json.dumps(pack))
+        self.kit = kit
+        rc, out, err = self.cli("apply", self.answers(packs=("statusline",)))
+        self.assertNotEqual(rc, 0)
+        self.assertIn("settings", out + err)
 
 
 if __name__ == "__main__":

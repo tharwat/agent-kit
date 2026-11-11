@@ -71,6 +71,7 @@ SKIP_NAMES = {"__pycache__", ".DS_Store"}
 SKIP_SUFFIXES = (".pyc",)
 # A glob never installs a unit's own tests; list a test file explicitly in `files` to install it.
 TEST_FILE_RE = re.compile(r"(^test_.*\.py$|_test\.py$|\.test\.[A-Za-z0-9]+$|\.spec\.[A-Za-z0-9]+$)")
+PACK_SETTINGS_KEYS = {"statusLine"}  # top-level settings a pack may set (schema: settings)
 
 LOCK_FILES = ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock",
               "poetry.lock", "Pipfile.lock", "uv.lock", "Cargo.lock", "go.sum", "Gemfile.lock", "composer.lock",
@@ -612,7 +613,7 @@ class Plan:
     def __init__(self):
         self.rows = []
         self.mcp = []          # dicts: server, unit, action, reason, env
-        self.settings = {"hooks": [], "permissions": [], "keys": []}
+        self.settings = {"hooks": [], "permissions": [], "keys": [], "kept": []}
         self.gitignore = []
         self.env = []
         self.owner_tasks = []
@@ -1299,6 +1300,17 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
         if k not in new:
             new[k] = copy.deepcopy(v)
             plan.settings["keys"].append(k)
+    # Pack settings (allow-listed top-level keys): added only when absent; a project's own value is kept.
+    for u in units:
+        for k, v in (kit.units[u].get("settings") or {}).items():
+            if k not in PACK_SETTINGS_KEYS:
+                plan.errors.append(f"{u}: pack.json settings.{k} is not allowed (only {sorted(PACK_SETTINGS_KEYS)})")
+                continue
+            if k not in new:
+                new[k] = copy.deepcopy(v)
+                plan.settings["keys"].append(k)
+            elif new[k] != v:
+                plan.settings["kept"].append(f"{k} ({u})")
     # Permissions: union, existing order first.
     perm_sources = [("core", tmpl.get("permissions", {}))] + [(u, kit.units[u].get("permissions", {})) for u in units]
     if values is not None:  # a pack's allow rules may name a fact, e.g. Bash({{EAS_CLI}} whoami)
@@ -1797,9 +1809,11 @@ def plan_markdown(kit, target, plan):
                 json.dumps({"claude_only": plan.no_description}), "```"]
     out += ["", "## Settings (.claude/settings.json)", ""]
     s = plan.settings
-    if s["hooks"] or s["permissions"] or s["keys"]:
+    if s["hooks"] or s["permissions"] or s["keys"] or s.get("kept"):
         out += [f"- hook {h}" for h in s["hooks"]] + [f"- permission {p}" for p in s["permissions"]] + \
-               [f"- top-level key `{k}` (absent before)" for k in s["keys"]]
+               [f"- top-level key `{k}` (absent before)" for k in s["keys"]] + \
+               [f"- top-level key `{k.split(' ')[0]}` kept: the project already sets its own {k.split(' ', 1)[1]}"
+                for k in s.get("kept", [])]
     else:
         out.append("Nothing to add.")
     out += ["", "## .gitignore", ""] + ([f"- `{l}`" for l in plan.gitignore] or ["Nothing to add."])
