@@ -10,8 +10,9 @@ installed version before an upgrade.
   `<model> · <branch> · <ticket> · context <n>% used`, from the status-line JSON, local git and the Project facts.
   It shows `context –` before the first reply and after a compaction. No network, no writes.
 - **Packs can set top-level settings,** through a new `settings` key in `pack.json`. It is an allow-list:
-  `statusLine` only, for now. A key is added only when the project has none, and the install plan says when the
-  project's own value is kept.
+  `statusLine` only, for now. A key is added only when the project has none, the kit's own earlier value is updated
+  on upgrade (the lock records it), and the install plan says when the project's own value is kept. A project
+  status line overrides a developer's personal one, and the plan warns when you have one.
 
 **Upgrade touches:** nothing unless you add the `statusline` pack. Then `.claude/settings.json` (adds `statusLine`
 if absent), `.claude/scripts/statusline.py` and `.claude/packs/statusline.md`.

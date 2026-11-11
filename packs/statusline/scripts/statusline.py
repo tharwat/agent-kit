@@ -8,6 +8,7 @@ through `.claude/hooks/kit_facts.py`. Standard library only. No network, no writ
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -17,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "hooks"))  # .claude/hooks, where core installs kit_facts
 try:
     import kit_facts
-except ImportError:
+except Exception:  # missing, or broken by a partial upgrade: the line still prints
     kit_facts = None
 
 SEP = " · "
@@ -28,7 +29,7 @@ def branch_of(directory):
         return kit_facts.current_branch(directory)
     try:
         out = subprocess.run(["git", "-C", directory, "symbolic-ref", "--short", "-q", "HEAD"], capture_output=True,
-                             text=True, timeout=2)
+                             text=True, timeout=5)
         return out.stdout.strip() or None if out.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         return None
@@ -37,7 +38,7 @@ def branch_of(directory):
 def context_part(data):
     window = data.get("context_window") or {}
     pct = window.get("used_percentage")
-    if isinstance(pct, (int, float)) and not isinstance(pct, bool):
+    if isinstance(pct, (int, float)) and not isinstance(pct, bool) and math.isfinite(pct):
         return "context %d%% used" % round(pct)
     return "context –"
 

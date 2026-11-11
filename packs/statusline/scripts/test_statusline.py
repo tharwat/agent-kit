@@ -65,6 +65,15 @@ class StatusLine(unittest.TestCase):
         self.assertEqual(self.run_line(raw="{nope"), "Claude")
         self.assertTrue(self.run_line(raw="").startswith("Claude"))
 
+    def test_bad_percentage(self):
+        self.assertEqual(self.run_line(raw=json.dumps(self.data(1)).replace("1,", "NaN,", 1)),
+                         "Opus · feature/abc-12-nav · ABC-12 · context –")
+
+    def test_broken_kit_facts(self):
+        with open(os.path.join(self.project, ".claude", "hooks", "kit_facts.py"), "w", encoding="utf-8") as fh:
+            fh.write("this is not python(\n")
+        self.assertEqual(self.run_line(self.data(1)), "Opus · feature/abc-12-nav · context 1% used")
+
     def test_without_kit_facts(self):
         os.rename(os.path.join(self.project, ".claude", "hooks", "kit_facts.py"),
                   os.path.join(self.project, ".claude", "hooks", "kit_facts.py.off"))

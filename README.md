@@ -209,7 +209,7 @@ rules, commands, hooks and Project facts, and extend core commands through `.cla
 | `expo-mobile` | EAS builds and Maestro QA for iOS and Android | `/build-qa`, `/build-qa-sim`, `/build-prod`, `/mobile-qa` |
 | `web-qa` | Playwright E2E and visual QA | `/qa`, `/playwright-qa` |
 | `typescript` | A type-check hook after each edit, vitest/jest discipline, a mock-fidelity lens, a dependency vulnerability audit in `/security` and `/release` | |
-| `statusline` | A status line: model, branch, ticket and context-window use. Your own `statusLine` is kept | |
+| `statusline` | A status line: model, branch, ticket and context-window use. A project `statusLine` already set is kept; as a project setting it overrides personal ones | |
 | `node-esm` | ESM and Node rules for code with no compiler; a dependency vulnerability audit in `/security` and `/release` | |
 | `notify-telegram` | Outcome notifications to one Telegram chat per project, plus a ping when a run waits on you (a permission prompt or idle). A failed send never fails a command | |
 | `worktrees` | Parallel sessions in git worktrees: safe sync to `main`, env-file links, a guard against writing to the main checkout | `/worktree` |

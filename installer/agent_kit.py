@@ -958,7 +958,7 @@ def build_plan(kit, target, answers_path, upgrade=False):
         produced.add("AGENTS.md")
     settings_spec = merges.get("settings-json")
     plan.rows.append(plan_settings(kit, target, units, settings_spec, render(settings_spec) if settings_spec else None,
-                                   plan, values, names))
+                                   plan, values, names, lock_files.get(".claude/settings.json")))
     produced.add(".claude/settings.json")
     plan.rows.append(plan_mcp(kit, target, units, answers["mcp_map"], plan, values, missing,
                               lock_files.get(".mcp.json"), resolutions))
@@ -1279,7 +1279,15 @@ def _merge_json_target(target, rel, plan):
     return raw, data
 
 
-def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=None):
+def valid_pack_setting(key, value):
+    """A pack's top-level setting value is well-formed (the schema's allow-list, checked again at install)."""
+    if key == "statusLine":
+        return isinstance(value, dict) and value.get("type") == "command" and isinstance(value.get("command"), str) \
+            and value["command"].strip() != ""
+    return False
+
+
+def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=None, lock_entry=None):
     rel = ".claude/settings.json"
     raw, cur = _merge_json_target(target, rel, plan)
     unit, src = (spec.unit, spec.src) if spec else ("core", "(pack hooks/permissions)")
@@ -1300,17 +1308,47 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
         if k not in new:
             new[k] = copy.deepcopy(v)
             plan.settings["keys"].append(k)
-    # Pack settings (allow-listed top-level keys): added only when absent; a project's own value is kept.
+    # Pack settings (allow-listed top-level keys): added when absent, updated when the value is the one the kit
+    # installed last time (the lock records it), and otherwise kept: the project's own value always wins.
+    kit_wrote = dict((lock_entry or {}).get("pack_settings") or {})
+    written, claimed = {}, {}
     for u in units:
-        for k, v in (kit.units[u].get("settings") or {}).items():
+        settings = kit.units[u].get("settings") or {}
+        if not isinstance(settings, dict):
+            plan.errors.append(f"{u}: pack.json settings must be an object")
+            continue
+        for k, v in settings.items():
             if k not in PACK_SETTINGS_KEYS:
                 plan.errors.append(f"{u}: pack.json settings.{k} is not allowed (only {sorted(PACK_SETTINGS_KEYS)})")
                 continue
+            if values is not None:
+                unknown = set()
+                v = fill_json(v, values, unknown)
+                if unknown:
+                    plan.errors.append(f"{u}: pack.json settings.{k} names unknown facts: {sorted(unknown)}")
+                    continue
+            if not valid_pack_setting(k, v):
+                plan.errors.append(f"{u}: pack.json settings.{k} is malformed")
+                continue
+            if k in claimed:
+                plan.settings["kept"].append({"key": k, "unit": u, "reason": f"the {claimed[k]} pack sets it first"})
+                continue
+            claimed[k] = u
             if k not in new:
                 new[k] = copy.deepcopy(v)
                 plan.settings["keys"].append(k)
-            elif new[k] != v:
-                plan.settings["kept"].append(f"{k} ({u})")
+                written[k] = v
+            elif new[k] == v:
+                written[k] = v
+            elif k in kit_wrote and new[k] == kit_wrote[k]:
+                new[k] = copy.deepcopy(v)  # the kit's own earlier value: take the new one
+                plan.settings["keys"].append(k)
+                written[k] = v
+            else:
+                plan.settings["kept"].append({"key": k, "unit": u, "reason": "the project sets its own"})
+            if k == "statusLine" and k in written and personal_setting(k):
+                plan.warnings.append("statusLine: this project's status line (from the statusline pack) takes "
+                                     "precedence over the one in your ~/.claude/settings.json")
     # Permissions: union, existing order first.
     perm_sources = [("core", tmpl.get("permissions", {}))] + [(u, kit.units[u].get("permissions", {})) for u in units]
     if values is not None:  # a pack's allow rules may name a fact, e.g. Bash({{EAS_CLI}} whoami)
@@ -1366,6 +1404,8 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
             for h in add:
                 plan.settings["hooks"].append(f"{event}[{g.get('matcher', '*')}]: {h.get('command')} ({u})")
     lock = {"src": src, "unit": unit, "project_owned": False, "merge": "settings-json", "status": "installed"}
+    if written:
+        lock["pack_settings"] = written
     if cur is None:
         if not new:
             return Row(unit, src, rel, "skip", "nothing to add")
@@ -1380,6 +1420,16 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
                 content=text.encode("utf-8"))
     r.lock = dict(lock, sha256_as_installed=sha256(text.encode("utf-8")))
     return r
+
+
+def personal_setting(key):
+    """True when the user's own ~/.claude/settings.json sets this top-level key (a project setting overrides it)."""
+    try:
+        with open(os.path.join(os.path.expanduser("~"), ".claude", "settings.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and key in data
 
 
 def fill_text(text, values):
@@ -1811,8 +1861,8 @@ def plan_markdown(kit, target, plan):
     s = plan.settings
     if s["hooks"] or s["permissions"] or s["keys"] or s.get("kept"):
         out += [f"- hook {h}" for h in s["hooks"]] + [f"- permission {p}" for p in s["permissions"]] + \
-               [f"- top-level key `{k}` (absent before)" for k in s["keys"]] + \
-               [f"- top-level key `{k.split(' ')[0]}` kept: the project already sets its own {k.split(' ', 1)[1]}"
+               [f"- top-level key `{k}` (set by the kit)" for k in s["keys"]] + \
+               [f"- top-level key `{k['key']}` kept, not taken from the {k['unit']} pack: {k['reason']}"
                 for k in s.get("kept", [])]
     else:
         out.append("Nothing to add.")

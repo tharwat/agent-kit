@@ -316,6 +316,32 @@ class StatusLinePack(Base):
         self.apply(self.answers(packs=("statusline",)))
         self.assertEqual(load_json(self.t(".claude/settings.json"))["statusLine"], ours)
 
+    def test_upgrade_updates_the_kits_own_value_only(self):
+        kit = copy_kit(os.path.join(self.tmp(), "kit"))
+        self.kit = kit
+        self.apply(self.answers(packs=("statusline",)))
+        lock = load_json(self.t(".claude/agent-kit.lock.json"))
+        self.assertIn("statusLine", lock["files"][".claude/settings.json"]["pack_settings"])
+        p = os.path.join(kit, "packs", "statusline", "pack.json")
+        pack = load_json(p)
+        pack["settings"]["statusLine"]["padding"] = 1
+        write(p, json.dumps(pack))
+        rc, out, err = run(["upgrade", "--target", self.target, "--kit", kit])
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(load_json(self.t(".claude/settings.json"))["statusLine"]["padding"], 1)
+
+    def test_malformed_settings_refused(self):
+        for bad in (["statusLine"], {"statusLine": "python3 x.py"}, {"statusLine": {"type": "command"}}):
+            with self.subTest(bad=bad):
+                kit = copy_kit(os.path.join(self.tmp(), "kit"))
+                p = os.path.join(kit, "packs", "statusline", "pack.json")
+                pack = load_json(p)
+                pack["settings"] = bad
+                write(p, json.dumps(pack))
+                self.kit = kit
+                rc, out, err = self.cli("apply", self.answers(packs=("statusline",)))
+                self.assertNotEqual(rc, 0)
+
     def test_only_allow_listed_settings(self):
         kit = copy_kit(os.path.join(self.tmp(), "kit"))
         p = os.path.join(kit, "packs", "statusline", "pack.json")

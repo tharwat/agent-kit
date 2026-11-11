@@ -20,7 +20,7 @@
   "settings": {
     "statusLine": {
       "type": "command",
-      "command": "python3 \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}\"/.claude/scripts/statusline.py",
+      "command": "python3 \"${CLAUDE_PROJECT_DIR:-$( (git rev-parse --show-superproject-working-tree --show-toplevel 2>/dev/null; pwd) | head -n 1)}\"/.claude/scripts/statusline.py",
       "padding": 0
     }
   },
