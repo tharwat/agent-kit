@@ -72,8 +72,8 @@ class StatusLine(unittest.TestCase):
         self.assertEqual(self.run_line(d), "Claude · feature/abc-12-nav · ABC-12 · context –")
 
     def test_command_finds_the_script_from_a_subdirectory(self):
-        import re
-        pack = json.load(open(os.path.join(HERE, "..", "pack.json"), encoding="utf-8"))
+        with open(os.path.join(HERE, "..", "pack.json"), encoding="utf-8") as fh:
+            pack = json.load(fh)
         cmd = pack["settings"]["statusLine"]["command"]
         sub = os.path.join(self.project, "packages", "app")
         os.makedirs(sub)
@@ -82,6 +82,16 @@ class StatusLine(unittest.TestCase):
         r = subprocess.run(["sh", "-c", cmd], input=json.dumps(self.data(7)), capture_output=True, text=True,
                            cwd=sub, env=env, timeout=30)
         self.assertEqual(r.stdout.strip(), "Opus · feature/abc-12-nav · ABC-12 · context 7% used", r.stderr)
+
+    def test_command_never_hangs_and_falls_back_to_pwd(self):
+        with open(os.path.join(HERE, "..", "pack.json"), encoding="utf-8") as fh:
+            cmd = json.load(fh)["settings"]["statusLine"]["command"]
+        for project_dir in ("rel", "C:\\Users\\x", "/nonexistent/place"):
+            with self.subTest(project_dir=project_dir):
+                env = dict(os.environ, CLAUDE_PROJECT_DIR=project_dir)
+                r = subprocess.run(["sh", "-c", cmd], input=json.dumps(self.data(7)), capture_output=True, text=True,
+                                   cwd=self.project, env=env, timeout=10)
+                self.assertEqual(r.stdout.strip(), "Opus · feature/abc-12-nav · ABC-12 · context 7% used", r.stderr)
 
     def test_bad_percentage(self):
         self.assertEqual(self.run_line(raw=json.dumps(self.data(1)).replace("1,", "NaN,", 1)),

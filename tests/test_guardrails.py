@@ -348,6 +348,36 @@ class StatusLinePack(Base):
         self.apply(self.answers())
         self.assertIn("statusLine", load_json(self.t(".claude/settings.json")))
 
+    def test_malformed_lock_entry_does_not_crash(self):
+        self.apply(self.answers(packs=("statusline",)))
+        lock_path = self.t(".claude/agent-kit.lock.json")
+        lock = load_json(lock_path)
+        lock["files"][".claude/settings.json"]["pack_settings"] = ["statusLine"]
+        write(lock_path, json.dumps(lock, indent=2))
+        rc, out, err = run(["upgrade", "--target", self.target, "--kit", self.kit])
+        self.assertEqual(rc, 0, out + err)
+
+    def test_value_put_back_after_removal_is_the_projects(self):
+        kit = copy_kit(os.path.join(self.tmp(), "kit"))
+        self.kit = kit
+        self.apply(self.answers(packs=("statusline",)))
+        path = self.t(".claude/settings.json")
+        settings = load_json(path)
+        mine = settings.pop("statusLine")
+        write(path, json.dumps(settings, indent=2))
+        self.apply(self.answers(packs=("statusline",)))  # removal recorded
+        settings = load_json(path)
+        settings["statusLine"] = mine  # pasted back on purpose
+        write(path, json.dumps(settings, indent=2))
+        p = os.path.join(kit, "packs", "statusline", "pack.json")  # a later kit changes its value
+        pack = load_json(p)
+        pack["settings"]["statusLine"]["padding"] = 2
+        write(p, json.dumps(pack))
+        rc, out, err = self.cli("plan", self.answers(packs=("statusline",)))
+        self.assertIn("`statusLine` kept", out)
+        self.apply(self.answers(packs=("statusline",)))
+        self.assertEqual(load_json(path)["statusLine"], mine)
+
     def test_malformed_settings_refused(self):
         for bad in (["statusLine"], {"statusLine": "python3 x.py"}, {"statusLine": {"type": "command"}}):
             with self.subTest(bad=bad):

@@ -1310,7 +1310,8 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
             plan.settings["keys"].append(k)
     # Pack settings (allow-listed top-level keys): added when absent, updated when the value is the one the kit
     # installed last time (the lock records it), and otherwise kept: the project's own value always wins.
-    kit_wrote = dict((lock_entry or {}).get("pack_settings") or {})
+    kit_wrote = (lock_entry or {}).get("pack_settings")
+    kit_wrote = dict(kit_wrote) if isinstance(kit_wrote, dict) else {}  # a hand-edited lock can't crash the plan
     written, claimed = {}, {}
     for u in units:
         settings = kit.units[u].get("settings") or {}
@@ -1331,15 +1332,13 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
                 plan.errors.append(f"{u}: pack.json settings.{k} is malformed")
                 continue
             if k in claimed:
-                first = claimed[k]
-                reason = (f"the {first} pack sets it first" if k in written else
-                          "the project sets its own (the %s pack's value was kept out too)" % first)
-                plan.settings["kept"].append({"key": k, "unit": u, "reason": reason})
+                plan.settings["kept"].append({"key": k, "unit": u, "reason": f"already claimed by the {claimed[k]} pack"})
                 continue
             claimed[k] = u
             if k not in new and k in kit_wrote:
-                # the kit set it before and the project removed it: that choice stands
-                written[k] = kit_wrote[k]
+                # the kit set it before and the project removed it: that choice stands. Recorded as removed (None),
+                # so a value the project puts back later counts as the project's own.
+                written[k] = None
                 plan.settings["kept"].append({"key": k, "unit": u, "reason": "the project removed it earlier"})
             elif k not in new:
                 new[k] = copy.deepcopy(v)
@@ -1347,7 +1346,7 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
                 written[k] = v
             elif new[k] == v:
                 written[k] = v
-            elif k in kit_wrote and new[k] == kit_wrote[k]:
+            elif kit_wrote.get(k) is not None and new[k] == kit_wrote[k]:
                 new[k] = copy.deepcopy(v)  # the kit's own earlier value: take the new one
                 plan.settings["keys"].append(k)
                 written[k] = v
@@ -1411,7 +1410,7 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
             for h in add:
                 plan.settings["hooks"].append(f"{event}[{g.get('matcher', '*')}]: {h.get('command')} ({u})")
     for k, v in kit_wrote.items():  # set by a pack that's no longer installed: reported, never removed by the kit
-        if k not in claimed and new.get(k) == v:
+        if k not in claimed and v is not None and new.get(k) == v:
             written[k] = v
             plan.warnings.append(f"{k}: set by a pack that is no longer installed; it stays in .claude/settings.json "
                                  "until you remove it")

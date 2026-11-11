@@ -20,7 +20,7 @@
   "settings": {
     "statusLine": {
       "type": "command",
-      "command": "p=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; while [ ! -f \"$p/.claude/scripts/statusline.py\" ] && [ \"$p\" != / ]; do p=$(dirname \"$p\"); done; python3 \"$p/.claude/scripts/statusline.py\"",
+      "command": "p=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$p/.claude/scripts/statusline.py\" ] || p=\"$PWD\"; while [ ! -f \"$p/.claude/scripts/statusline.py\" ] && [ \"$(dirname \"$p\")\" != \"$p\" ]; do p=$(dirname \"$p\"); done; python3 \"$p/.claude/scripts/statusline.py\"",
       "padding": 0
     }
   },
