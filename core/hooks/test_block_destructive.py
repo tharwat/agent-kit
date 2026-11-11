@@ -22,7 +22,10 @@ BLOCKED = {
            "for f in *.log; do rm \"$f\"; done", "rm -- -weird", "rm", 'eval "rm x"', "timeout 5 rm x",
            "true && (cd sub; rm x)", "rm .claude/state/tmp", "rm ~/x", 'bash -c "echo it\'s"; rm -rf x',
            'bash -o pipefail -c "rm -rf x"', "bash <<'EOF'\nrm -rf build\nEOF", "cat <<EOF\n$(rm -rf x)\nEOF",
-           'echo "use <<EOF in bash"\nrm -rf x'],
+           'echo "use <<EOF in bash"\nrm -rf x', "echo 'rm -rf build' | bash", "cat <<'X' | sh\nrm -rf build\nX",
+           "bash -euo pipefail -c 'rm -rf build'", "(( m = 1 << n ))\nrm -rf build",
+           "function cleanup { rm -rf build; }; cleanup", "rm -rf build; printf $'don\\'t\\n'",
+           "x=$(echo hi # it's\n)\nrm -rf build"],
     "rmdir": ["rmdir d", "sudo rmdir d", "find . -type d -exec rmdir {} +"],
     "find -delete": ["find . -name '*.log' -delete", "find build -type f -delete -print"],
     "unlink": ["unlink f", "bash -c 'unlink f'"],
@@ -34,7 +37,9 @@ BLOCKED = {
         "python3 -c \"import subprocess; subprocess.run(['rm', '-rf', 'x'])\"",
         "node -e \"require('child_process').execSync('rm -rf x')\"",
         "python3 -Bc \"import shutil; shutil.rmtree('x')\"", "python3 -W ignore -c \"import shutil; shutil.rmtree('x')\"",
-        "perl -i -ne 'unlink \"a\"'"],
+        "perl -i -ne 'unlink \"a\"'", "node -pe \"require('fs').unlinkSync('x')\"", "perl -le 'unlink \"x\"'",
+        "python3 - <<'X'\nimport shutil; shutil.rmtree('build')\nX", "python3 <<'X'\nimport os; os.remove('a')\nX",
+        "echo \"import os; os.remove('a')\" | python3", "node <<< \"require('fs').rmSync('x')\""],
     "git reset --hard": ["git reset --hard", "git reset --hard HEAD~1", "git -C x reset --hard HEAD~1",
                          "git --git-dir=.git reset --hard", "git -c core.x=y reset --hard",
                          "cd sub && git reset --hard origin/main", 'bash <<< "git reset --hard"',
@@ -51,7 +56,7 @@ BLOCKED = {
         "git checkout -- path", "git checkout .", "git checkout -f", "git checkout --force main",
         "git checkout HEAD -- src/", "git checkout main a.ts", "git checkout ./src", "git -C x checkout -- a",
         "git checkout -qf main", "git checkout --pathspec-from-file=list.txt", "git checkout --ours a.ts",
-        "git checkout keep.txt", "git checkout -p keep.txt"],
+        "git checkout keep.txt", "git checkout -p keep.txt", "git checkout *.py", "git checkout 'src/*.ts'"],
     "git stash drop/clear": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git -C x stash clear",
                              "git stash -q drop"],
     "git restore": ["git restore f", "git restore --worktree f", "git restore --staged --worktree f",
@@ -66,7 +71,7 @@ ALLOWED = {
     "rm": ['grep "rm " f', "echo rm", "git rm --cached x", "git rm -r --cached dir", "rm --help",
            'git commit -m "drop the rm call"', "grep -rn \"rm -rf\" docs/", "echo 'rm -rf /'", "command -v rm",
            "man rm", "cat <<'EOF'\nrm -rf /\nEOF", "cat <<'EOF'\n$(rm x)\nEOF", 'echo "use <<EOF in bash"',
-           "bash run.sh <<EOF\nrm x\nEOF"],
+           "bash run.sh <<EOF\nrm x\nEOF", "echo 'rm x' | cat", "python3 - <<'X'\nprint('ok')\nX"],
     "rmdir": ["echo rmdir", "mkdir -p d"],
     "find -delete": ["find . -name '*.log'", "find . -name '-delete'", "grep -- -delete f"],
     "unlink": ["echo unlink", "grep unlink src/"],
@@ -182,6 +187,13 @@ class ScratchDir(HookCase):
         self.assertBlocked("(cd %s; true); rm keep.txt" % self.scratch, "rm")
         self.assertBlocked("cd %s | true; rm keep.txt" % self.scratch, "rm")
         self.assertAllowed("(cd %s && rm a.txt)" % self.scratch)
+
+    def test_unknown_cwd_blocks_relative_operands(self):
+        for cmd in ("cd %s && cd - && rm a.txt", 'cd %s && cd "$OLDPWD" && rm a.txt', "cd %s && popd && rm a.txt"):
+            with self.subTest(cmd=cmd):
+                self.assertBlocked(cmd % self.scratch, "rm")
+        self.assertBlocked("cd %s & rm a.txt" % self.scratch, "rm")  # the cd ran in a background subshell
+        self.assertAllowed("cd - && rm %s/a.txt" % self.scratch)  # an absolute operand is still known
 
     def test_mixed_operands(self):
         self.assertBlocked("rm %s/a.txt keep.txt" % self.scratch, "rm")

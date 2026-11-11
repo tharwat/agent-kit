@@ -145,6 +145,63 @@ class ReviewRegressions(unittest.TestCase):
         self.assertEqual(cmds[0].heredocs, [("subject\n\nbody", True)])
 
 
+class ReviewRound2(unittest.TestCase):
+    def test_script_piped_into_a_shell(self):
+        self.assertIn(["rm", "-rf", "build"], argvs("echo 'rm -rf build' | bash"))
+        self.assertIn(["rm", "-rf", "build"], argvs("cat <<'X' | sh\nrm -rf build\nX"))
+        self.assertIn(["rm", "x"], argvs("printf 'rm x\\n' | bash -s"))
+        self.assertNotIn(["rm", "x"], argvs("echo 'rm x' | bash run.sh"))
+        self.assertNotIn(["rm", "x"], argvs("echo 'rm x' | cat"))
+
+    def test_clustered_shell_options(self):
+        for cmd in ("bash -euo pipefail -c 'rm -rf build'", "bash -eo pipefail -c 'rm -rf build'",
+                    "bash -e -o pipefail -O extglob -c 'rm -rf build'"):
+            with self.subTest(cmd=cmd):
+                self.assertIn(["rm", "-rf", "build"], argvs(cmd))
+
+    def test_arithmetic_command_shift(self):
+        self.assertEqual(progs("(( m = 1 << n ))\nrm -rf build")[-1], "rm")
+
+    def test_unknown_cd_targets(self):
+        for cmd in ("cd /s && cd - && rm a", 'cd /s && cd "$OLDPWD" && rm a', "cd /s && popd && rm a",
+                    "cd ~- && rm a"):
+            with self.subTest(cmd=cmd):
+                self.assertFalse(list(ks.iter_commands(cmd, CWD))[-1].cwd_known)
+        self.assertTrue(list(ks.iter_commands("cd /s && rm a", CWD))[-1].cwd_known)
+        cmds = list(ks.iter_commands("cd /s & rm a", CWD))
+        self.assertEqual(cmds[-1].cwd, CWD)  # a backgrounded cd runs in a subshell
+        cmds = list(ks.iter_commands("pushd /s && rm a", CWD))
+        self.assertEqual(cmds[-1].cwd, "/s")
+
+    def test_function_keyword(self):
+        self.assertIn(["rm", "-rf", "build"], argvs("function cleanup { rm -rf build; }; cleanup"))
+
+    def test_ansi_c_quoting(self):
+        self.assertIn(["rm", "-rf", "build"], argvs("rm -rf build; printf $'don\\'t\\n'"))
+        self.assertEqual(argvs("echo $'a\\'b'"), [["echo", "a'b"]])
+
+    def test_comment_inside_substitution(self):
+        self.assertIn(["rm", "-rf", "build"], argvs("x=$(echo hi # it's\n)\nrm -rf build"))
+
+    def test_stdin_texts(self):
+        cmd = list(ks.iter_commands("python3 - <<'X'\nimport os\nX", CWD))[0]
+        self.assertEqual(cmd.stdin, ["import os"])
+        cmd = list(ks.iter_commands("echo 'print(1)' | python3", CWD))[-1]
+        self.assertEqual(cmd.stdin, ["print(1)"])
+
+    def test_interpreter_reads_stdin(self):
+        yes = (["python3"], ["python3", "-"], ["python3", "-u", "-"], ["node"], ["node", "-"], ["perl"],
+               ["ruby", "-w"])
+        no = (["python3", "app.py"], ["python3", "-c", "x"], ["python3", "-m", "http.server"], ["node", "x.js"],
+              ["node", "-e", "x"], ["ls"], [])
+        for argv in yes:
+            with self.subTest(argv=argv):
+                self.assertTrue(ks.interpreter_reads_stdin(argv))
+        for argv in no:
+            with self.subTest(argv=argv):
+                self.assertFalse(ks.interpreter_reads_stdin(argv))
+
+
 class GitSplit(unittest.TestCase):
     def test_global_options(self):
         cases = {("status",): ("status", [], CWD), ("-C", "sub", "push", "origin"): ("push", ["origin"], CWD + "/sub"),
@@ -275,7 +332,9 @@ class InlineCode(unittest.TestCase):
                  (["python3", "-B", "-c", "x"], "x"), (["python3", "-cx"], "x"), (["python3", "-Bc", "x"], "x"),
                  (["python3", "-W", "ignore", "-c", "x"], "x"), (["perl", "-i", "-ne", "x"], "x"),
                  (["perl", "-pi", "-e", "x"], "x"), (["perl", "-ne", "x"], "x"), (["node", "-r", "dotenv/config",
-                 "-e", "x"], "x"), (["deno", "eval", "x"], "x"), (["ruby", "-rjson", "-e", "x"], "x")]
+                 "-e", "x"], "x"), (["deno", "eval", "x"], "x"), (["ruby", "-rjson", "-e", "x"], "x"),
+                 (["node", "-pe", "x"], "x"), (["bun", "-pe", "x"], "x"), (["perl", "-le", "x"], "x"),
+                 (["perl", "-lne", "x"], "x"), (["perl", "-0777ne", "x"], "x")]
         for argv, code in cases:
             with self.subTest(argv=argv):
                 self.assertEqual(ks.inline_code(argv), code)

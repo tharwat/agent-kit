@@ -137,10 +137,12 @@ def inside(path, root):
     return path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def scratch_ok(word, cwd, ctx):
+def scratch_ok(word, cwd, ctx, cwd_known=True):
     """True when this operand may be removed: a plain path strictly inside an allowed scratch directory."""
     if kit_shell.has_expansion(word) or not str(word):
         return False
+    if not cwd_known and not os.path.isabs(str(word)):
+        return False  # after `cd -` / `cd "$DIR"` we can't tell where a relative path points
     path = os.path.realpath(os.path.join(cwd, str(word)))
     state_tmp = ctx.get("state_tmp")
     if state_tmp and inside(path, state_tmp):
@@ -165,7 +167,7 @@ def check_rm(cmd, ctx):
     operands = positionals(args)
     if not operands:  # `xargs rm` and friends supply the operands
         raise Blocked("rm", cmd.argv)
-    if all(scratch_ok(w, cmd.cwd, ctx) for w in operands):
+    if all(scratch_ok(w, cmd.cwd, ctx, cmd.cwd_known) for w in operands):
         return
     raise Blocked("rm", cmd.argv)
 
@@ -234,6 +236,8 @@ def check_git(cmd):
             raise Blocked("git checkout -- <path> discards changes", argv)
         if pos and (longs & {"--ours", "--theirs", "--patch"} or "p" in flags):
             raise Blocked("git checkout -- <path> discards changes", argv)
+        if any(set(str(p)) & set("*?[") for p in pos) and not creating:  # a glob pathspec
+            raise Blocked("git checkout -- <path> discards changes", argv)
         if len(pos) == 1 and not creating and "--detach" not in longs and pos[0] != "-":
             # `git checkout <path>` discards that path's changes; a branch or commit name is fine
             if os.path.exists(os.path.join(git_cwd, pos[0])) and not is_revision(git_cwd, pos[0]):
@@ -288,6 +292,9 @@ def check_command(command, cwd, ctx):
             code = kit_shell.inline_code(cmd.argv)
             if code and PROGRAMMATIC_RE.search(code):
                 raise Blocked("programmatic delete", cmd.argv)
+            if kit_shell.interpreter_reads_stdin(cmd.argv):  # python3 - <<'EOF' … / echo … | node
+                if any(PROGRAMMATIC_RE.search(t) for t in cmd.stdin):
+                    raise Blocked("programmatic delete", cmd.argv)
 
 
 def project_dir(cwd):

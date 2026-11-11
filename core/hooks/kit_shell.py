@@ -25,7 +25,8 @@ ParseError, and the hooks fail open on it (the shell refuses that command too). 
 import os
 import re
 
-__all__ = ["ParseError", "Cmd", "Word", "parse", "iter_commands", "inline_code", "git_split", "heredoc_bodies",
+__all__ = ["ParseError", "Cmd", "Word", "parse", "iter_commands", "inline_code", "interpreter_reads_stdin",
+           "git_split", "heredoc_bodies",
            "strip_heredocs", "strip_prefix", "has_expansion", "EXEC_FLAGS", "SHELLS", "GIT_OPTS_WITH_VALUE"]
 
 MAX_DEPTH = 4
@@ -60,22 +61,26 @@ class Simple:
     def __init__(self):
         self.words = []
         self.redirects = []  # (op, Word)
-        self.depth = 0       # subshell depth at this level of text
-        self.piped = False   # part of a pipeline (runs in its own subshell)
+        self.depth = 0          # subshell depth at this level of text
+        self.piped = False      # part of a pipeline (runs in its own subshell)
+        self.pipe_out = False   # its stdout feeds the next command
+        self.background = False # ended by `&` (runs in its own subshell)
 
     def __bool__(self):
         return bool(self.words or self.redirects)
 
 
 class Cmd:
-    """One simple command after prefix stripping: argv (list of Word), the cwd it runs in, its redirects, and the
-    bodies of its heredocs as (body, quoted)."""
+    """One simple command after prefix stripping: argv (list of Word), the cwd it runs in, its redirects, the bodies
+    of its heredocs as (body, quoted), and the stdin text it gets (`stdin`)."""
 
-    def __init__(self, argv, cwd, redirects=(), heredocs=()):
+    def __init__(self, argv, cwd, redirects=(), heredocs=(), cwd_known=True, stdin=()):
         self.argv = argv
         self.cwd = cwd
+        self.cwd_known = cwd_known  # False after `cd -`, `cd "$DIR"`, `popd`: cwd is then only a guess
         self.redirects = list(redirects)
         self.heredocs = list(heredocs)
+        self.stdin = list(stdin)    # text fed on stdin that we can see: heredocs, here-strings, a piped echo/cat
 
     @property
     def prog(self):
@@ -122,6 +127,16 @@ def _heredocs(command, registry):
             if c == "'":
                 stack.pop()
             continue
+        if top == "$'":
+            if c == "\\":
+                out.append(command[i:i + 2])
+                i += 2
+                continue
+            out.append(c)
+            i += 1
+            if c == "'":
+                stack.pop()
+            continue
         if c == "\\":
             out.append(command[i:i + 2])
             i += 2
@@ -151,8 +166,18 @@ def _heredocs(command, registry):
         # code: top level, inside $( … ) or backticks
         if top == "`" and c == "`":
             stack.pop()
+        elif command.startswith("$'", i):
+            stack.append("$'")
+            out.append("$'")
+            i += 2
+            continue
         elif c in "'\"`":
             stack.append(c)
+        elif command.startswith("((", i) and command[:i].rstrip(" \t")[-1:] in ("", "\n", ";", "&", "|", "("):
+            stack.append("((")  # an arithmetic command: `<<` in it is a shift
+            out.append("((")
+            i += 2
+            continue
         elif command.startswith("$((", i):
             stack.append("((")
             out.append("$((")
@@ -219,11 +244,20 @@ def _match_close(text, i, close):
         if c == "\\":
             i += 2
             continue
+        if c == "$" and text.startswith("$'", i):
+            i = _skip_ansi(text, i + 2)
+            continue
         if c == "'" and close == ")":
             j = text.find("'", i + 1)
             if j < 0:
                 raise ParseError("unterminated single quote")
             i = j + 1
+            continue
+        if c == "#" and close == ")" and (i == 0 or text[i - 1] in " \t\n;&|("):
+            j = text.find("\n", i)
+            if j < 0:
+                raise ParseError("unterminated ( group")
+            i = j
             continue
         if c == '"':
             i = _skip_double(text, i + 1)
@@ -258,6 +292,19 @@ def _skip_double(text, i):
             continue
         i += 1
     raise ParseError("unterminated double quote")
+
+
+def _skip_ansi(text, i):
+    """Index just past the `'` closing an ANSI-C `$'…'` string whose body starts at text[i]."""
+    n = len(text)
+    while i < n:
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text[i] == "'":
+            return i + 1
+        i += 1
+    raise ParseError("unterminated $' string")
 
 
 def _skip_backtick(text, i):
@@ -334,6 +381,11 @@ def _read_word(text, i):
             value.append(text[i:end])
             i = end
             continue
+        if c == "$" and i + 1 < n and text[i + 1] == "'":
+            end = _skip_ansi(text, i + 2)
+            value.append(re.sub(r"\\(.)", r"\1", text[i + 2:end - 1]))
+            i = end
+            continue
         value.append(c)
         i += 1
     return Word("".join(value), text[start:i], subs), i
@@ -378,10 +430,12 @@ def parse(command, registry=None):
     next_piped = False
     i, n = 0, len(text)
 
-    def flush(piped_after=False):
+    def flush(piped_after=False, background=False):
         nonlocal cur, next_piped
         if cur:
             cur.piped = piped_after or next_piped
+            cur.pipe_out = piped_after
+            cur.background = background
             simples.append(cur)
         next_piped = piped_after
         cur = Simple()
@@ -426,7 +480,7 @@ def parse(command, registry=None):
                 depth = max(0, depth - 1)
                 cur.depth = depth
             else:
-                flush(piped_after=op in ("|", "|&"))
+                flush(piped_after=op in ("|", "|&"), background=op == "&")
             i += len(op)
             continue
         word, i = _read_word(text, i)
@@ -461,6 +515,9 @@ def strip_prefix(argv):
         a = argv[i]
         if ASSIGN_RE.match(a) or a in RESERVED:
             i += 1
+            continue
+        if a == "function":  # `function name { … }`: the body follows the name
+            i += 2
             continue
         prog = os.path.basename(a)
         if prog == "env":
@@ -528,10 +585,20 @@ def _shell_mode(args):
             continue
         if a[:1] in "-+" and len(a) > 1:
             if a[0] == "-" and "c" in a[1:]:
-                for r in args[k + 1:]:
-                    if not (r[:1] in "-+" and len(r) > 1):
+                rest = args[k + 1:]
+                j = 0
+                while j < len(rest):
+                    r = rest[j]
+                    if r in SHELL_OPTS_WITH_VALUE or (r[:1] in "-+" and len(r) > 2 and r[-1] in "oO"):
+                        j += 2
+                    elif r[:1] in "-+" and len(r) > 1:
+                        j += 1
+                    else:
                         return ("code", r)
                 return ("code", None)
+            if a[-1] in "oO":  # -eo pipefail, -euo pipefail: the cluster's last option takes a value
+                k += 2
+                continue
             if a[0] == "-" and "s" in a[1:]:
                 return ("stdin", None)
             k += 1
@@ -565,26 +632,47 @@ def _nested(body, cwd, depth, registry):
         return []
 
 
+def _stdin_from(simple, registry):
+    """Text a simple command writes to a pipe that we can see: echo/printf args, its heredocs and here-strings."""
+    texts = []
+    argv = strip_prefix(list(simple.words))
+    prog = os.path.basename(argv[0]) if argv else ""
+    if prog in ("echo", "printf"):
+        args = [a for a in argv[1:] if not (a.startswith("-") and len(a) <= 3)]
+        if args:
+            texts.append(" ".join(args).replace("\\n", "\n"))
+    for op, target in simple.redirects:
+        m = HEREDOC_MARK_RE.match(str(target)) if op in ("<<", "<<-") else None
+        if m and int(m.group(1)) < len(registry):
+            texts.append(registry[int(m.group(1))][1])
+        elif op.endswith("<<<"):
+            texts.append(str(target))
+    return texts
+
+
 def _walk(command, state, depth):
     registry = state.setdefault("registry", [])
-    level_cwds = []  # cwd on entry to each open subshell
+    level = []  # (cwd, cwd_known) on entry to each open subshell
     cur_depth = 0
+    prev = None
     for simple in parse(command, registry):
         while cur_depth < simple.depth:
-            level_cwds.append(state["cwd"])
+            level.append((state["cwd"], state.get("cwd_known", True)))
             cur_depth += 1
         while cur_depth > simple.depth:
-            state["cwd"] = level_cwds.pop()
+            state["cwd"], state["cwd_known"] = level.pop()
             cur_depth -= 1
         for w in simple.words + [t for _, t in simple.redirects]:
             for body in w.subs:
                 yield from _nested(body, state["cwd"], depth + 1, registry)
         heredocs = []
+        stdin = []
         for op, target in simple.redirects:
             m = HEREDOC_MARK_RE.match(str(target)) if op in ("<<", "<<-") else None
             if m and int(m.group(1)) < len(registry):
                 _tag, body, quoted = registry[int(m.group(1))]
                 heredocs.append((body, quoted))
+                stdin.append(body)
                 if not quoted:  # bash expands $(…) and backticks inside an unquoted heredoc
                     try:
                         subs = _subs_in(body)
@@ -592,26 +680,36 @@ def _walk(command, state, depth):
                         subs = []
                     for sub in subs:
                         yield from _nested(sub, state["cwd"], depth + 1, registry)
-        yield from _dispatch(simple.words, state, depth, simple.redirects, heredocs, simple.piped)
+            elif op.endswith("<<<"):
+                stdin.append(str(target))
+        if prev is not None and prev.pipe_out:
+            stdin.extend(_stdin_from(prev, registry))
+        yield from _dispatch(simple.words, state, depth, simple.redirects, heredocs,
+                             simple.piped or simple.background, stdin)
+        prev = simple
 
 
-def _dispatch(words, state, depth, redirects=(), heredocs=(), piped=False):
+def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, stdin=()):
     argv = strip_prefix(list(words))
     if not argv:
         return
     prog = os.path.basename(argv[0])
-    cmd = Cmd(argv, state["cwd"], redirects, heredocs)
+    known = state.get("cwd_known", True)
+    cmd = Cmd(argv, state["cwd"], redirects, heredocs, known, stdin)
     yield cmd
     args = argv[1:]
     registry = state.get("registry", [])
-    if prog == "cd":
-        if piped:
-            return  # each part of a pipeline runs in its own subshell
+    if prog in ("cd", "pushd", "popd"):
+        if subshell:
+            return  # a pipeline part or a background job runs in its own subshell
         target = next((a for a in args if not a.startswith("-") or a == "-"), None)
-        if target and target != "-":
-            state["cwd"] = os.path.normpath(os.path.join(state["cwd"], os.path.expanduser(target)))
+        if prog == "popd" or target == "-" or (target is not None and (has_expansion(target) or
+                                                                          str(target).startswith("~-"))):
+            state["cwd_known"] = False  # we can't tell where it goes
         elif target is None:
             state["cwd"] = os.path.expanduser("~")
+        else:
+            state["cwd"] = os.path.normpath(os.path.join(state["cwd"], os.path.expanduser(target)))
         return
     if depth >= MAX_DEPTH:
         return
@@ -620,16 +718,14 @@ def _dispatch(words, state, depth, redirects=(), heredocs=(), piped=False):
         if mode == "code" and code is not None:
             yield from _nested(code, state["cwd"], depth + 1, registry)
         elif mode == "stdin":
-            for body, _quoted in heredocs:
-                yield from _nested(body, state["cwd"], depth + 1, registry)
-            for op, target in redirects:
-                if op.endswith("<<<"):
-                    yield from _nested(str(target), state["cwd"], depth + 1, registry)
+            for text in stdin:
+                yield from _nested(text, state["cwd"], depth + 1, registry)
     elif prog == "eval" and args:
         yield from _nested(" ".join(args), state["cwd"], depth + 1, registry)
     elif prog == "find":
         for payload in _find_exec_payloads(args):
-            yield from _dispatch(payload, {"cwd": state["cwd"], "registry": registry}, depth + 1)
+            yield from _dispatch(payload, {"cwd": state["cwd"], "cwd_known": known, "registry": registry},
+                                 depth + 1)
 
 
 def iter_commands(command, cwd):
@@ -660,14 +756,16 @@ def git_split(args, cwd):
 
 # interpreter -> (letters that introduce code, letters that take a value, letters that mean "not inline code",
 #                 long options that introduce code, long options that take a value,
-#                 True when a value letter only takes an attached value: perl -Idir, -i.bak)
+#                 True when a value letter only takes an attached value (perl -Idir, -i.bak),
+#                 True when the code may be attached to its letter (python -c'…'; node -e never is))
 INTERPRETERS = {
-    "python": ("c", "WXQ", "m", (), ("--check-hash-based-pycs",), False),
+    "python": ("c", "WXQ", "m", (), ("--check-hash-based-pycs",), False, True),
     "node": ("ep", "r", "", ("--eval", "--print"), ("--require", "--import", "--loader", "--experimental-loader",
-                                                    "--input-type", "--env-file", "--conditions", "--title"), False),
-    "bun": ("e", "r", "", ("--eval", "--print"), ("--preload", "--cwd", "--env-file"), False),
-    "ruby": ("e", "rICFE", "", (), (), False),
-    "perl": ("eE", "IMmixl0", "", (), (), True),
+                                                    "--input-type", "--env-file", "--conditions", "--title"),
+             False, False),
+    "bun": ("ep", "r", "", ("--eval", "--print"), ("--preload", "--cwd", "--env-file"), False, False),
+    "ruby": ("e", "rICFE", "", (), (), False, True),
+    "perl": ("eE", "IMmix", "", (), (), True, True),
 }
 
 
@@ -682,7 +780,7 @@ def inline_code(argv):
     spec = INTERPRETERS.get(base)
     if not spec:
         return None
-    code_letters, value_letters, stop_letters, code_long, value_long, attached_only = spec
+    code_letters, value_letters, stop_letters, code_long, value_long, attached_only, code_attached = spec
     args = argv[1:]
     k = 0
     while k < len(args):
@@ -705,7 +803,9 @@ def inline_code(argv):
                     return None
                 if ch in code_letters:
                     rest = group[idx + 1:]
-                    return rest if rest else (args[k + 1] if k + 1 < len(args) else None)
+                    if rest and code_attached:
+                        return rest
+                    return args[k + 1] if k + 1 < len(args) else None
                 if ch in value_letters:
                     if idx == len(group) - 1 and not attached_only:
                         k += 1  # the value is the next arg
@@ -714,6 +814,37 @@ def inline_code(argv):
             continue
         return None  # a script path comes first: not inline code
     return None
+
+
+def interpreter_reads_stdin(argv):
+    """True for an interpreter run with no inline code and no script file (`python3`, `python3 -`, `node -`): it
+    runs whatever arrives on stdin."""
+    if not argv:
+        return False
+    prog = os.path.basename(argv[0])
+    base = re.sub(r"[0-9.]+$", "", prog) or prog
+    spec = INTERPRETERS.get(base)
+    if not spec or inline_code(argv) is not None:
+        return False
+    code_letters, value_letters, stop_letters, code_long, value_long, attached_only, _ = spec
+    args = argv[1:]
+    k = 0
+    while k < len(args):
+        a = args[k]
+        if a == "-":
+            return True
+        if a.startswith("--"):
+            k += 2 if a.split("=", 1)[0] in value_long and "=" not in a else 1
+            continue
+        if a.startswith("-") and len(a) > 1:
+            if any(ch in stop_letters for ch in a[1:]):
+                return False
+            if a[-1] in value_letters and not attached_only:
+                k += 1
+            k += 1
+            continue
+        return False  # a script file
+    return True
 
 
 def has_expansion(word):
