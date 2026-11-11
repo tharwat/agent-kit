@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/pack.schema.json",
   "name": "core",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "The workflow core: triage, operate, post-op, peer-review, ship and the supporting commands, rules, hooks and Claude/Codex sync. Always installed.",
   "kind": "core",
   "requires": [],
@@ -78,7 +78,10 @@
   "ci": [
     {"src": "../sync/skill-link-check.yml.tmpl", "dest": ".github/workflows/skill-link-check.yml", "template": true, "when": "github"}
   ],
-  "hooks": [],
+  "hooks": [
+    {"event": "PreToolUse", "matcher": "Bash", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-main-branch.py", "timeout": 10},
+    {"event": "PreToolUse", "matcher": "Bash", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-destructive.py", "timeout": 10}
+  ],
   "permissions": {"allow": [], "deny": []},
   "mcp": {},
   "env": [],

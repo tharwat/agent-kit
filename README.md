@@ -177,9 +177,13 @@ Installed with the kit and binding on Claude and Codex alike:
 | Hook | From | Blocks |
 |---|---|---|
 | `block-main-branch.py` | core | `git commit` on `main`, any `git push` to `main` (forced or not), `gh pr merge --admin` |
+| `block-destructive.py` | core | Deleting or discarding: `rm`, `rmdir`, `unlink`, `find -delete`, `git reset --hard`, `git clean`, `git branch -D`, force pushes, `git checkout -- <path>`, `git restore`, `git switch -f`, `git stash drop`, `git worktree remove --force`, and file deletes in `python -c` / `node -e` code. It parses the command, so `git -C x reset --hard`, `xargs rm`, `find -exec rm` and `bash -c "rm x"` are caught and `grep "rm -rf" docs/` isn't. Allowed: `git rm --cached`, `git restore --staged`, `git clean -n`, and `rm` inside the session scratch dir |
 | `typecheck` | `typescript` | Runs the type checker after each edit and hands any type errors back to the agent to fix |
 | `block_main_repo_writes.py` | `worktrees` | Writes into the main checkout from a worktree session |
 | `block-push-before-review.py` | `hardening` | Push to `main`, merges and migrations during a hardening run until its review passes |
+
+Hooks are guardrails, not a sandbox: a determined bypass (a script that deletes, an encoded command) gets past them.
+The written rules in `CLAUDE.kit.md` still bind. Codex has no hooks and relies on the written rules.
 
 `.claude/settings.json` adds a deny list for destructive commands (`rm -rf`, `rmdir`, `unlink`, `git reset --hard`,
 `git clean`, force pushes, `git branch -D`/`-f`, `git checkout --`/`.`/`-f`, `git switch -f`, `git stash drop`/`clear`,

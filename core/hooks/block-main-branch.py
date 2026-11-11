@@ -24,14 +24,17 @@ note) on any internal error.
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 
+sys.dont_write_bytecode = True  # never leave __pycache__ in .claude/hooks/
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import kit_shell
+except ImportError:  # a partial install: fail open in main()
+    kit_shell = None
+
 DEFAULT_MAIN = "main"
-SEPARATORS = {";", "&&", "||", "|", "&", "|&", ";;", "(", ")"}
-WRAPPERS = {"env", "command", "exec", "nohup", "time", "sudo", "nice"}
-SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
 PUSH_OPTS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
@@ -91,59 +94,6 @@ def current_branch(directory):
     if out.returncode != 0:
         return None
     return out.stdout.strip() or None
-
-
-# ---------------------------------------------------------------- parsing
-
-HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
-
-
-def strip_heredocs(command):
-    """Drop heredoc bodies (they are data, not commands). Keeps the `<<TAG` marker."""
-    lines = command.split("\n")
-    out = []
-    pending = []
-    for line in lines:
-        if pending:
-            if line.strip() == pending[0]:
-                pending.pop(0)
-            continue
-        out.append(line)
-        pending.extend(m.group(2) for m in HEREDOC_RE.finditer(line))
-    return "\n".join(out)
-
-
-def split_commands(command):
-    """Tokenize and split on shell operators. Quoted text stays one token."""
-    text = strip_heredocs(command).replace("\n", " ; ")
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()")
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    commands, current = [], []
-    for token in lexer:
-        if token in SEPARATORS:
-            if current:
-                commands.append(current)
-            current = []
-        else:
-            current.append(token)
-    if current:
-        commands.append(current)
-    return commands
-
-
-def strip_prefix(tokens):
-    """Remove leading VAR=value assignments and wrappers such as `env`."""
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tok):
-            i += 1
-        elif tok in WRAPPERS:
-            i += 1
-        else:
-            break
-    return tokens[i:]
 
 
 # ---------------------------------------------------------------- checks
@@ -226,25 +176,12 @@ def check_gh(args):
         raise Blocked("`gh pr merge --admin` bypasses branch protection (gate G4)")
 
 
-def check_command(command, cwd, main, depth=0):
-    directory = cwd
-    for tokens in split_commands(command):
-        tokens = strip_prefix(tokens)
-        if not tokens:
-            continue
-        prog = os.path.basename(tokens[0])
-        args = tokens[1:]
-        if prog == "cd":
-            target = args[0] if args else os.path.expanduser("~")
-            directory = os.path.join(directory, os.path.expanduser(target))
-        elif prog == "git":
-            check_git(args, directory, main)
-        elif prog == "gh":
-            check_gh(args)
-        elif prog in SHELLS and "-c" in args and depth < 3:
-            idx = args.index("-c")
-            if idx + 1 < len(args):
-                check_command(args[idx + 1], directory, main, depth + 1)
+def check_command(command, cwd, main):
+    for cmd in kit_shell.iter_commands(command, cwd):
+        if cmd.prog == "git":
+            check_git(list(cmd.args), cmd.cwd, main)
+        elif cmd.prog == "gh":
+            check_gh(list(cmd.args))
 
 
 # ---------------------------------------------------------------- entry point
@@ -253,6 +190,8 @@ def main():
     try:
         raw = sys.stdin.read()
         event = json.loads(raw)
+        if kit_shell is None:
+            raise ImportError("kit_shell.py is missing")
         if event.get("tool_name") != "Bash":
             return 0
         command = (event.get("tool_input") or {}).get("command") or ""

@@ -2,6 +2,7 @@
 """The kit's self-checks (PLAN §10): no source-project facts, no secrets, no delete instructions,
 every placeholder defined and used, the always-loaded word budget, and a kit that loads cleanly."""
 import fnmatch
+import importlib.util
 import json
 import os
 import re
@@ -185,6 +186,26 @@ class NoDeleteInstructions(unittest.TestCase):
             src = readf(os.path.join(KIT, "installer", name))
             with self.subTest(file=name):
                 self.assertIsNone(re.search(r"os\.remove|os\.unlink|\.unlink\(|rmtree|os\.rmdir|\brm\b ", src))
+
+
+def load_hook(rel, name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(KIT, rel))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class HooksEnforcePatterns(unittest.TestCase):
+    """Every rule the kit writes down has a hook rule and a blocked test case, so the two can't drift apart."""
+
+    def test_destructive_patterns_have_a_hook_rule_and_a_blocked_case(self):
+        hook = load_hook("core/hooks/block-destructive.py", "block_destructive")
+        cases = load_hook("core/hooks/test_block_destructive.py", "test_block_destructive")
+        for p in CHECKS["destructive_patterns"]:
+            with self.subTest(reason=p["reason"]):
+                self.assertIn(p["reason"], hook.RULES)
+                self.assertTrue(cases.BLOCKED.get(p["reason"]), "no blocked test case")
+        self.assertEqual(set(hook.RULES), {p["reason"] for p in CHECKS["destructive_patterns"]})
 
 
 class Placeholders(unittest.TestCase):

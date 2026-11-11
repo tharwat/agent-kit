@@ -259,6 +259,15 @@ Rules for `pack.json`:
 - Every hook ships a test: `hooks/test_<hook>.py`, stdlib `unittest`, feeding JSON on stdin and asserting the exit
   code.
 - Python 3.9+ or POSIX sh. No dependencies.
+- **Bash hooks parse, they don't grep.** A hook that inspects a Bash command imports the shared parser
+  `core/hooks/kit_shell.py` (installed beside it in `.claude/hooks/`) with `sys.dont_write_bytecode = True` set first,
+  so no `__pycache__` lands in `.claude/hooks/`. If the import fails, the hook fails open. `iter_commands()` yields
+  every simple command, including `$(…)`, backticks, `bash -c`, `eval`, `xargs` and `find -exec` payloads.
+- **Block messages teach.** Say what was blocked, which kit rule it breaks, and the allowed alternative.
+- **Core hooks** are declared in `core/pack.json` `hooks`, the same way packs declare theirs. New hook commands use
+  `python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/<x>.py` and an explicit `timeout`.
+- **A rule and its hook stay in step.** `manifest.json` `checks.destructive_patterns` reasons are the keys of
+  `block-destructive.py` `RULES`, and each has a blocked case in its test. A kit test enforces both.
 
 **Codex.** Codex reads `AGENTS.md`. Hook enforcement is Claude-only in v1. Pack commands say what Codex does instead,
 as in conventions §8.7.

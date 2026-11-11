@@ -142,6 +142,13 @@ class BlockTests(HookCase):
     def test_push_main_inside_bash_c(self):
         self.assertBlocked('bash -c "git push origin main"')
 
+    def test_push_main_inside_substitution(self):
+        self.assertBlocked('echo "$(git push origin main)"')
+
+    def test_push_main_via_xargs_and_eval(self):
+        self.assertBlocked("echo main | xargs git push origin main")
+        self.assertBlocked('eval "git push origin main"')
+
     def test_gh_pr_merge_admin(self):
         self.assertBlocked("gh pr merge 12 --squash --admin")
 

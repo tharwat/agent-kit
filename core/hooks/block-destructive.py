@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+# Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License).
+"""PreToolUse Bash hook: block destructive filesystem and git commands.
+
+The settings deny list refuses the plain prefix forms. This hook covers what a prefix rule can't see: options
+before the subcommand (`git -C x reset --hard`), combined short flags (`git push -uf`), `+refspec` force pushes,
+`find -delete`, and deletes passed as arguments (`xargs rm`, `find -exec rm`, `bash -c "rm x"`, `python3 -c` /
+`node -e` code). Commands are parsed (kit_shell.py), never matched as raw text, so `grep "rm -rf" docs/` and
+`git commit -m "drop the rm call"` are allowed.
+
+Allowed forms (owner decisions): `git rm --cached`, `git clean -n` / `--dry-run` without `-f`/`-i`,
+`git restore --staged` (index only), and `rm` whose every operand sits inside this session's scratch directory or
+`<project>/.claude/state/tmp/` (no globs or `$`; symlinks and `..` resolved first; never the scratch root itself).
+
+Each rule's key is the `reason` of a `manifest.json` `checks.destructive_patterns` entry; a kit test keeps them in
+step. Blocks with exit 2 and the reason on stderr; fails open (exit 0, one stderr line) on internal errors.
+Reads no files, makes no network calls, writes nothing.
+"""
+
+import json
+import os
+import re
+import sys
+import tempfile
+
+sys.dont_write_bytecode = True  # never leave __pycache__ in .claude/hooks/
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import kit_shell
+except ImportError:  # a partial install: fail open in main()
+    kit_shell = None
+
+# reason (manifest destructive_patterns) -> what the hook blocks
+RULES = {
+    "rm": "rm, and git rm without --cached",
+    "rmdir": "rmdir",
+    "find -delete": "find -delete",
+    "unlink": "unlink",
+    "programmatic delete": "file deletes in python -c / node -e / ruby -e / perl -e code",
+    "git reset --hard": "git reset --hard",
+    "git clean": "git clean, unless -n/--dry-run without -f/-i",
+    "git branch -D": "git branch -D / --delete --force",
+    "force push": "git push --force / -f / --force-with-lease / +refspec",
+    "git checkout -- <path> discards changes": "git checkout -- <path>, <rev> <path>, ., -f/--force",
+    "git stash drop/clear": "git stash drop / clear",
+    "git restore": "git restore that touches the working tree (only --staged alone is allowed)",
+    "git switch -f": "git switch -f / --force / --discard-changes",
+    "git worktree remove --force": "git worktree remove --force / -f",
+}
+
+GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env",
+                       "--super-prefix", "--list-cmds"}
+PROGRAMMATIC_RE = re.compile(
+    r"\bos\.(remove|unlink|rmdir|removedirs)\b|\brmtree\b|\.unlink\s*\(|\.rmdir\s*\("
+    r"|\b(rmSync|rmdirSync|unlinkSync)\b|\bfs(\.promises)?\.(rm|rmdir|unlink)\b|\bfsPromises\.(rm|unlink)\b"
+    r"|\bFileUtils\.(rm|rm_r|rm_rf|remove|remove_dir|remove_entry)\b|\bFile\.(delete|unlink)\b|\bDir\.(delete|rmdir)\b"
+    r"|\bunlink\b|\bremove_tree\b|\brmdir\b"
+    r"|[\"'`]rm\s+-|[\"']rm[\"']"  # shelling out to rm from inside the code
+)
+
+
+class Blocked(Exception):
+    def __init__(self, reason, argv):
+        super().__init__(reason)
+        self.reason = reason
+        self.argv = argv
+
+
+# ---------------------------------------------------------------- helpers
+
+def short_flags(args, value_chars=""):
+    """Letters set in single-dash flag groups (`-uf` -> {u, f}). A letter in value_chars takes the rest of its group
+    (or the next arg) as its value, so `-cfix` is `-c fix`, not `-c -f -i -x`."""
+    out = set()
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a == "--":
+            break
+        if not a.startswith("-") or a.startswith("--") or a == "-":
+            continue
+        group = a[1:]
+        for k, ch in enumerate(group):
+            out.add(ch)
+            if ch in value_chars:
+                if k == len(group) - 1:
+                    skip = True
+                break
+    return out
+
+
+def long_flags(args):
+    out = set()
+    for a in args:
+        if a == "--":
+            break
+        if a.startswith("--"):
+            out.add(a.split("=", 1)[0])
+    return out
+
+
+def positionals(args, value_opts=()):
+    """Non-option args (everything after `--` counts too)."""
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        if a == "--":
+            out.extend(args[k + 1:])
+            break
+        if a.startswith("-") and a != "-":
+            if a.split("=", 1)[0] in value_opts and "=" not in a:
+                k += 1
+        else:
+            out.append(a)
+        k += 1
+    return out
+
+
+def excerpt(argv, limit=80):
+    text = " ".join(str(a) for a in argv)
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+# ---------------------------------------------------------------- scratch-dir exception
+
+def temp_roots():
+    roots = {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}
+    if sys.platform == "darwin":
+        roots.add("/private/tmp")
+    if os.environ.get("TMPDIR"):
+        roots.add(os.path.realpath(os.environ["TMPDIR"]))
+    return {r.rstrip(os.sep) for r in roots if r}
+
+
+def inside(path, root):
+    return path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def scratch_ok(word, cwd, ctx):
+    """True when this operand may be removed: a plain path strictly inside an allowed scratch directory."""
+    if kit_shell.has_expansion(word) or not str(word):
+        return False
+    path = os.path.realpath(os.path.join(cwd, str(word)))
+    state_tmp = ctx.get("state_tmp")
+    if state_tmp and inside(path, state_tmp):
+        return True
+    session = ctx.get("session_id")
+    if session and re.match(r"^[A-Za-z0-9._-]+$", session):
+        marker = os.sep + session + os.sep + "scratchpad"
+        idx = path.find(marker + os.sep)
+        if idx >= 0:
+            root = path[:idx + len(marker)]
+            if any(inside(root, t) for t in temp_roots()) and inside(path, root):
+                return True
+    return False
+
+
+# ---------------------------------------------------------------- checks
+
+def check_rm(cmd, ctx):
+    args = list(cmd.args)
+    if long_flags(args) & {"--help", "--version"}:
+        return
+    operands = positionals(args)
+    if not operands:  # `xargs rm` and friends supply the operands
+        raise Blocked("rm", cmd.argv)
+    if all(scratch_ok(w, cmd.cwd, ctx) for w in operands):
+        return
+    raise Blocked("rm", cmd.argv)
+
+
+FIND_VALUE_PREDICATES = {"-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-regex", "-iregex",
+                         "-lname", "-ilname", "-type", "-xtype", "-user", "-group", "-uid", "-gid", "-perm", "-size",
+                         "-newer", "-anewer", "-cnewer", "-mtime", "-atime", "-ctime", "-mmin", "-amin", "-cmin",
+                         "-maxdepth", "-mindepth", "-printf", "-fprint", "-fprint0", "-fprintf", "-fls", "-inum",
+                         "-links", "-samefile", "-used", "-fstype", "-context", "-regextype", "-D", "-O"}
+
+
+def check_find(cmd):
+    args = list(cmd.args)
+    k = 0
+    while k < len(args):
+        a = args[k]
+        if a == "-delete":
+            raise Blocked("find -delete", cmd.argv)
+        if a in kit_shell.EXEC_FLAGS:
+            while k < len(args) and args[k] not in (";", "+"):
+                k += 1
+        elif a in FIND_VALUE_PREDICATES:
+            k += 1
+        k += 1
+
+
+def check_git(cmd):
+    args = list(cmd.args)
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if not a.startswith("-"):
+            break
+        if a.split("=", 1)[0] in GIT_OPTS_WITH_VALUE and "=" not in a:
+            i += 2
+        else:
+            i += 1
+    if i >= len(args):
+        return
+    sub, rest = args[i], args[i + 1:]
+    shorts, longs = short_flags(rest), long_flags(rest)
+    argv = cmd.argv
+
+    if sub == "reset":
+        if "--hard" in longs:
+            raise Blocked("git reset --hard", argv)
+    elif sub == "clean":
+        dry = "n" in short_flags(rest, "eX") or "--dry-run" in longs
+        forced = bool(short_flags(rest, "e") & {"f", "i"}) or longs & {"--force", "--interactive"}
+        if not dry or forced:
+            raise Blocked("git clean", argv)
+    elif sub == "branch":
+        if "D" in shorts or (("d" in shorts or "--delete" in longs) and ("f" in shorts or "--force" in longs)):
+            raise Blocked("git branch -D", argv)
+    elif sub == "push":
+        flags = short_flags(rest, "o")
+        if "f" in flags or longs & {"--force", "--force-with-lease"}:
+            raise Blocked("force push", argv)
+        pos = positionals(rest, ("-o", "--push-option", "--repo", "--receive-pack", "--exec"))
+        if any(p.startswith("+") for p in pos[1:]):
+            raise Blocked("force push", argv)
+    elif sub == "checkout":
+        flags = short_flags(rest, "bBt")
+        if "f" in flags or "--force" in longs or "--pathspec-from-file" in longs:
+            raise Blocked("git checkout -- <path> discards changes", argv)
+        if "--" in rest and rest.index("--") < len(rest) - 1:
+            raise Blocked("git checkout -- <path> discards changes", argv)
+        pos = positionals(rest, ("-b", "-B", "--orphan", "-t", "--track", "--conflict"))
+        creating = bool(short_flags(rest, "bB") & {"b", "B"}) or "--orphan" in longs
+        if any(p == "." or p.startswith("./") or p.startswith("../") or p == ".." or p.startswith(":/")
+               for p in pos):
+            raise Blocked("git checkout -- <path> discards changes", argv)
+        if len(pos) > 1 and not creating:  # `git checkout <rev> <path>…` overwrites those files
+            raise Blocked("git checkout -- <path> discards changes", argv)
+    elif sub == "stash":
+        if rest and rest[0] in ("drop", "clear"):
+            raise Blocked("git stash drop/clear", argv)
+    elif sub == "restore":
+        flags = short_flags(rest, "s")
+        staged = "S" in flags or "--staged" in longs
+        worktree = "W" in flags or "--worktree" in longs
+        if worktree or not staged:
+            raise Blocked("git restore", argv)
+    elif sub == "switch":
+        flags = short_flags(rest, "cCt")
+        if "f" in flags or longs & {"--force", "--discard-changes"}:
+            raise Blocked("git switch -f", argv)
+    elif sub == "worktree":
+        if rest and rest[0] == "remove":
+            if "f" in short_flags(rest[1:]) or "--force" in long_flags(rest[1:]):
+                raise Blocked("git worktree remove --force", argv)
+    elif sub == "rm":
+        if "--cached" not in longs:
+            raise Blocked("rm", argv)
+
+
+def check_command(command, cwd, ctx):
+    for cmd in kit_shell.iter_commands(command, cwd):
+        prog = cmd.prog
+        if prog == "rm":
+            check_rm(cmd, ctx)
+        elif prog == "rmdir":
+            raise Blocked("rmdir", cmd.argv)
+        elif prog == "unlink":
+            raise Blocked("unlink", cmd.argv)
+        elif prog == "find":
+            check_find(cmd)
+        elif prog == "git":
+            check_git(cmd)
+        else:
+            code = kit_shell.inline_code(cmd.argv)
+            if code and PROGRAMMATIC_RE.search(code):
+                raise Blocked("programmatic delete", cmd.argv)
+
+
+def project_dir(cwd):
+    return os.environ.get("CLAUDE_PROJECT_DIR") or cwd
+
+
+# ---------------------------------------------------------------- entry point
+
+def main():
+    try:
+        event = json.loads(sys.stdin.read())
+        if kit_shell is None:
+            raise ImportError("kit_shell.py is missing")
+        if event.get("tool_name") != "Bash":
+            return 0
+        command = (event.get("tool_input") or {}).get("command") or ""
+        if not command.strip():
+            return 0
+        cwd = event.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+        ctx = {
+            "session_id": event.get("session_id") or "",
+            "state_tmp": os.path.realpath(os.path.join(project_dir(cwd), ".claude", "state", "tmp")),
+        }
+        check_command(command, cwd, ctx)
+        return 0
+    except Blocked as exc:
+        sys.stderr.write(
+            "Blocked by the destructive-command guard: %s (%s). agent-kit forbids deleting or discarding. Rename to "
+            "<file>.pre-agent-kit, git stash, use a disposable worktree, or list the files for the owner to remove.\n"
+            % (exc.reason, excerpt(exc.argv))
+        )
+        return 2
+    except Exception as exc:  # fail open on anything unexpected
+        sys.stderr.write("block-destructive: could not check the command (%s); allowing it.\n" % type(exc).__name__)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
