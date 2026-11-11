@@ -106,49 +106,6 @@ def check_push(args, directory, main, branch_of=None):
             raise Blocked("`git push` targets `%s`" % main)
 
 
-def ref_exists(directory, ref):
-    try:
-        out = subprocess.run(["git", "-C", directory, "show-ref", "--verify", "--quiet", ref],
-                             capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return out.returncode == 0
-
-
-def switched_to(sub, rest, directory, main=None):
-    """The branch a `git checkout` / `git switch` in this command moves to: a name, "" for detached, or None when it
-    doesn't switch branches (or we can't tell)."""
-    def value_of(names):
-        for k, a in enumerate(rest):
-            for n in names:
-                if a == n and k + 1 < len(rest):
-                    return rest[k + 1]
-                if n.startswith("--") and a.startswith(n + "="):
-                    return a.split("=", 1)[1]
-                if not n.startswith("--") and a.startswith(n) and len(a) > len(n):
-                    return a[len(n):]
-        return None
-
-    if "--detach" in rest or (sub == "switch" and "-d" in rest):
-        return ""
-    created = value_of(("-b", "-B", "--orphan") if sub == "checkout" else
-                       ("-c", "-C", "--create", "--force-create", "--orphan"))
-    if created:
-        return created
-    if "--" in rest:
-        return None
-    pos = [a for a in rest if not a.startswith("-")]
-    if len(pos) != 1:
-        return None
-    name = pos[0]
-    if sub == "switch" or name == main:
-        return name
-    # `git checkout <name>`: a branch only if one exists by that name (else it may be a path)
-    if ref_exists(directory, "refs/heads/" + name) or ref_exists(directory, "refs/remotes/origin/" + name):
-        return name
-    return None
-
-
 def check_git(args, directory, main, branches=None):
     """`branches` maps a directory to the branch an earlier command in this same tool call switched it to."""
     branches = {} if branches is None else branches
@@ -166,7 +123,7 @@ def check_git(args, directory, main, branches=None):
     elif sub == "push":
         check_push(rest, directory, main, branch_of)
     elif sub in ("checkout", "switch"):
-        target = switched_to(sub, rest, directory, main)
+        target = kit_facts.switched_to(sub, rest, directory, main)
         if target is not None:
             branches[os.path.normpath(directory)] = target or None
 

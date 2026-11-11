@@ -32,12 +32,13 @@ except ImportError:  # a partial install: fail open in main()
 AI = r"(claude|claude code|codex|chatgpt|gpt-?[0-9][\w.]*|copilot|gemini|anthropic|openai)"
 ATTRIBUTION = [
     (re.compile(r"^\s*co-authored-by\s*:", re.I | re.M), "a `Co-Authored-By:` trailer"),
-    (re.compile(r"^\W*generated with\b.*\b%s\b" % AI, re.I | re.M), "a \"Generated with\" line"),
+    (re.compile(r"^[\W_]*generated with\W*\[?\s*%s\b" % AI, re.I | re.M), "a \"Generated with\" line"),
     (re.compile(r"^.*🤖.*\b(claude|generated)\b", re.I | re.M), "a 🤖 Claude Code line"),
 ]
 STDIN_PATHS = {"-", "/dev/stdin", "/dev/fd/0"}
 MAX_FILE = 256 * 1024
-SUBST_RE = re.compile(r"\$\(\s*cat\s+<<-?\s*__kit_heredoc_(\d+)__\s*\)")
+SUBST_RE = re.compile(r"[$<]\(\s*cat\s+<<-?\s*__kit_heredoc_(\d+)__\s*\)")  # $(cat <<EOF …) and <(cat <<EOF …)
+WRITE_OPS = (">", ">|", "1>", "&>")
 # `git commit` options that take a value, short (letters) and long
 COMMIT_SHORT_VALUE = "mFCct"
 COMMIT_LONG_VALUE = {"--message", "--file", "--reuse-message", "--reedit-message", "--template", "--trailer",
@@ -56,7 +57,10 @@ class Text:
         self.known = known
 
 
-def read_file(path, cwd):
+def read_file(path, cwd, written=None):
+    full = os.path.normpath(os.path.join(cwd, path))
+    if written is not None and full in written:
+        return written[full]  # written earlier in this same command: use what it writes, not what's on disk
     try:
         with open(os.path.join(cwd, path), encoding="utf-8", errors="replace") as fh:
             return Text(fh.read(MAX_FILE))
@@ -74,14 +78,21 @@ def stdin_text(cmd):
 def expand(value, registry):
     """A value with each `$(cat <<'EOF' … EOF)` replaced by that heredoc's body. Any other substitution leaves the
     text unknown."""
+    unknown = []
+
     def body(m):
         n = int(m.group(1))
-        return registry[n][1] if n < len(registry) else m.group(0)
+        if n >= len(registry):
+            return m.group(0)
+        _tag, text, quoted = registry[n]
+        if not quoted and ("$" in text or "`" in text):
+            unknown.append(n)  # bash expands an unquoted heredoc
+        return text
     text = SUBST_RE.sub(body, str(value))
     # known only when the shell won't change it: no expansion outside single quotes, other than the heredoc cats
     raw = SUBST_RE.sub("", getattr(value, "raw", str(value)))
     raw = re.sub(r"'[^']*'", "", raw)
-    known = "$" not in raw and "`" not in raw
+    known = "$" not in raw and "`" not in raw and not unknown
     return Text(text, known)
 
 
@@ -128,7 +139,7 @@ def check_attribution(text, what):
                           "it" % (label, what))
 
 
-def check_commit(cmd, rest, cwd, registry, facts):
+def check_commit(cmd, rest, cwd, registry, facts, tracker, written):
     opts = parse_options(rest, COMMIT_SHORT_VALUE, COMMIT_LONG_VALUE)
     names = {n for n, _ in opts}
     if names & {"-h", "--help"}:
@@ -136,7 +147,12 @@ def check_commit(cmd, rest, cwd, registry, facts):
     parts = [expand(v, registry) for n, v in opts if n in ("-m", "--message") and v is not None]
     for n, v in opts:
         if n in ("-F", "--file") and v is not None:
-            parts.append(stdin_text(cmd) if str(v) in STDIN_PATHS else read_file(str(v), cwd))
+            if str(v) in STDIN_PATHS:
+                parts.append(stdin_text(cmd))
+            elif SUBST_RE.search(str(v)):  # -F <(cat <<'EOF' … EOF)
+                parts.append(expand(v, registry))
+            else:
+                parts.append(read_file(str(v), cwd, written))
     for n, v in opts:
         if n == "--trailer" and v is not None:
             check_attribution(re.sub(r"\s*[=:]\s*", ": ", str(v), count=1), "commit trailer")
@@ -146,7 +162,7 @@ def check_commit(cmd, rest, cwd, registry, facts):
     check_attribution(message, "commit message")
     if not all(p.known for p in parts) or names & {"--fixup", "--squash"} or not cmd.cwd_known:
         return  # we can't see the whole message or the repo, or git writes the subject itself
-    ticket = kit_facts.ticket_for_branch(kit_facts.current_branch(cwd), facts)
+    ticket = kit_facts.ticket_for_branch(tracker.branch_of(cwd), facts)
     if not ticket:
         return
     subject = message.lstrip("\n").split("\n", 1)[0]
@@ -155,8 +171,15 @@ def check_commit(cmd, rest, cwd, registry, facts):
                       "workflow: `<ticket>: <what changed>`)" % (ticket, ticket))
 
 
-def check_gh(cmd, registry):
+def check_gh(cmd, registry, written):
     args = list(cmd.args)
+    if args and args[0] == "api":  # gh api …/comments -f body='…'
+        for n, v in parse_options(args[1:], "fF", {"--field", "--raw-field"}):
+            if n in ("-f", "-F", "--field", "--raw-field") and v is not None and "=" in str(v):
+                key, val = str(v).split("=", 1)
+                if key in ("body", "title", "message", "subject"):
+                    check_attribution(expand(val, registry).text, "gh api text")
+        return
     if len(args) < 2 or args[0] not in ("pr", "issue"):
         return
     if args[1] not in ("create", "edit", "comment", "review") and not (args[0] == "pr" and args[1] == "merge"):
@@ -173,22 +196,36 @@ def check_gh(cmd, registry):
         if n in ("-t", "--title", "--subject", "-b", "--body"):
             check_attribution(expand(v, registry).text, what)
         elif n in ("-F", "--body-file"):
-            check_attribution((stdin_text(cmd) if str(v) in STDIN_PATHS else read_file(str(v), cmd.cwd)).text, what)
+            text = (stdin_text(cmd) if str(v) in STDIN_PATHS else expand(v, registry) if SUBST_RE.search(str(v))
+                    else read_file(str(v), cmd.cwd, written))
+            check_attribution(text.text, what)
 
 
 def check_command(command, cwd):
     registry = []
     cmds = kit_shell.iter_commands(command, cwd, registry)
-    facts = None
+    facts = kit_facts.read_facts(cwd)
+    tracker = kit_facts.BranchTracker(kit_facts.fact(facts, "MAIN_BRANCH", "main"))
+    written = {}  # files this command writes before a later step reads them: path -> Text
     for cmd in cmds:
         if cmd.prog == "git":
             sub, rest, git_cwd = kit_shell.git_split(list(cmd.args), cmd.cwd)
             if sub == "commit":
-                if facts is None:
-                    facts = kit_facts.read_facts(cwd)
-                check_commit(cmd, rest, git_cwd, registry, facts)
+                check_commit(cmd, rest, git_cwd, registry, facts, tracker, written)
+            else:
+                tracker.saw(sub, rest, git_cwd)
         elif cmd.prog == "gh":
-            check_gh(cmd, registry)
+            check_gh(cmd, registry, written)
+        for op, target in cmd.redirects:
+            if op in WRITE_OPS or op == ">>":
+                full = os.path.normpath(os.path.join(cmd.cwd, str(target)))
+                if cmd.prog == "cat" and cmd.stdin and op != ">>":
+                    written[full] = stdin_text(cmd)
+                else:
+                    written[full] = Text("", known=False)
+        if cmd.prog == "tee":
+            for f in [a for a in cmd.args if not str(a).startswith("-")]:
+                written[os.path.normpath(os.path.join(cmd.cwd, str(f)))] = Text("", known=False)
 
 
 def main():

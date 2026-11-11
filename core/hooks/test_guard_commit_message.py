@@ -235,6 +235,42 @@ class ReviewRound2(HookCase):
         self.assertAllowed('gh pr comment 3 --body "🤖 bot: regenerated snapshots"', self.plain)
 
 
+class ReviewRound3(HookCase):
+    def test_branch_switch_in_the_same_command(self):
+        self.assertAllowed("git switch -c feature/abc-13-next && git add -A && git commit -m 'ABC-13: start'",
+                           self.ticket)
+        self.assertAllowed("git checkout -b chore/tidy && git commit -m 'chore: tidy'", self.ticket)
+        self.assertBlocked("git checkout -b feature/abc-14-x && git commit -m 'fix'", self.plain, "ABC-14: ")
+
+    def test_file_written_earlier_in_the_command(self):
+        self.assertBlocked("cat > pr.md <<'EOF'\n%s\nEOF\ngh pr create --title x --body-file pr.md" % GENERATED,
+                           self.ticket, "AI attribution")
+        with open(os.path.join(self.ticket, "old.md"), "w", encoding="utf-8") as fh:
+            fh.write(GENERATED + "\n")
+        self.assertAllowed("cat > old.md <<'EOF'\nclean body\nEOF\ngh pr create --title x --body-file old.md",
+                           self.ticket)
+        self.assertAllowed("cat > m.txt <<'EOF'\nABC-12: x\nEOF\ngit commit -F m.txt", self.ticket)
+
+    def test_openai_spec_codegen_note(self):
+        self.assertAllowed("git commit -m 'ABC-12: add client' -m '- Generated with openapi-typescript from the "
+                           "OpenAI spec'", self.ticket)
+
+    def test_unquoted_heredoc_with_a_variable(self):
+        self.assertAllowed("T=ABC-12; git commit -m \"$(cat <<EOF\n$T: fix nav\nEOF\n)\"", self.ticket)
+
+    def test_gh_api_fields(self):
+        self.assertBlocked("gh api repos/o/r/issues/1/comments -f body='ok\n\n%s'" % GENERATED, self.plain)
+        self.assertAllowed("gh api repos/o/r/issues/1/comments -f body='looks good'", self.plain)
+
+    def test_process_substitution_message_file(self):
+        self.assertBlocked("git commit -F <(cat <<'EOF'\nABC-12: x\n\n%s\nEOF\n)" % TRAILER, self.ticket,
+                           "AI attribution")
+
+    def test_markdown_italic_attribution(self):
+        self.assertBlocked('gh pr create -t x -b "_Generated with [Claude Code](https://claude.com/claude-code)_"',
+                           self.plain)
+
+
 class OtherPrefixes(HookCase):
     prefix, branch_prefix = "OPS", "none"
 
@@ -255,6 +291,17 @@ class Facts(unittest.TestCase):
         self.assertIsNone(kit_facts.ticket_for_branch("feature/abc-1-x", {"TICKET_PREFIX": "{{TICKET_PREFIX}}"}))
         self.assertEqual(kit_facts.ticket_for_branch("abc-1-x", {"TICKET_PREFIX": "ABC", "BRANCH_PREFIX": "none"}),
                          "ABC-1")
+
+    def test_row_without_leading_pipe(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                fh.write("Fact | Value\n---|---\nMAIN_BRANCH | trunk | the branch\n")
+            env = os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            try:
+                self.assertEqual(kit_facts.read_facts(d)["MAIN_BRANCH"], "trunk")
+            finally:
+                if env is not None:
+                    os.environ["CLAUDE_PROJECT_DIR"] = env
 
     def test_read_facts(self):
         with tempfile.TemporaryDirectory() as d:
