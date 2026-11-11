@@ -45,9 +45,9 @@ try:
 except ImportError:
     kit_facts = None
 
-KINDS = ("triage", "operate", "post-op", "handoff")
-NUDGED = "nudged"  # kept in step with kit_facts.NUDGED
-STALE_SECONDS = 24 * 3600
+KINDS = kit_facts.RECORD_KINDS if kit_facts else ("triage", "operate", "post-op", "handoff")
+NUDGED = kit_facts.NUDGED if kit_facts else "nudged"
+STALE_SECONDS = kit_facts.STALE_SECONDS if kit_facts else 24 * 3600
 TICKET_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*-[0-9]+$")
 TRIAGE_HEADER = ("| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | "
                  "Independent vector | Discharge |")
@@ -86,17 +86,9 @@ def ticket_from_branch(project):
 
 def ticket_dir(project, ticket):
     """`.claude/state/<ticket>/`, matching an existing dir whatever its case (`abc-12/` for `ABC-12`)."""
-    base = state_dir(project)
-    exact = os.path.join(base, ticket)
-    if os.path.isdir(exact):
-        return exact
-    try:
-        for name in os.listdir(base):
-            if name.upper() == ticket.upper() and os.path.isdir(os.path.join(base, name)):
-                return os.path.join(base, name)
-    except OSError:
-        pass
-    return exact
+    if kit_facts is not None:
+        return kit_facts.ticket_dir(state_dir(project), ticket)
+    return os.path.join(state_dir(project), ticket)
 
 
 def marker_dir(project, kind, ticket):
@@ -129,7 +121,19 @@ def read_started(marker):
     return read_marker(marker)[0]
 
 
-def problems(project, kind, ticket, started=None):
+def fingerprints_at_start(marker):
+    """The count of `Fingerprint:` lines self-review.md had when /operate started (`fp=<n>` in the marker)."""
+    try:
+        with open(marker, encoding="utf-8") as fh:
+            for word in fh.read().split():
+                if word.startswith("fp="):
+                    return int(word[3:])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def problems(project, kind, ticket, started=None, fp_before=None):
     """What's missing from the record, as a list of short reasons. Empty means complete."""
     path = record_path(project, kind, ticket)
     shown = rel(project, path)
@@ -148,7 +152,9 @@ def problems(project, kind, ticket, started=None):
             out.append("%s has a contract table with no `| C1 |` row" % shown)
     elif kind == "operate":
         lines = FINGERPRINT_LINE_RE.findall(text)
-        if not lines or not OPERATE_RE.match(lines[-1].strip()):  # the last Fingerprint: line is the record
+        if fp_before is not None and len(lines) <= fp_before:
+            out.append("%s has no new Self-review block since this /operate started" % shown)
+        elif not lines or not OPERATE_RE.match(lines[-1].strip()):  # the last Fingerprint: line is the record
             out.append("%s: its last `Fingerprint:` line isn't `Fingerprint: <64-hex>` (take it with node "
                        ".claude/scripts/kit-tools.mjs fingerprint)" % shown)
     elif kind == "post-op":
@@ -160,7 +166,8 @@ def problems(project, kind, ticket, started=None):
         if not results or not POSTOP_RESULT_RE.match(results[-1].strip()):
             out.append("%s: its last `Result:` line isn't `Result: clean`, `capped` or `escalate`" % shown)
     elif kind == "handoff":
-        if "## Git state" not in text or not HANDOFF_BRANCH_RE.search(text):
+        section = text.split("## Git state", 1)[1].split("\n## ", 1)[0] if "## Git state" in text else ""
+        if not HANDOFF_BRANCH_RE.search(section):
             out.append("%s has no `## Git state` section with a `Branch:` line" % shown)
     return out
 
@@ -180,8 +187,18 @@ def rename(src, dst):
 def cmd_start(project, kind, ticket):
     d = marker_dir(project, kind, ticket)
     os.makedirs(d, exist_ok=True)
-    with open(os.path.join(d, ".started-" + kind), "w", encoding="utf-8") as fh:
-        fh.write("%f\n" % time.time())
+    marker = os.path.join(d, ".started-" + kind)
+    if os.path.exists(marker):  # an earlier run never finished: keep its marker, under its own name
+        rename(marker, os.path.join(d, ".abandoned-" + kind))
+    extra = ""
+    if kind == "operate":  # remember how many Self-review blocks exist, so the check needs a new one
+        try:
+            with open(record_path(project, kind, ticket), encoding="utf-8", errors="replace") as fh:
+                extra = " fp=%d" % len(FINGERPRINT_LINE_RE.findall(fh.read()))
+        except OSError:
+            extra = " fp=0"
+    with open(marker, "w", encoding="utf-8") as fh:
+        fh.write("%f%s\n" % (time.time(), extra))
     print("check-record: /%s started%s." % (kind, "" if kind == "handoff" else " for " + ticket))
     return 0
 
@@ -197,7 +214,8 @@ def cmd_cancel(project, kind, ticket):
 def cmd_check(project, kind, ticket):
     marker = os.path.join(marker_dir(project, kind, ticket), ".started-" + kind)
     started = read_started(marker) if os.path.exists(marker) else None
-    found = problems(project, kind, ticket, started)
+    found = problems(project, kind, ticket, started,
+                     fingerprints_at_start(marker) if os.path.exists(marker) else None)
     if found:
         print("check-record: the /%s record is incomplete:" % kind)
         for p in found:
@@ -230,7 +248,7 @@ def cmd_stop(event):
         started, nudged = read_marker(marker)
         if started is None:
             continue
-        found = problems(project, kind, ticket, started)
+        found = problems(project, kind, ticket, started, fingerprints_at_start(marker))
         if not found:
             rename(marker, os.path.join(os.path.dirname(marker), ".checked-" + kind))
             continue
@@ -245,7 +263,7 @@ def cmd_stop(event):
                 fh.write(" %s\n" % NUDGED)
             os.utime(marker, (st.st_atime, st.st_mtime))  # keep the start time for the 24 h close
         except OSError:
-            pass
+            continue  # can't record the nudge, so don't send it: it could never stop repeating
         suffix = "" if ticket is None else " --ticket " + ticket
         messages.append(
             "/%s%s started but its record is incomplete: %s. If the command is finished, complete the record and "

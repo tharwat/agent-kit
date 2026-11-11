@@ -71,10 +71,12 @@ def project_root(cwd=None):
     $CLAUDE_PROJECT_DIR, else cwd."""
     cwd = cwd or os.getcwd()
     try:
-        out = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                             timeout=5)
-        if out.returncode == 0 and out.stdout.strip():
-            return out.stdout.strip()
+        # inside a submodule, the project is the superproject; otherwise the checkout's own top level
+        out = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-superproject-working-tree", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=5)
+        lines = [l for l in out.stdout.split("\n") if l.strip()]
+        if out.returncode == 0 and lines:
+            return lines[0].strip()
     except (OSError, subprocess.SubprocessError):
         pass
     return os.environ.get("CLAUDE_PROJECT_DIR") or cwd
@@ -196,8 +198,9 @@ def open_markers(state, prefix=".started-"):
     top, the others one level down in their ticket's dir."""
     out = []
     try:
-        paths = sorted(glob.glob(os.path.join(state, prefix + "*")) +
-                       glob.glob(os.path.join(state, "*", prefix + "*")))
+        safe = glob.escape(state)  # a project path may hold [ ] * ?
+        paths = sorted(glob.glob(os.path.join(safe, prefix + "*")) +
+                       glob.glob(os.path.join(safe, "*", prefix + "*")))
     except OSError:
         return out
     for path in paths:
@@ -210,6 +213,20 @@ def open_markers(state, prefix=".started-"):
             continue
         out.append((kind, ticket, path))
     return out
+
+
+def ticket_dir(state, ticket):
+    """`<state>/<ticket>/`, matching an existing dir whatever its case (`abc-12/` for `ABC-12`)."""
+    exact = os.path.join(state, ticket)
+    if os.path.isdir(exact):
+        return exact
+    try:
+        for name in os.listdir(state):
+            if name.upper() == ticket.upper() and os.path.isdir(os.path.join(state, name)):
+                return os.path.join(state, name)
+    except OSError:
+        pass
+    return exact
 
 
 def state_dirs(cwd=None):

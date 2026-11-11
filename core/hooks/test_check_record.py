@@ -252,6 +252,44 @@ class ReviewRound2(Case):
         self.assertEqual((r.returncode, r.stderr), (0, ""))
 
 
+class ReviewRound3(Case):
+    def test_project_path_with_glob_characters(self):
+        odd = os.path.join(self.project, "p [x]")
+        os.makedirs(odd)
+        self.project = odd
+        self.start("triage")
+        self.assertEqual(self.stop().returncode, 2)
+
+    def test_operate_needs_a_new_block(self):
+        self.write(PATHS["operate"], GOOD["operate"])
+        self.start("operate")
+        time.sleep(0.01)
+        with open(os.path.join(self.project, PATHS["operate"]), "a", encoding="utf-8") as fh:
+            fh.write("a partial note\n")
+        r = self.check("operate")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no new Self-review block", r.stdout)
+        with open(os.path.join(self.project, PATHS["operate"]), "a", encoding="utf-8") as fh:
+            fh.write("Self-review: ABC-12\nFingerprint: %s\n" % ("cd" * 32))
+        self.assertEqual(self.check("operate").returncode, 0)
+
+    def test_restart_keeps_the_earlier_marker(self):
+        self.start("triage")
+        self.start("triage")
+        d = os.path.dirname(self.marker("triage", "started"))
+        self.assertTrue(any(f.startswith(".abandoned-triage") for f in os.listdir(d)))
+
+    def test_handoff_branch_line_must_be_in_git_state(self):
+        self.write(PATHS["handoff"], "# Handoff\n\n## Git state\n\n## Pick up here\nBranch: x\n")
+        self.assertEqual(self.check("handoff").returncode, 1)
+
+    def test_unwritable_marker_is_not_nudged(self):
+        marker = self.start("post-op")
+        os.chmod(marker, 0o444)
+        self.addCleanup(os.chmod, marker, 0o644)
+        self.assertEqual(self.stop().returncode, 0)
+
+
 class TicketFromBranch(Case):
     def test_branch_names_the_ticket(self):
         with open(os.path.join(self.project, "CLAUDE.md"), "w", encoding="utf-8") as fh:

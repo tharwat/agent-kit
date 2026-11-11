@@ -96,17 +96,17 @@ def lines_for(project, source):
         out.append("- You are on %s: start a ticket branch before changing code." % main)
 
     state = os.path.join(project, ".claude", "state")
-    if ticket and os.path.isdir(os.path.join(state, ticket)):
-        d = os.path.join(state, ticket)
+    if ticket and os.path.isdir(kit_facts.ticket_dir(state, ticket)):
+        d = kit_facts.ticket_dir(state, ticket)
         have = []
         for name in ("triage.md", "self-review.md"):
             if os.path.isfile(os.path.join(d, name)):
                 have.append(name)
         if os.path.isfile(os.path.join(d, "post-op.md")):
             have.append("post-op.md (Result: %s)" % post_op_result(os.path.join(d, "post-op.md")))
-        out.append("- Records in .claude/state/%s/: %s" % (ticket, ", ".join(have) or "none yet"))
+        out.append("- Records in .claude/state/%s/: %s" % (os.path.basename(d), ", ".join(have) or "none yet"))
         if "triage.md" in have:
-            out.append("- Read `.claude/state/%s/triage.md` (the contract) before continuing." % ticket)
+            out.append("- Read `.claude/state/%s/triage.md` (the contract) before continuing." % os.path.basename(d))
 
     handoff = os.path.join(project, ".claude", "handoffs", "latest.md")
     if os.path.isfile(handoff):

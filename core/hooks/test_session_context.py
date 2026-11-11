@@ -138,6 +138,11 @@ class Context(Case):
         self.assertNotIn("/foo", out)
         self.assertIn("1 run(s) were left unfinished", out)
 
+    def test_lower_case_ticket_dir(self):
+        self.repo()
+        self.write(".claude/state/abc-12/triage.md", "x")
+        self.assertIn("Read `.claude/state/abc-12/triage.md`", self.run_hook())
+
     def test_bad_input_never_blocks(self):
         self.repo()
         self.run_hook(raw="{nope")
