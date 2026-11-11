@@ -229,5 +229,32 @@ class RecordsAndContext(Base):
         self.assertIn(("startup|resume|compact", self.START), start)
 
 
+
+class PackGuardrails(Base):
+    NOTIFY = 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/notify-waiting.py'
+    AUDIT = ["Bash(npm audit *)", "Bash(pnpm audit *)", "Bash(yarn audit *)", "Bash(yarn npm audit *)"]
+
+    def test_notify_hook_only_with_its_pack(self):
+        self.apply(self.answers())
+        settings = load_json(self.t(".claude/settings.json"))
+        self.assertNotIn((("permission_prompt|idle_prompt"), self.NOTIFY), hook_commands(settings, "Notification"))
+        self.assertFalse(os.path.exists(self.t(".claude/hooks/notify-waiting.py")))
+        self.apply(self.answers(packs=("notify-telegram",)))
+        settings = load_json(self.t(".claude/settings.json"))
+        self.assertIn(("permission_prompt|idle_prompt", self.NOTIFY), hook_commands(settings, "Notification"))
+        self.assertTrue(os.path.isfile(self.t(".claude/hooks/notify-waiting.py")))
+        self.assertFalse(os.path.exists(self.t(".claude/hooks/test_notify_waiting.py")))
+
+    def test_audit_section_and_allow_rules_with_stack_packs(self):
+        self.apply(self.answers(packs=("node-esm",)))
+        allow = load_json(self.t(".claude/settings.json"))["permissions"]["allow"]
+        for rule in self.AUDIT:
+            self.assertIn(rule, allow)
+        text = read(self.t(".claude/packs/node-esm.md"))
+        self.assertIn("## /security", text)
+        self.assertIn("npm audit --omit=dev --json", text)
+        self.assertIn("Never run `npm audit fix`", text)
+
+
 if __name__ == "__main__":
     unittest.main()

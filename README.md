@@ -185,6 +185,7 @@ Installed with the kit and binding on Claude and Codex alike:
 | `session-context.py` | core | Nothing; on session start, resume and after a compaction it prints the branch, ticket, which records exist, an unfinished command, and "run `/resume`" when a handoff is newer than the last commit |
 | `typecheck` | `typescript` | Runs the type checker after each edit and hands any type errors back to the agent to fix |
 | `block_main_repo_writes.py` | `worktrees` | Writes into the main checkout from a worktree session |
+| `notify-waiting.py` | `notify-telegram` | Nothing; pings your Telegram chat when a run waits on a permission prompt or sits idle (at most once per 10 minutes) |
 | `block-push-before-review.py` | `hardening` | Push to `main`, merges and migrations during a hardening run until its review passes |
 
 Hooks are guardrails, not a sandbox: a determined bypass (a script that deletes, an encoded command) gets past them.
@@ -207,9 +208,9 @@ rules, commands, hooks and Project facts, and extend core commands through `.cla
 | `render` | Post-merge deploy and log checks, release checks, runtime-memory notes | |
 | `expo-mobile` | EAS builds and Maestro QA for iOS and Android | `/build-qa`, `/build-qa-sim`, `/build-prod`, `/mobile-qa` |
 | `web-qa` | Playwright E2E and visual QA | `/qa`, `/playwright-qa` |
-| `typescript` | A type-check hook after each edit, vitest/jest discipline, a mock-fidelity lens | |
-| `node-esm` | ESM and Node rules for code with no compiler | |
-| `notify-telegram` | Outcome notifications to one Telegram chat per project. A failed send never fails a command | |
+| `typescript` | A type-check hook after each edit, vitest/jest discipline, a mock-fidelity lens, a dependency vulnerability audit in `/security` and `/release` | |
+| `node-esm` | ESM and Node rules for code with no compiler; a dependency vulnerability audit in `/security` and `/release` | |
+| `notify-telegram` | Outcome notifications to one Telegram chat per project, plus a ping when a run waits on you (a permission prompt or idle). A failed send never fails a command | |
 | `worktrees` | Parallel sessions in git worktrees: safe sync to `main`, env-file links, a guard against writing to the main checkout | `/worktree` |
 | `ticket-trains` | Queue triaged tickets and run them unattended, with a circuit breaker and locked state. Running a train approves merging that queue only | `/ticket-train-create`, `/ticket-train-triage`, `/ticket-train-run`, `/ticket-train-status` |
 | `hardening` | Deep-security mode: required peer review per ticket and a release-wide edge-case analysis | `/hardening`, `/hardening-analysis` |

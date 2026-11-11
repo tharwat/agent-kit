@@ -249,6 +249,9 @@ Rules for `pack.json`:
   "`<server>` MCP server" phrase to match, so a project's agent only ever calls its own project's servers.
 - **`env`:** every credential is an owner task.
 - **`permissions`:** allow only read-only tools. Destructive commands go in `deny`.
+- **Dependency audit:** a stack pack adds a `## /security` section that runs its ecosystem's read-only audit
+  (`npm audit --omit=dev`, `pip-audit`, `govulncheck ./...`, …), never the auto-fix form. A reachable critical or high
+  advisory in a runtime dependency is S2; the rest is `noted`. The node-esm and typescript packs are the model.
 - **Hook commands** always use `"$CLAUDE_PROJECT_DIR"/.claude/hooks/...`.
 
 **Hooks contract** (core and packs):

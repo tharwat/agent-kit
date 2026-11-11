@@ -1,6 +1,6 @@
 {
   "name": "node-esm",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Node.js ESM code with no compiler: ESM, .mjs and Node-version rules, node --check as the syntax check, node --test notes.",
   "kind": "stack",
   "requires": ["core"],
@@ -16,7 +16,7 @@
     {"src": "rules/node-esm.md", "dest": ".claude/rules/node-esm.md"}
   ],
   "hooks": [],
-  "permissions": {"allow": [], "deny": []},
+  "permissions": {"allow": ["Bash(npm audit *)", "Bash(pnpm audit *)", "Bash(yarn audit *)", "Bash(yarn npm audit *)"], "deny": []},
   "mcp": {},
   "env": [],
   "third_party": [],

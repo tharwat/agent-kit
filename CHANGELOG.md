@@ -4,6 +4,22 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.6.1 — 2026-11-11
+
+- **notify-telegram 1.1.0: waiting pings.** A Notification hook (`notify-waiting.py`) pings the project's chat when
+  Claude is waiting on a permission prompt or sits idle: `[<PROJECT_NAME>] Waiting for you: <reason>`. It sends at
+  most one ping per 10 minutes per session, and only the event type and tool name, never the prompt text. It is
+  installed only with the pack.
+- **node-esm 1.1.0, typescript 1.1.0: dependency vulnerability audit.** A `## /security` section runs
+  `npm audit --omit=dev --json` (or the pnpm / yarn form for that lockfile) and reports direct vs transitive and
+  whether a fix exists. A reachable critical or high advisory in a runtime dependency is S2 must-fix; the rest is
+  `noted`. `npm audit fix` is never run. `/release` runs the same audit. Allow rules for the four audit commands.
+- **Conventions:** future stack packs add their ecosystem's audit the same way (`pip-audit`, `govulncheck`).
+
+**Upgrade touches:** with notify-telegram, `.claude/settings.json` (adds the Notification hook) and
+`.claude/hooks/notify-waiting.py`; with node-esm or typescript, `.claude/packs/<pack>.md` and the allow rules in
+`.claude/settings.json`.
+
 ## 1.6.0 — 2026-11-11
 
 - **Record checks (`check-record.py`, core).** `/triage`, `/operate`, `/post-op` and `/handoff` now start with
