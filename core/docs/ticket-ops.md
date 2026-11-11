@@ -93,6 +93,7 @@ does **get** and checks whether that exact record already exists, so a re-run do
 | `Self-review: <ticket>` | `/operate` Phase 3 (one per fix batch) | the owner and reviewers (audit trail); the local `self-review.md` is what `/post-op` checks |
 | `Review round <n>: <ticket>` | `/post-op` (one per round) | `/post-op` (round count), `/ship` (open items) |
 | `Noted for the tracker (peer review <date>)` | `/peer-review` | `/ship` (open items) |
+| `Noted for the tracker (security <date>)` | `/security` (node-esm / typescript dependency audit) | `/ship` (open items) |
 | `PEER_REVIEW: not run` / `PEER_REVIEW: CLEAN <hash>` / `PEER_REVIEW: UNRESOLVED <ids>` | `/peer-review` | `/ship` (when the local record is missing) |
 | `Open items (PR #<N>): <OPEN_ITEMS_TICKET> comment <id>` or `Open items (PR #<N>): none` | `/ship` only | `/ship` (idempotency, and the start of the next PR's items) |
 

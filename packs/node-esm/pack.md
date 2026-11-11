@@ -46,11 +46,17 @@ run it once.
    (and through which direct dependency), and whether a fixed version exists.
 3. **Severity.** A `critical` or `high` advisory in a runtime dependency whose vulnerable code this project can reach
    is **S2**. Everything else, including dev-only and unreachable advisories, is `noted` with the reason.
-4. **Which S2s this ticket fixes.** An S2 is **must-fix** only when this ticket brought it in: the lockfile diff
-   (`git diff origin/<MAIN_BRANCH>...HEAD -- <lockfile>`) adds the vulnerable package or changes it to a vulnerable
-   version. Fix it by upgrading the dependency (a dependency change under `<DEPENDENCY_POLICY>`; say why in the PR).
-   An S2 already on `<MAIN_BRANCH>` is `noted` as `pre-existing S2: <package> <advisory id>` and goes to
-   `<OPEN_ITEMS_TICKET>` with the other noted findings; it doesn't block this ticket. `/release` still blocks on it.
+4. **Which S2s this ticket fixes.** An S2 is a **must-fix** finding of this ticket only when this ticket brought it
+   in: the lockfile diff (`git diff origin/<MAIN_BRANCH>...HEAD -- <lockfile>`) adds the vulnerable package or changes
+   it to a vulnerable version. Fix it by upgrading the dependency (a dependency change under `<DEPENDENCY_POLICY>`;
+   say why in the PR). An advisory already on `<MAIN_BRANCH>` is not on this ticket's path: its class here is
+   `noted`, not S2, so it doesn't block this ticket. `/release` still blocks on it as S2.
+   - **Report it** on the `Pack checks:` line as `⚠️ pre-existing: <package> <advisory id> (noted)`. A ❌ there is only
+     for an advisory this ticket brought in.
+   - **File it:** post one ticket op **comment** `<ticket>` whose first line is
+     `Noted for the tracker (security <date>)`, listing each pre-existing advisory with package, severity, advisory
+     id and fixed version. `/ship` files it on `<OPEN_ITEMS_TICKET>` with the other noted findings. Leave out an
+     advisory `<OPEN_ITEMS_TICKET>` already lists.
 5. **Never run `npm audit fix`** (or `pnpm` / `yarn` equivalents). It rewrites the lockfile, which is a dependency
    change you must make on purpose.
 6. **Exit codes.** These commands exit non-zero when they *find* advisories: a non-zero exit with JSON advisories in
