@@ -7,16 +7,17 @@ installed version before an upgrade.
 ## 1.5.0 — 2026-11-11
 
 - **New hook `guard-secrets.py` (core),** on Read, Edit, Write, MultiEdit, NotebookEdit, Bash and Grep.
-  - **Secret files:** blocks opening, printing or copying `.env` / `.env.*` (templates such as `.env.example` are
-    fine), private keys (`*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`),
+  - **Secret files:** blocks opening, printing or copying `.env` / `.env.*` / `*.env` / `.envrc` (templates such as
+    `.env.example` are fine), private keys (`*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`),
     `.claude/notify.env`, `.netrc`, `.git-credentials`, cloud CLI credentials (`.aws/credentials`, `.docker/config.json`,
     `.kube/config`, `.config/gh/hosts.yml`), and `.npmrc` / `.pypirc` that hold a literal token (an `${ENV}` reference
     is fine). `~/…` and `$HOME/…` paths are expanded. In Bash it checks the files given to readers, copiers and archivers (`cat`, `grep`, `sed`, `cp`, `cp -t`,
     `tar`, `source`, …), globs such as `cat .env*`, `< file` redirects, `git show HEAD:.env`, and files sent with
     `curl -d @file` / `-F x=@file` / `-T file`. Writing a *new* `.env` is allowed.
   - **Environment dumps:** blocks `env`, `printenv`, bare `set` and `export -p` with no command or names, and
-    `printenv` / `declare -p` / `echo $NAME` of a secret-looking name (`*_TOKEN`, `*_KEY`, `*PASSWORD*`, …).
-    `set -x` and `printenv SSH_AUTH_SOCK` are fine.
+    `printenv` / `declare -p` / `echo $NAME` of a secret-looking name (`*_TOKEN`, `*_KEY`, `*PASSWORD*`, a
+    `DATABASE_URL`-style connection string, …). `set -x`, `printenv SSH_AUTH_SOCK` and
+    `echo "$TOKEN" | docker login --password-stdin` are fine.
   - **Secret content:** blocks writing a token shape (JWT, `sk-`, GitHub, AWS, Slack, Supabase, Render, Atlassian,
     Telegram bot, private key) or a URL with an inline password into a file or a command. The message names the
     shape and line, never the value. A line marked `agent-kit: allow-secret-shape` (for test fixtures) is skipped.

@@ -76,8 +76,10 @@ class Cmd:
     """One simple command after prefix stripping: argv (list of Word), the cwd it runs in, its redirects, the bodies
     of its heredocs as (body, quoted), and the stdin text it gets (`stdin`)."""
 
-    def __init__(self, argv, cwd, redirects=(), heredocs=(), cwd_known=True, stdin=(), operands_unknown=False):
+    def __init__(self, argv, cwd, redirects=(), heredocs=(), cwd_known=True, stdin=(), operands_unknown=False,
+                 pipe_out=False):
         self.argv = argv
+        self.pipe_out = pipe_out  # its stdout feeds the next command, not the terminal
         self.operands_unknown = operands_unknown  # run by xargs or find -exec: more operands arrive at run time
         self.cwd = cwd
         self.cwd_known = cwd_known  # False after `cd -`, `cd "$DIR"`, `popd`: cwd is then only a guess
@@ -706,11 +708,12 @@ def _walk(command, state, depth):
         if prev is not None and prev.pipe_out:
             stdin.extend(_stdin_from(prev, registry))
         yield from _dispatch(simple.words, state, depth, simple.redirects, heredocs,
-                             simple.piped or simple.background, stdin)
+                             simple.piped or simple.background, stdin, pipe_out=simple.pipe_out)
         prev = simple
 
 
-def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, stdin=(), operands_unknown=False):
+def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, stdin=(), operands_unknown=False,
+              pipe_out=False):
     words = list(words)
     argv = strip_prefix(words)
     if not argv:
@@ -721,7 +724,7 @@ def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, st
     known = state.get("cwd_known", True)
     wrappers = words[:max(0, len(words) - len(argv))]
     operands_unknown = operands_unknown or any(os.path.basename(str(w)) == "xargs" for w in wrappers)
-    cmd = Cmd(argv, state["cwd"], redirects, heredocs, known, stdin, operands_unknown)
+    cmd = Cmd(argv, state["cwd"], redirects, heredocs, known, stdin, operands_unknown, pipe_out)
     yield cmd
     args = argv[1:]
     registry = state.get("registry", [])

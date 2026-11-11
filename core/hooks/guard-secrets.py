@@ -40,7 +40,7 @@ ENV_TEMPLATES = (".example", ".sample", ".template", ".dist")
 # Default secret-file globs. A glob with a `/` matches the project-relative path, else the file name.
 DEFAULT_GLOBS = [".env", ".env.*", "*.pem", "*.key", "*.p8", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*", "id_ecdsa*",
                  ".claude/notify.env", ".netrc", ".aws/credentials", ".docker/config.json", ".kube/config",
-                 ".config/gh/hosts.yml", ".git-credentials"]
+                 ".config/gh/hosts.yml", ".git-credentials", "*.env", ".envrc"]
 TOKEN_FILES = {".npmrc", ".pypirc"}  # secret only when they hold a credential
 # a credential with a literal value (an `${ENV}` reference is not one)
 TOKEN_FILE_RE = re.compile(r"(_authToken|_auth|_password|password)\s*[=:]\s*(?!\$\{|\$[A-Za-z_]|\s*$)\S", re.I | re.M)
@@ -66,12 +66,17 @@ INTERPOLATION_RE = re.compile(r"\$\{[^}]*\}|#\{[^}]*\}|\{\{[^}]*\}\}")
 PLACEHOLDER_PASSWORD_RE = re.compile(r"^(\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|<[^>]*>|\*+|password|x+|\.\.\.|"
                                      r"\{\{?[^}]*\}\}?|%(\([A-Za-z_]+\))?s)$", re.I)
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]"}
+# well-known local-dev defaults (docker-compose, CI service containers): not secrets wherever the host is
+DEV_PASSWORDS = {"postgres", "password", "pass", "root", "example", "changeme", "dev", "development", "test",
+                 "testing", "secret", "admin", "guest", "mysql", "redis", "app", "user"}
 
 READERS = {"cat", "less", "more", "head", "tail", "bat", "batcat", "nl", "tac", "grep", "egrep", "fgrep", "rg", "ag",
            "awk", "gawk", "sed", "cut", "sort", "uniq", "diff", "base64", "xxd", "od", "hexdump", "strings", "source",
            ".", "jq", "yq", "openssl", "ssh-keygen"}
 COPIERS = {"cp", "mv", "scp", "rsync", "install"}
 ARCHIVERS = {"tar", "zip", "7z", "gzip", "bzip2", "xz", "zstd"}
+DATA_OPTS = {"-d", "--data", "--data-binary", "--data-raw", "--data-urlencode", "--data-ascii", "-F", "--form",
+             "--form-string", "--json"}
 VALUE_OPTS = {  # options whose value is the next argument, so it isn't read as a file
     "grep": {"-A", "-B", "-C", "-m", "-d", "-D", "--max-count", "--context", "--after-context", "--before-context"},
     "rg": {"-A", "-B", "-C", "-m", "-g", "-t", "-T", "-M", "-j", "--glob", "--type", "--max-count", "--context"},
@@ -81,8 +86,20 @@ VALUE_OPTS = {  # options whose value is the next argument, so it isn't read as 
 for _p in ("grep", "egrep", "fgrep", "rg", "ag"):  # patterns and exclude/include globs are not files read
     VALUE_OPTS.setdefault(_p, set()).update({"-e", "--regexp", "--exclude", "--exclude-dir", "--include", "--glob",
                                              "-g", "--iglob", "--ignore-file"})
-EXCLUDE_OPTS = {"--exclude", "--exclude-from", "-X", "--include", "--filter", "-f", "--exclude-dir",
-                "-C", "--directory", "-T", "--files-from", "-t", "--target-directory", "-S", "--suffix"}
+# options that take a value (so the value isn't a copied file), per program
+COPY_VALUE_OPTS = {
+    "cp": {"-t", "--target-directory", "-S", "--suffix"},
+    "mv": {"-t", "--target-directory", "-S", "--suffix"},
+    "install": {"-t", "--target-directory", "-S", "--suffix", "-m", "--mode", "-o", "--owner", "-g", "--group"},
+    "scp": {"-i", "-F", "-o", "-P", "-l", "-c", "-J", "-S", "-D", "-X"},
+    "rsync": {"-e", "--rsh", "--exclude", "--exclude-from", "--include", "--include-from", "--filter", "-f",
+              "-T", "--temp-dir", "--partial-dir", "--backup-dir", "--rsync-path", "--chmod", "--chown",
+              "--files-from", "--log-file", "-B", "--block-size", "--port", "--password-file"},
+    "tar": {"-C", "--directory", "-X", "--exclude-from", "-T", "--files-from", "--exclude", "-f", "--file",
+            "-b", "--blocking-factor", "--owner", "--group", "--mode", "-I", "--use-compress-program"},
+    "zip": {"-b", "-n", "-t", "-tt", "-O", "--out", "-i", "--include"},
+    "7z": set(), "gzip": {"-S", "--suffix"}, "bzip2": set(), "xz": set(), "zstd": {"-o"},
+}
 PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg", "ag"}  # first positional is the pattern
 SCRIPT_FIRST = {"awk", "gawk", "sed", "jq", "yq"}         # first positional is the program
 SECRET_PARTS = {"TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASS", "PAT", "CREDENTIAL", "CREDENTIALS", "PWD"}
@@ -101,6 +118,9 @@ def secret_name(name):
         return False
     if set(name.split("_")) & PUBLIC_PARTS:
         return False
+    if re.search(r"(^|_)(URL|URI|DSN)$", name) and re.search(
+            r"DATABASE|(^|_)DB|REDIS|MONGO|POSTGRES|(^|_)PG|MYSQL|MARIADB|AMQP|RABBIT|CONNECTION|BROKER|CACHE", name):
+        return True  # a connection string usually carries the password
     parts = [p for p in name.split("_") if p]
     return any(p in SECRET_PARTS or p.endswith("KEY") or p.endswith("TOKEN") for p in parts[1:] or parts) or \
         any(p in SECRET_PARTS for p in parts)
@@ -119,6 +139,12 @@ def expanded_vars(raw):
             continue
         if c == "\\":
             i += 2
+            continue
+        if raw.startswith("$(", i):  # a command substitution is its own command, checked on its own
+            depth, i = 1, i + 2
+            while i < n and depth:
+                depth += {"(": 1, ")": -1}.get(raw[i], 0)
+                i += 1
             continue
         if c == "'" and quote is None:
             quote = "'"
@@ -222,7 +248,8 @@ def scan_text(text, where, check_urls=True):
         if not check_urls:
             continue
         for m in URL_PASSWORD_RE.finditer(INTERPOLATION_RE.sub("$X", line)):
-            if not PLACEHOLDER_PASSWORD_RE.match(m.group(2)) and m.group(3).lower() not in LOCAL_HOSTS:
+            if not PLACEHOLDER_PASSWORD_RE.match(m.group(2)) and m.group(3).lower() not in LOCAL_HOSTS and \
+                    m.group(2).lower() not in DEV_PASSWORDS:
                 raise Blocked("a URL with an inline password at line %d of %s. Put the password in an env var and "
                               "reference it as ${NAME}" % (n, where))
 
@@ -307,12 +334,14 @@ def check_bash(command, cwd, project, globs):
                 if secret_name(name):
                     raise Blocked("`%s %s` prints a secret. Check that it's set with `test -n \"$%s\"`"
                                   % (prog, name, name))
-        if prog in ("echo", "printf"):
+        if prog in ("echo", "printf") and not cmd.pipe_out:  # `echo "$T" | docker login --password-stdin` is fine
             for a in args:
                 for name in expanded_vars(getattr(a, "raw", str(a))):
                     if secret_name(name):
                         raise Blocked("`%s $%s` prints a secret. Check that it's set with `test -n \"$%s\"`"
                                       % (prog, name, name))
+        if prog == "openssl" and args and str(args[0]) in ("x509", "crl", "verify", "s_client"):
+            continue  # certificate tools: they read public certificates, not keys
         if prog in READERS:
             opts = VALUE_OPTS.get(prog, ())
             if prog == "ssh-keygen" and not set(args) & {"-y", "-l", "-p", "-e", "-lf", "-yf"}:
@@ -328,7 +357,7 @@ def check_bash(command, cwd, project, globs):
             for f in files:
                 check_operand(f, cmd.cwd, project, globs, "read")
         elif prog in COPIERS:
-            ops = positionals(args, EXCLUDE_OPTS, keep=())
+            ops = positionals(args, COPY_VALUE_OPTS.get(prog, set()), keep=())
             if any(a in ("-t", "--target-directory") or str(a).startswith("--target-directory=") for a in args):
                 sources = ops  # cp -t <dir> <sources…>: every operand is a source
             else:
@@ -339,14 +368,20 @@ def check_bash(command, cwd, project, globs):
             ops = list(args)
             if prog == "zip" and ("-x" in ops or "--exclude" in ops):  # zip -x takes every argument after it
                 ops = ops[:ops.index("-x" if "-x" in ops else "--exclude")]
-            for f in positionals(ops, EXCLUDE_OPTS, keep=()):
+            for f in positionals(ops, COPY_VALUE_OPTS.get(prog, set()), keep=()):
                 check_operand(f, cmd.cwd, project, globs, "copy")
         elif prog in ("curl", "wget", "http", "https"):
             for k, a in enumerate(args):
                 a = str(a)
-                value = a.split("=", 1)[1] if "=" in a and a.startswith("--") else a
-                if "@" in value:
-                    path = value.split("@", 1)[1].split(";", 1)[0]
+                data = None
+                if a in DATA_OPTS and k + 1 < len(args):
+                    data = str(args[k + 1])
+                elif "=" in a and a.split("=", 1)[0] in DATA_OPTS:
+                    data = a.split("=", 1)[1]
+                elif a[:2] in ("-d", "-F") and len(a) > 2:
+                    data = a[2:]
+                if data and "@" in data:  # -d @file, -F name=@file;type=…
+                    path = data.split("@", 1)[1].split(";", 1)[0]
                     if path and path != "-":
                         check_operand(kit_shell.Word(path, path), cmd.cwd, project, globs, "send")
                 if a in ("-T", "--upload-file", "--post-file", "--body-file") and k + 1 < len(args):
@@ -364,7 +399,9 @@ def check_bash(command, cwd, project, globs):
                 if sub == "diff" and "--no-index" in rest:  # compares files on disk: both are read
                     for a in positionals(rest):
                         check_operand(a, gcwd, project, globs, "read")
-                if sub in ("show", "diff", "log", "blame") and "--" in rest:
+                prints_content = sub in ("show", "diff", "blame") or (sub == "log" and (
+                    set(rest) & {"-p", "-u", "--patch", "-L"} or any(str(a).startswith("-L") for a in rest)))
+                if prints_content and "--" in rest:
                     for a in rest[rest.index("--") + 1:]:
                         check_path(os.path.join(gcwd, str(a)), project, globs, "read")
 
