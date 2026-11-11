@@ -39,7 +39,8 @@ ENV_TEMPLATES = (".example", ".sample", ".template", ".dist")
 
 # Default secret-file globs. A glob with a `/` matches the project-relative path, else the file name.
 DEFAULT_GLOBS = [".env", ".env.*", "*.pem", "*.key", "*.p8", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*", "id_ecdsa*",
-                 ".claude/notify.env", ".netrc"]
+                 ".claude/notify.env", ".netrc", ".aws/credentials", ".docker/config.json", ".kube/config",
+                 ".config/gh/hosts.yml", ".git-credentials"]
 TOKEN_FILES = {".npmrc", ".pypirc"}  # secret only when they hold a credential
 # a credential with a literal value (an `${ENV}` reference is not one)
 TOKEN_FILE_RE = re.compile(r"(_authToken|_auth|_password|password)\s*[=:]\s*(?!\$\{|\$[A-Za-z_]|\s*$)\S", re.I | re.M)
@@ -58,7 +59,9 @@ SHAPES = {
     "private key": r"-----BEGIN [A-Z ]*PRIVATE" + r" KEY-----",
 }
 COMPILED = [(name, re.compile(rx)) for name, rx in SHAPES.items()]
-URL_PASSWORD_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://([^\s/:@'\"]*):([^\s/@'\"]+)@([^\s/:'\"?#]*)", re.I)
+URL_PASSWORD_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://([^\s/:@'\"]*):([^\s/@'\"]+)@(\[[^\]\s]*\]|[^\s/:'\"?#]*)", re.I)
+# ${VAR:-default}, #{ruby}, {{tmpl}} spans can hold `:`; they become `$X` before the URL check
+INTERPOLATION_RE = re.compile(r"\$\{[^}]*\}|#\{[^}]*\}|\{\{[^}]*\}\}")
 # ${VAR}, $VAR, <placeholder>, ***, the word password, xxx, ..., f-string {var}, {{template}}, %s / %(name)s
 PLACEHOLDER_PASSWORD_RE = re.compile(r"^(\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|<[^>]*>|\*+|password|x+|\.\.\.|"
                                      r"\{\{?[^}]*\}\}?|%(\([A-Za-z_]+\))?s)$", re.I)
@@ -75,22 +78,62 @@ VALUE_OPTS = {  # options whose value is the next argument, so it isn't read as 
     "head": {"-n", "-c"}, "tail": {"-n", "-c"}, "cut": {"-d", "-f", "-c", "-b"}, "sort": {"-k", "-t", "-o", "-S", "-T"},
     "jq": {"--arg", "--argjson"}, "openssl": {"-in", "-out", "-passin", "-passout"}, "ssh-keygen": {"-f"},
 }
+for _p in ("grep", "egrep", "fgrep", "rg", "ag"):  # patterns and exclude/include globs are not files read
+    VALUE_OPTS.setdefault(_p, set()).update({"-e", "--regexp", "--exclude", "--exclude-dir", "--include", "--glob",
+                                             "-g", "--iglob", "--ignore-file"})
+EXCLUDE_OPTS = {"--exclude", "--exclude-from", "-X", "--include", "--filter", "-f", "--exclude-dir",
+                "-C", "--directory", "-T", "--files-from", "-t", "--target-directory", "-S", "--suffix"}
 PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg", "ag"}  # first positional is the pattern
 SCRIPT_FIRST = {"awk", "gawk", "sed", "jq", "yq"}         # first positional is the program
 SECRET_PARTS = {"TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASS", "PAT", "CREDENTIAL", "CREDENTIALS", "PWD"}
 
 
+NOT_SECRET_NAMES = {"PWD", "OLDPWD", "GOOGLE_APPLICATION_CREDENTIALS"}  # a path by convention
+NOT_SECRET_SUFFIXES = ("_FILE", "_PATH", "_DIR", "_SOCK", "_ID", "_NAME", "_URL_ENV")
+PUBLIC_PARTS = {"PUBLIC", "PUBLISHABLE", "PUB"}
+
+
 def secret_name(name):
-    """GITHUB_TOKEN, API_KEY, DB_PASSWORD, NPM_PAT, AWS_SECRET_ACCESS_KEY: yes. SSH_AUTH_SOCK, KEYBOARD, PWD: no."""
+    """GITHUB_TOKEN, API_KEY, DB_PASSWORD, NPM_PAT, AWS_SECRET_ACCESS_KEY: yes. SSH_AUTH_SOCK, KEYBOARD, PWD,
+    POSTGRES_PASSWORD_FILE, SSH_KEY_PATH, PUBLIC_KEY, STRIPE_PUBLISHABLE_KEY: no."""
     name = str(name).upper()
-    if name == "PWD" or not re.match(r"^[A-Z_][A-Z0-9_]*$", name):
+    if name in NOT_SECRET_NAMES or not re.match(r"^[A-Z_][A-Z0-9_]*$", name) or name.endswith(NOT_SECRET_SUFFIXES):
+        return False
+    if set(name.split("_")) & PUBLIC_PARTS:
         return False
     parts = [p for p in name.split("_") if p]
     return any(p in SECRET_PARTS or p.endswith("KEY") or p.endswith("TOKEN") for p in parts[1:] or parts) or \
         any(p in SECRET_PARTS for p in parts)
 
 
-VAR_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
+def expanded_vars(raw):
+    """Names of the variables a word's source text expands to their value: `$X`, `${X}`, `${X:-d}`. Skips '$X' in
+    single quotes, an escaped `\\$X`, and the presence and length forms `${X:+set}`, `${X+set}`, `${#X}`."""
+    out, i, n, quote = [], 0, len(raw), None
+    while i < n:
+        c = raw[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+            i += 1
+            continue
+        if c == "\\":
+            i += 2
+            continue
+        if c == "'" and quote is None:
+            quote = "'"
+        elif c == '"':
+            quote = None if quote == '"' else '"'
+        elif c == "$" and i + 1 < n:
+            m = re.match(r"\$\{(#?)([A-Za-z_][A-Za-z0-9_]*)(:?[-+=?]?)", raw[i:]) or \
+                re.match(r"\$()([A-Za-z_][A-Za-z0-9_]*)()", raw[i:])
+            if m:
+                if not m.group(1) and m.group(3) not in (":+", "+"):
+                    out.append(m.group(2))
+                i += m.end()
+                continue
+        i += 1
+    return out
 
 
 class Blocked(Exception):
@@ -167,7 +210,7 @@ def check_path(path, project, globs, what="open"):
 
 # ---------------------------------------------------------------- content scan
 
-def scan_text(text, where):
+def scan_text(text, where, check_urls=True):
     if not text:
         return
     for n, line in enumerate(text.split("\n"), 1):
@@ -176,7 +219,9 @@ def scan_text(text, where):
         for name, rx in COMPILED:
             if rx.search(line):
                 raise Blocked("%s at line %d of %s. Name the env var instead of the value" % (name, n, where))
-        for m in URL_PASSWORD_RE.finditer(line):
+        if not check_urls:
+            continue
+        for m in URL_PASSWORD_RE.finditer(INTERPOLATION_RE.sub("$X", line)):
             if not PLACEHOLDER_PASSWORD_RE.match(m.group(2)) and m.group(3).lower() not in LOCAL_HOSTS:
                 raise Blocked("a URL with an inline password at line %d of %s. Put the password in an env var and "
                               "reference it as ${NAME}" % (n, where))
@@ -195,7 +240,8 @@ def glob_targets_secrets(glob, project, globs):
             g = g.split("/")[-1]
             if not g or g.startswith("!") or fnmatch.fnmatchcase("README.md", g) or fnmatch.fnmatchcase("index.ts", g):
                 continue
-            if any(fnmatch.fnmatchcase(sample, g) for sample in SECRET_SAMPLES):
+            samples = SECRET_SAMPLES + [p.replace("*", "x").replace("?", "x") for p in globs if "/" not in p]
+            if any(fnmatch.fnmatchcase(sample, g) for sample in samples):
                 return True
             if not set(g) & set("*?[") and secret_reason(g, project, globs):
                 return True
@@ -224,9 +270,15 @@ def positionals(args, value_opts=(), keep=("-in", "-f")):
     return out
 
 
+def home_expanded(text):
+    """`~/x`, `$HOME/x`, `${HOME}/x` as the shell would expand them; anything else unchanged."""
+    text = re.sub(r"^(\$HOME|\$\{HOME\})(?=/|$)", "~", text)
+    return os.path.expanduser(text)
+
+
 def check_operand(word, cwd, project, globs, what):
     """A file operand. A glob (`.env*`) is checked by what it selects and by what it matches on disk."""
-    text = str(word)
+    text = home_expanded(str(word))
     if not set(text) & set("*?["):
         check_path(os.path.join(cwd, text), project, globs, what)
     else:
@@ -257,8 +309,7 @@ def check_bash(command, cwd, project, globs):
                                   % (prog, name, name))
         if prog in ("echo", "printf"):
             for a in args:
-                expanded = re.sub(r"'[^']*'", "", getattr(a, "raw", str(a)))  # '$X' isn't expanded
-                for name in VAR_RE.findall(expanded):
+                for name in expanded_vars(getattr(a, "raw", str(a))):
                     if secret_name(name):
                         raise Blocked("`%s $%s` prints a secret. Check that it's set with `test -n \"$%s\"`"
                                       % (prog, name, name))
@@ -277,7 +328,7 @@ def check_bash(command, cwd, project, globs):
             for f in files:
                 check_operand(f, cmd.cwd, project, globs, "read")
         elif prog in COPIERS:
-            ops = positionals(args, {"-t", "--target-directory", "-S", "--suffix"})
+            ops = positionals(args, EXCLUDE_OPTS, keep=())
             if any(a in ("-t", "--target-directory") or str(a).startswith("--target-directory=") for a in args):
                 sources = ops  # cp -t <dir> <sources…>: every operand is a source
             else:
@@ -285,7 +336,10 @@ def check_bash(command, cwd, project, globs):
             for f in sources:
                 check_operand(f, cmd.cwd, project, globs, "copy")
         elif prog in ARCHIVERS:
-            for f in positionals(args, {"-C", "--directory", "-X", "--exclude-from", "-T", "--files-from"}):
+            ops = list(args)
+            if prog == "zip" and ("-x" in ops or "--exclude" in ops):  # zip -x takes every argument after it
+                ops = ops[:ops.index("-x" if "-x" in ops else "--exclude")]
+            for f in positionals(ops, EXCLUDE_OPTS, keep=()):
                 check_operand(f, cmd.cwd, project, globs, "copy")
         elif prog in ("curl", "wget", "http", "https"):
             for k, a in enumerate(args):
@@ -297,12 +351,19 @@ def check_bash(command, cwd, project, globs):
                         check_operand(kit_shell.Word(path, path), cmd.cwd, project, globs, "send")
                 if a in ("-T", "--upload-file", "--post-file", "--body-file") and k + 1 < len(args):
                     check_operand(args[k + 1], cmd.cwd, project, globs, "send")
+                elif a.startswith(("--upload-file=", "--post-file=", "--body-file=")):
+                    check_operand(kit_shell.Word(a.split("=", 1)[1]), cmd.cwd, project, globs, "send")
+                elif a.startswith("-T") and len(a) > 2:
+                    check_operand(kit_shell.Word(a[2:]), cmd.cwd, project, globs, "send")
         elif prog == "git":
             sub, rest, gcwd = kit_shell.git_split(args, cmd.cwd)
             if sub in ("show", "cat-file", "archive", "diff", "log", "blame", "grep"):
                 for a in rest:
                     if ":" in str(a) and not str(a).startswith("-"):
                         check_path(str(a).split(":", 1)[1], gcwd, globs, "read")  # HEAD:.env
+                if sub == "diff" and "--no-index" in rest:  # compares files on disk: both are read
+                    for a in positionals(rest):
+                        check_operand(a, gcwd, project, globs, "read")
                 if sub in ("show", "diff", "log", "blame") and "--" in rest:
                     for a in rest[rest.index("--") + 1:]:
                         check_path(os.path.join(gcwd, str(a)), project, globs, "read")
@@ -323,18 +384,17 @@ def check_event(event):
         path = ti.get("file_path") or ""
         if path and os.path.exists(os.path.join(project, path)):
             check_path(path, project, globs, "overwrite")
-        if not is_template_target(path):
-            scan_text(ti.get("content") or "", os.path.basename(path) or "the file")
+        # a template is committed: real tokens are caught there too; only its sample URLs are left alone
+        scan_text(ti.get("content") or "", os.path.basename(path) or "the file", not is_template_target(path))
     elif tool in ("Edit", "MultiEdit"):
         path = ti.get("file_path") or ""
         check_path(path, project, globs, "edit")
-        if not is_template_target(path):
-            texts = [ti.get("new_string") or ""]
-            for e in ti.get("edits") or []:
-                if isinstance(e, dict):
-                    texts.append(e.get("new_string") or "")
-            for t in texts:
-                scan_text(t, os.path.basename(path) or "the file")
+        texts = [ti.get("new_string") or ""]
+        for e in ti.get("edits") or []:
+            if isinstance(e, dict):
+                texts.append(e.get("new_string") or "")
+        for t in texts:
+            scan_text(t, os.path.basename(path) or "the file", not is_template_target(path))
     elif tool == "NotebookEdit":
         path = ti.get("notebook_path") or ti.get("file_path") or ""
         check_path(path, project, globs, "edit")

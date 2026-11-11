@@ -9,8 +9,9 @@ installed version before an upgrade.
 - **New hook `guard-secrets.py` (core),** on Read, Edit, Write, MultiEdit, NotebookEdit, Bash and Grep.
   - **Secret files:** blocks opening, printing or copying `.env` / `.env.*` (templates such as `.env.example` are
     fine), private keys (`*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`),
-    `.claude/notify.env`, `.netrc`, and `.npmrc` / `.pypirc` that hold a literal token (an `${ENV}` reference is
-    fine). In Bash it checks the files given to readers, copiers and archivers (`cat`, `grep`, `sed`, `cp`, `cp -t`,
+    `.claude/notify.env`, `.netrc`, `.git-credentials`, cloud CLI credentials (`.aws/credentials`, `.docker/config.json`,
+    `.kube/config`, `.config/gh/hosts.yml`), and `.npmrc` / `.pypirc` that hold a literal token (an `${ENV}` reference
+    is fine). `~/…` and `$HOME/…` paths are expanded. In Bash it checks the files given to readers, copiers and archivers (`cat`, `grep`, `sed`, `cp`, `cp -t`,
     `tar`, `source`, …), globs such as `cat .env*`, `< file` redirects, `git show HEAD:.env`, and files sent with
     `curl -d @file` / `-F x=@file` / `-T file`. Writing a *new* `.env` is allowed.
   - **Environment dumps:** blocks `env`, `printenv`, bare `set` and `export -p` with no command or names, and
@@ -18,9 +19,10 @@ installed version before an upgrade.
     `set -x` and `printenv SSH_AUTH_SOCK` are fine.
   - **Secret content:** blocks writing a token shape (JWT, `sk-`, GitHub, AWS, Slack, Supabase, Render, Atlassian,
     Telegram bot, private key) or a URL with an inline password into a file or a command. The message names the
-    shape and line, never the value. A line marked `agent-kit: allow-secret-shape` (for test fixtures) and
-    `*.example` / `.sample` / `.template` / `.dist` files are skipped. Placeholders (`${VAR}`, `{password}`, `%s`,
-    `<pass>`) and localhost dev URLs aren't secrets. The content scan runs even when a command can't be parsed.
+    shape and line, never the value. A line marked `agent-kit: allow-secret-shape` (for test fixtures) is skipped.
+    Templates (`.example`, `.sample`, `.template`, `.dist`) are committed, so they're scanned for tokens too; only
+    their sample URLs are left alone. Placeholders (`${VAR}`, `${VAR:-default}`, `{password}`, `#{x}`, `%s`, `<pass>`)
+    and localhost dev URLs aren't secrets. The content scan runs even when a command can't be parsed.
 - **New project-owned file `docs/agent/secret-files.md`:** your extra secret-file globs, one per bullet. The kit
   defaults are always enforced; the file only adds.
 - **Parser:** `env` or `sudo` with nothing after it is now reported as the command itself, and a redirect on a
