@@ -14,11 +14,12 @@ installed version before an upgrade.
     is fine). `~/…` and `$HOME/…` paths are expanded. In Bash it checks the files given to readers, copiers and archivers (`cat`, `grep`, `sed`, `cp`, `cp -t`,
     `tar`, …), globs such as `cat .env*`, `< file` redirects, `git show HEAD:.env`, and files sent with
     `curl -d @file` / `-F x=@file` / `-T file`. Writing a *new* `.env` is allowed, and so is `source .env` /
-    `. .env`: loading the values prints nothing, and the print checks below still apply.
+    `. .env`: loading the values doesn't print them, and the print checks below still apply (with `set -x` / `set -v`
+    on in the same command it would, so that is blocked).
   - **Recursive searches:** `grep -r` (and `rg` / `ag` told to search hidden files) over a folder that holds a secret
     file is blocked unless the command excludes it: the message says to add `--exclude='.env*'` (rg:
-    `-g '!.env*'`). `-l` / `-c` / `-q` (names, counts, nothing) are fine, and so are dependency folders
-    (`node_modules`, `.venv`, `vendor`).
+    `-g '!.env*'`). Glob operands (`grep -rn KEY *`) and followed symlinks (`grep -R`) count. `-l` / `-c` / `-q`
+    (names, counts, nothing) are fine, and dependency folders (`node_modules`, `.venv`, `vendor`) are skipped.
   - **Environment dumps:** blocks `env`, `printenv`, bare `set` and `export -p` with no command or names, and
     `printenv` / `declare -p` / `echo $NAME` of a secret-looking name (`*_TOKEN`, `*_KEY`, `*PASSWORD*`, a
     `DATABASE_URL`-style connection string, …). `set -x`, `printenv SSH_AUTH_SOCK` and

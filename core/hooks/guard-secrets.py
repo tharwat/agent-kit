@@ -11,7 +11,9 @@ out of what it writes.
     `printenv`, `set`, `export -p` with no names (they dump every secret) and `printenv <secret-name>` are blocked.
     A recursive `grep -r` (or `rg` / `ag` told to search hidden files) over a tree that holds a secret file is
     blocked unless the command excludes it (`--exclude='.env*'`, `-g '!.env*'`) or prints only names (`-l`).
-    `source .env` / `. .env` are allowed: loading values prints nothing, and the print checks stay (owner decision).
+    `source .env` / `. .env` are allowed (owner decision): loading values doesn't print them, and the print checks
+    stay. With `set -x` / `set -v` on in the same command it would print them, so that is blocked. (A malformed line
+    can still show a fragment in a shell error.)
     Writing a new `.env` with Write is allowed; the content scan below still runs.
 (b) Secret-content scan. Blocks new text (Write content, Edit/MultiEdit new_string, NotebookEdit new_source, the
     Bash command) holding a token shape (the token entries of the kit's manifest denylist) or a URL with an inline
@@ -28,6 +30,7 @@ import json
 import os
 import re
 import sys
+import time
 
 sys.dont_write_bytecode = True  # never leave __pycache__ in .claude/hooks/
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -320,10 +323,17 @@ def check_operand(word, cwd, project, globs, what):
 
 VALUE_SHORT = {"grep": "ABCmdDef", "egrep": "ABCmdDef", "fgrep": "ABCmdDef", "rg": "ABCEMTdefgjmrt",
                "ag": "ABCGgm"}  # short options that take a value: the rest of the group is that value
-CONTENT_HIDDEN = {"-l", "-L", "-c", "-q", "--files-with-matches", "--files-without-match", "--count", "--quiet",
-                  "--silent", "--count-matches", "--files"}  # these print names, counts or nothing: no file content
+# options that print names, counts or nothing (no file content), per program; rg -L is --follow, not this
+NAMES_ONLY = {
+    "grep": ("lLcq", {"--files-with-matches", "--files-without-match", "--count", "--quiet", "--silent"}),
+    "rg": ("lcq", {"--files-with-matches", "--files-without-match", "--count", "--count-matches", "--quiet",
+                   "--files"}),
+    "ag": ("lLc", {"--files-with-matches", "--files-without-matches", "--count"}),
+}
+NAMES_ONLY["egrep"] = NAMES_ONLY["fgrep"] = NAMES_ONLY["grep"]
 PRUNE_DIRS = {".git", "node_modules", ".venv", "venv", "vendor", "__pycache__"}  # dependencies: their fixtures aren't ours
-WALK_LIMIT = 5000  # directories; past this the walk stops (fail open) so a huge tree never stalls a command
+WALK_LIMIT_FILES = 100000  # past this, or WALK_SECONDS, the walk stops (fail open) so a huge tree never stalls a command
+WALK_SECONDS = 1.5
 
 
 def brace_alternatives(pattern):
@@ -331,76 +341,114 @@ def brace_alternatives(pattern):
     return [m.group(1) + alt + m.group(3) for alt in m.group(2).split(",")] if m else [pattern]
 
 
-def option_values(args, names):
-    """Values of long or short options in `names`: `--exclude=x`, `--exclude x`, `-g x`, `-gx`."""
+def option_values(args, names, braces="unquoted"):
+    """Values of long or short options in `names`: `--exclude=x`, `--exclude x`, `-g x`, `-gx`. Braces are expanded
+    "always" (rg globs support them) or only when "unquoted" (the shell expands them; grep's own globs don't)."""
     out = []
     for k, a in enumerate(args):
-        a = str(a)
-        if a == "--":
+        text = str(a)
+        if text == "--":
             break
         for n in names:
-            if a == n and k + 1 < len(args):
-                out.append(str(args[k + 1]))
-            elif n.startswith("--") and a.startswith(n + "="):
-                out.append(a.split("=", 1)[1])
-            elif not n.startswith("--") and a.startswith(n) and len(a) > len(n):
-                out.append(a[len(n):])
-    return [alt for v in out for alt in brace_alternatives(v.strip("'\""))]
+            value, word = None, a
+            if text == n and k + 1 < len(args):
+                value, word = str(args[k + 1]), args[k + 1]
+            elif n.startswith("--") and text.startswith(n + "="):
+                value = text.split("=", 1)[1]
+            elif not n.startswith("--") and text.startswith(n) and len(text) > len(n):
+                value = text[len(n):]
+            if value is None:
+                continue
+            raw = getattr(word, "raw", str(word))
+            expand = braces == "always" or not set(raw) & set("'\"\\")
+            out.extend(brace_alternatives(value) if expand else [value])
+    return out
 
 
-def recursive_search(prog, args):
-    """(excludes, dir_excludes, includes) when this grep / rg / ag searches directory trees and prints matching
-    lines, else None. rg and ag skip hidden files unless told otherwise, so they count only with --hidden / -u."""
-    strs = [str(a) for a in args]
-    if set(strs) & CONTENT_HIDDEN:
-        return None
-    letters = set()
+def short_letters(prog, strs):
+    """Every letter set in single-dash groups, in order (a list, so `-uu` counts twice)."""
+    letters = []
     for a in strs:
         if a == "--":
             break
-        if a.startswith("-") and not a.startswith("--"):
+        if a.startswith("-") and not a.startswith("--") and a != "-":
             for ch in a[1:]:
-                letters.add(ch)
+                letters.append(ch)
                 if ch in VALUE_SHORT.get(prog, ""):
                     break
-    if letters & {"l", "L", "c", "q"}:
+    return letters
+
+
+def recursive_search(prog, args):
+    """A dict (excludes, dir_excludes, includes, follow, path_globs) when this grep / rg / ag searches directory trees
+    and prints matching lines, else None. rg and ag skip hidden files unless told otherwise, so they count only
+    with --hidden / -u."""
+    strs = [str(a) for a in args]
+    letters = short_letters(prog, strs)
+    short, longs = NAMES_ONLY.get(prog, ("", set()))
+    if set(letters) & set(short) or {a.split("=", 1)[0] for a in strs} & longs:
         return None
     if prog in ("grep", "egrep", "fgrep"):
-        recursive = letters & {"r", "R"} or set(strs) & {"--recursive", "--dereference-recursive"} or \
-            "recurse" in option_values(strs, ["--directories", "-d"])
+        recursive = set(letters) & {"r", "R"} or set(strs) & {"--recursive", "--dereference-recursive"} or \
+            "recurse" in option_values(args, ["--directories", "-d"])
         if not recursive:
             return None
-        return (option_values(strs, ["--exclude"]), option_values(strs, ["--exclude-dir"]),
-                option_values(strs, ["--include"]))
+        # grep matches --exclude / --include against base names while recursing: a glob with a `/` never matches
+        return {"excludes": [g for g in option_values(args, ["--exclude"]) if "/" not in g],
+                "dir_excludes": option_values(args, ["--exclude-dir"]),
+                "includes": [g for g in option_values(args, ["--include"]) if "/" not in g],
+                "follow": "R" in letters or "--dereference-recursive" in strs, "path_globs": False}
     if prog == "rg":
-        hidden = "--hidden" in strs or "." in letters or any(a.startswith("-uu") or a == "-u" and strs.count("-u") > 1
-                                                              for a in strs)
+        hidden = "--hidden" in strs or "." in letters or letters.count("u") >= 2 or \
+            any(a in ("--unrestricted",) for a in strs) and strs.count("--unrestricted") >= 2
         if not hidden:
             return None
-        globs_ = option_values(strs, ["-g", "--glob", "--iglob"])
-        return ([g[1:] for g in globs_ if g.startswith("!")], [], [g for g in globs_ if not g.startswith("!")])
+        globs_ = option_values(args, ["-g", "--glob", "--iglob"], braces="always")
+        return {"excludes": [g[1:] for g in globs_ if g.startswith("!")], "dir_excludes": [],
+                "includes": [g for g in globs_ if not g.startswith("!")],
+                "follow": "L" in letters or "--follow" in strs, "path_globs": True}
     if prog == "ag":
-        if not set(strs) & {"--hidden", "-u", "--unrestricted"}:
+        if not set(strs) & {"--hidden", "-u", "--unrestricted"} and "u" not in letters:
             return None
-        return (option_values(strs, ["--ignore"]), [], [])
+        return {"excludes": option_values(args, ["--ignore"]), "dir_excludes": [], "includes": [],
+                "follow": "f" in letters or "--follow" in strs, "path_globs": False}
     return None
 
 
-def first_secret_in_tree(top, project, globs, excludes, dir_excludes, includes):
+def glob_hits(name, rel, patterns, path_globs):
+    """True when a file matches one of the globs: by base name, or (rg) by its path under the search root."""
+    for g in patterns:
+        if "/" in g:
+            if path_globs and fnmatch.fnmatchcase(rel, g.lstrip("/")):
+                return True
+        elif fnmatch.fnmatchcase(name, g):
+            return True
+    return False
+
+
+def first_secret_in_tree(top, project, globs, spec):
     """The first secret file a recursive search of `top` would read, as (path, glob), or None."""
-    seen = 0
-    for root, dirs, files in os.walk(top):
-        seen += 1
-        if seen > WALK_LIMIT:
-            return None
+    deadline = time.monotonic() + WALK_SECONDS
+    count = 0
+    seen_dirs = set()
+    for root, dirs, files in os.walk(top, followlinks=spec["follow"]):
+        real = os.path.realpath(root)
+        if real in seen_dirs:  # a symlink loop
+            dirs[:] = []
+            continue
+        seen_dirs.add(real)
         dirs[:] = [d for d in dirs if d not in PRUNE_DIRS
-                   and not any(fnmatch.fnmatchcase(d, g.rstrip("/")) for g in dir_excludes)]
+                   and not any(fnmatch.fnmatchcase(d, g.rstrip("/")) for g in spec["dir_excludes"])]
         for name in files:
-            if any(fnmatch.fnmatchcase(name, g.split("/")[-1]) for g in excludes):
-                continue
-            if includes and not any(fnmatch.fnmatchcase(name, g.split("/")[-1]) for g in includes):
-                continue
+            count += 1
+            if count > WALK_LIMIT_FILES or time.monotonic() > deadline:
+                return None
             full = os.path.join(root, name)
+            rel = os.path.relpath(full, top).replace(os.sep, "/")
+            if glob_hits(name, rel, spec["excludes"], spec["path_globs"]):
+                continue
+            if spec["includes"] and not glob_hits(name, rel, spec["includes"], spec["path_globs"]):
+                continue
             reason = secret_reason(full, project, globs)
             if reason:
                 return full, reason
@@ -411,28 +459,53 @@ def check_recursive_search(prog, args, files, cwd, project, globs):
     spec = recursive_search(prog, args)
     if spec is None:
         return
+    tops = []
     for f in files or ["."]:
         text = home_expanded(str(f))
-        if set(text) & set("*?[$`"):
-            continue  # a glob or expansion operand: the per-file check above already covers what it selects
-        top = os.path.normpath(os.path.join(cwd, text))
+        if set(text) & set("$`"):
+            continue  # an expansion: the path isn't known
+        if set(text) & set("*?["):  # `grep -r KEY *`: the shell hands grep every match, and grep recurses into them
+            tops.extend(sorted(glob.glob(os.path.join(cwd, text)))[:200])
+        else:
+            tops.append(os.path.normpath(os.path.join(cwd, text)))
+    for top in tops:
         if not os.path.isdir(top):
             continue
-        hit = first_secret_in_tree(top, project, globs, *spec)
+        hit = first_secret_in_tree(top, project, globs, spec)
         if hit:
             name = os.path.basename(hit[0])
+            pattern = ".env*" if name.startswith(".env") else name
             raise Blocked("`%s` searches %s, which holds the secret file %s (%s), and would print its matching "
                           "lines. Exclude it and retry: add `--exclude='%s'` (rg: `-g '!%s'`), or search a "
                           "narrower path. `-l` (file names only) is fine"
-                          % (prog, os.path.relpath(top, cwd) if top != cwd else ".",
-                             os.path.relpath(hit[0], cwd), hit[1], ".env*" if name.startswith(".env") else name,
-                             ".env*" if name.startswith(".env") else name))
+                          % (prog, os.path.relpath(top, cwd), os.path.relpath(hit[0], cwd), hit[1], pattern, pattern))
+
+
+TRACE_OPTS = {"xtrace", "verbose"}
+
+
+def turns_tracing(args):
+    """True / False when `set` turns xtrace or verbose on / off, None when it doesn't touch them."""
+    state = None
+    for k, a in enumerate(args):
+        a = str(a)
+        if a in ("-o", "+o") and k + 1 < len(args) and str(args[k + 1]) in TRACE_OPTS:
+            state = a == "-o"
+        elif re.match(r"^[-+][a-zA-Z]+$", a) and set(a[1:]) & {"x", "v"}:
+            state = a[0] == "-"
+    return state
 
 
 def check_bash(command, cwd, project, globs):
     scan_text(command, "the command")  # needs no parsing, so it runs even when the parser gives up
+    tracing = False
     for cmd in kit_shell.iter_commands(command, cwd):
         prog, args = cmd.prog, list(cmd.args)
+        if prog == "set":
+            state = turns_tracing(args)
+            tracing = tracing if state is None else state
+        if prog in ("source", ".") and args and tracing:
+            check_operand(args[0], cmd.cwd, project, globs, "load with tracing on (`set -x` prints every value)")
         for op, target in cmd.redirects:
             if op.endswith("<") or op in ("<", "<>"):
                 check_operand(target, cmd.cwd, project, globs, "read")
