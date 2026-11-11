@@ -239,8 +239,8 @@ def check_git(cmd, ctx=None):
         if any(p.startswith("+") for p in pos[1:]):
             raise Blocked("force push", argv)
     elif sub == "checkout":
-        flags = short_flags(rest, "bBt")
-        target = option_value(rest, "B", "bBt")
+        flags = short_flags(rest, "bB")  # -t takes only an attached value (-tdirect), never the next arg
+        target = option_value(rest, "B", "bB")
         if target is not None and branch_exists(cmd, git_cwd, target, other_repo):  # -B resets an existing branch
             raise Blocked("git branch -D", argv)
         if "f" in flags or "--force" in longs or "--pathspec-from-file" in longs:
@@ -275,10 +275,10 @@ def check_git(cmd, ctx=None):
         if worktree or not staged:
             raise Blocked("git restore", argv)
     elif sub == "switch":
-        flags = short_flags(rest, "cCt")
+        flags = short_flags(rest, "cC")  # -t: as for checkout
         if "f" in flags or longs & {"--force", "--discard-changes"}:
             raise Blocked("git switch -f", argv)
-        target = option_value(rest, "C", "cCt", "--force-create", "--force-c")
+        target = option_value(rest, "C", "cC", "--force-create", "--force-")
         if target is not None and branch_exists(cmd, git_cwd, target, other_repo):  # -C resets an existing branch
             raise Blocked("git branch -D", argv)
     elif sub == "worktree":

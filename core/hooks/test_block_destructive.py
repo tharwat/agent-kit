@@ -59,7 +59,7 @@ BLOCKED = {
     "git checkout -- <path> discards changes": [
         "git checkout -- path", "git checkout .", "git checkout -f", "git checkout --force main",
         "git checkout HEAD -- src/", "git checkout main a.ts", "git checkout ./src", "git -C x checkout -- a",
-        "git checkout -qf main", "git checkout --pathspec-from-file=list.txt", "git checkout --ours a.ts",
+        "git checkout -qf main", "git checkout -t -f origin/x", "git checkout --pathspec-from-file=list.txt", "git checkout --ours a.ts",
         "git checkout keep.txt", "git checkout -p keep.txt", "git checkout *.py", "git checkout 'src/*.ts'",
         "git diff --name-only | xargs git checkout --", "git ls-files -m | xargs git checkout"],
     "git stash drop/clear": ["git stash drop", "git stash drop stash@{1}", "git stash clear", "git -C x stash clear",
@@ -67,7 +67,7 @@ BLOCKED = {
     "git restore": ["git restore f", "git restore --worktree f", "git restore --staged --worktree f",
                     "git restore -s HEAD~1 f", "git restore -SW f", "git restore .", "git restore --source=HEAD f"],
     "git switch -f": ["git switch -f x", "git switch --force x", "git switch --discard-changes x",
-                      "git switch -fc x"],
+                      "git switch -fc x", "git switch -t -f origin/x"],
     "git worktree remove --force": ["git worktree remove --force p", "git worktree remove -f p",
                                     "git worktree remove p --force", "git worktree remove p -f"],
 }
@@ -234,7 +234,8 @@ class OverwriteBranch(HookCase):
                     "git branch -M feature/x", "git branch -M old feature/x", "git branch -C main",
                     "git branch -m -f old main", "git branch --move --force old main", "git branch -cf old main",
                     "cd / && git -C %s checkout -B main" % self.repo, "git checkout -B newx -B feature/x main",
-                    "git switch -C newx -C feature/x", "git switch --force-c feature/x HEAD", "git switch --force-cr=main",
+                    "git switch -C newx -C feature/x", "git switch --force-c feature/x HEAD", "git switch --force-cr=main", "git switch --force- feature/x main",
+                    "git switch --force-=main",
                     "cd / && git checkout -B feature/x",  # git fails outside a repo: unknown, so blocked
                     "git --git-dir=%s/.git checkout -B new-thing" % self.repo,
                     "git --work-tree=. checkout -B new-thing", "GIT_DIR=%s/.git git branch -M main new-thing" % self.repo,
