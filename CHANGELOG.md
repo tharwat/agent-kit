@@ -7,11 +7,13 @@ installed version before an upgrade.
 ## 1.3.1 — 2026-11-11
 
 - **Wider destructive-command deny list.** The installed `.claude/settings.json` now also denies `rmdir`, `unlink`,
-  `git stash drop` / `clear`, `git checkout -- <path>` / `-f`, `git switch -f` / `--discard-changes`,
-  `git worktree remove --force` / `-f`, `git push --force-with-lease`, and a force flag after the push target
-  (`git push origin x --force`, `git push origin x -f`). Claude Code applies deny rules to every sub-command,
-  including inside `$(…)` and subshells. Forms a prefix rule can't express (options before the subcommand, deletes
-  passed as arguments) are left to the guard hook in a later release.
+  `git stash drop` / `clear`, `git checkout -- <path>` / `<rev> -- <path>` / `.` / `-f` / `--force`,
+  `git switch -f` / `--force` / `--discard-changes`, `git worktree remove --force` / `-f` (before or after the path),
+  `git push --force-with-lease`, and a force flag after the push target (`git push origin x --force`). Claude Code
+  applies deny rules to every sub-command, including inside `$(…)`, subshells and loop bodies. Forms a prefix rule
+  can't express are left to the destructive-command guard hook in the next release: options before the subcommand
+  (`git -C x reset --hard`), combined short flags (`git push -uf`), `+refspec` force pushes, and deletes passed as
+  arguments (`xargs rm`, `find -exec rm`, `bash -c "…"`).
 - **Kept on purpose:** `Bash(rm -rf *)` and `Bash(git clean *)` stay denied, so `git clean -n` stays refused too.
 
 **Upgrade touches:** `.claude/settings.json` (the new deny rules are appended; your own rules and their order are
