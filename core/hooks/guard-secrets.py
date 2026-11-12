@@ -382,7 +382,7 @@ def short_letters(prog, strs):
     return letters
 
 
-def ordered_filters(args, kinds, braces="unquoted"):
+def ordered_filters(args, kinds, braces="unquoted", keep_path_includes=False):
     """[(kind, glob), …] in command order, for options mapped to "exclude" / "include" in `kinds`. An rg glob is
     one option for both: `!x` excludes, `x` includes."""
     out = []
@@ -403,8 +403,9 @@ def ordered_filters(args, kinds, braces="unquoted"):
                 else:
                     out.append((kind, g))
             break
-    # a glob with a `/` is matched differently by each tool (and never by grep while recursing): it excludes nothing
-    return [(kind, g) for kind, g in out if "/" not in g.rstrip("/")]
+    # a glob with a `/` is matched differently by each tool (and never by grep while recursing): it excludes nothing.
+    # An rg include glob with a `/` is kept: it can still select a secret file (`-g '**/.env*'`)
+    return [(kind, g) for kind, g in out if "/" not in g.rstrip("/") or (keep_path_includes and kind == "include")]
 
 
 def recursive_search(prog, args):
@@ -424,32 +425,46 @@ def recursive_search(prog, args):
                 "follow": "R" in letters or "--dereference-recursive" in strs, "hidden": True, "vcs_ignore": False}
     if prog == "rg":
         unrestricted = letters.count("u") + strs.count("--unrestricted")
-        return {"tool": "rg", "filters": ordered_filters(args, {"-g": "rg", "--glob": "rg", "--iglob": "rg"}, "always"),
+        return {"tool": "rg", "filters": ordered_filters(args, {"-g": "rg", "--glob": "rg", "--iglob": "rg"}, "always",
+                                                         keep_path_includes=True),
                 "dir_excludes": [], "follow": "L" in letters or "--follow" in strs,
                 "hidden": "--hidden" in strs or "." in letters or unrestricted >= 2,
                 "vcs_ignore": not (unrestricted or set(strs) & {"--no-ignore", "--no-ignore-vcs"})}
     if prog == "ag":
         unrestricted = "u" in letters or "--unrestricted" in strs
-        return {"tool": "ag", "filters": ordered_filters(args, {"--ignore": "exclude"}), "dir_excludes": [],
-                "follow": "f" in letters or "--follow" in strs, "hidden": unrestricted or "--hidden" in strs,
-                "vcs_ignore": not (unrestricted or "U" in letters or "--skip-vcs-ignores" in strs)}
+        # -a / -t search every file: ag skips its ignore rules, --ignore included
+        search_all = set(letters) & {"a", "t"} or set(strs) & {"--all-types", "--all-text"}
+        return {"tool": "ag", "filters": [] if search_all else ordered_filters(args, {"--ignore": "exclude"}),
+                "dir_excludes": [], "follow": "f" in letters or "--follow" in strs,
+                "hidden": unrestricted or "--hidden" in strs,
+                "vcs_ignore": not (unrestricted or search_all or "U" in letters or "--skip-vcs-ignores" in strs)}
     return None
 
 
-def filtered_out(name, spec):
-    """True when the search skips this file name because of its --exclude / --include / -g globs."""
-    filters = [(kind, g) for kind, g in spec["filters"]]
+def glob_matches(g, name, rel):
+    if "/" not in g:
+        return fnmatch.fnmatchcase(name, g)
+    g = g.lstrip("/")
+    return fnmatch.fnmatchcase(rel, g) or (g.startswith("**/") and fnmatch.fnmatchcase(name, g[3:]))
+
+
+def search_state(name, rel, spec):
+    """"skip" when the file's globs leave it out, "forced" when an rg include glob selects it (rg then reads it even
+    if it's hidden or gitignored), else "default" (the tool's hidden and ignore rules decide)."""
+    filters = spec["filters"]
     if not filters:
-        return False
-    matches = [kind for kind, g in filters if fnmatch.fnmatchcase(name, g)]
+        return "default"
+    matches = [kind for kind, g in filters if glob_matches(g, name, rel)]
     includes = [g for kind, g in filters if kind == "include"]
+    if spec["tool"] == "rg":  # rg: the last matching glob wins; with any include glob, unmatched names are skipped
+        if matches:
+            return "forced" if matches[-1] == "include" else "skip"
+        return "skip" if includes else "default"
     # plain reading: any exclude wins; with includes, only included names are searched
     plain = "exclude" in matches or (bool(includes) and "include" not in matches)
-    if spec["tool"] == "rg":  # rg: the last matching glob wins; with any include glob, unmatched names are skipped
-        return matches[-1] == "exclude" if matches else bool(includes)
     # GNU grep: the last matching option wins; with none matching, the file is skipped only when the first is an include
     gnu = matches[-1] == "exclude" if matches else filters[0][0] == "include"
-    return plain and gnu  # BSD and GNU grep differ: count the file as searched if either would search it
+    return "skip" if plain and gnu else "default"  # BSD and GNU differ: searched if either would search it
 
 
 def git_ignored(path):
@@ -477,11 +492,12 @@ def first_secret_in_tree(top, project, globs, spec, budget):
             budget["files"] += 1
             if budget["files"] > WALK_LIMIT_FILES or time.monotonic() > budget["deadline"]:
                 return None
-            if (not spec["hidden"] and name.startswith(".")) or filtered_out(name, spec):
-                continue
             full = os.path.join(root, name)
+            state = search_state(name, os.path.relpath(full, top).replace(os.sep, "/"), spec)
+            if state == "skip" or (state == "default" and not spec["hidden"] and name.startswith(".")):
+                continue
             reason = secret_reason(full, project, globs)
-            if reason and not (spec["vcs_ignore"] and git_ignored(full)):
+            if reason and (state == "forced" or not (spec["vcs_ignore"] and git_ignored(full))):
                 return full, reason
     return None
 
@@ -549,14 +565,17 @@ def check_bash(command, cwd, project, globs):
         if prog == "set":
             state = turns_tracing(args)
             tracing = tracing if state is None else state
-        if prog in ("source", ".") and args:
+        operands = args[1:] if args and str(args[0]) == "--" else args
+        if prog in ("source", ".") and operands:
+            target = operands[0]
             if tracing:
-                check_operand(args[0], cmd.cwd, project, globs, "load with tracing on (`set -x` prints every value)")
+                check_operand(target, cmd.cwd, project, globs, "load with tracing on (`set -x` prints every value)")
             # sourcing is allowed for env files only; a key or token file isn't shell, so bash echoes it in errors
-            reason = secret_reason(os.path.join(cmd.cwd, home_expanded(str(args[0]))), project, globs)
-            if reason and reason not in ENV_FILE_GLOBS:
+            path = os.path.join(cmd.cwd, home_expanded(str(target)))
+            reason = secret_reason(path, project, globs)
+            if reason and not any(fnmatch.fnmatchcase(os.path.basename(path), g) for g in ENV_FILE_GLOBS):
                 raise Blocked("%s is a secret file (%s) and isn't shell: sourcing it prints its lines in errors"
-                              % (os.path.basename(str(args[0])), reason))
+                              % (os.path.basename(str(target)), reason))
         for op, target in cmd.redirects:
             if op.endswith("<") or op in ("<", "<>"):
                 check_operand(target, cmd.cwd, project, globs, "read")
