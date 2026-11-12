@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import re
+import tempfile
 import unittest
 
 from kit_testlib import KIT, agent_kit, kit_text_files, load_json, manifest, unit_files
@@ -225,6 +226,32 @@ class HooksEnforcePatterns(unittest.TestCase):
                 self.assertTrue(hit, "no blocked sample matches this manifest pattern")
                 self.assertTrue(all(re.search(hook.SHAPES[p["reason"]], s) for s in hit))
         self.assertEqual(set(hook.SHAPES), {p["reason"] for p in tokens})
+
+    SOURCE_EXCEPTION = "`source` an env file only to run a command"
+
+    def test_secret_rule_and_hook_agree_on_sourcing(self):
+        """The written No-secrets rule allows `source` of an env file, the hook allows it, and both copies agree."""
+        for rel in ("core/CLAUDE.kit.md.tmpl", "core/AGENTS.md.tmpl"):
+            rule = [l for l in readf(os.path.join(KIT, rel)).split("\n") if l.startswith("- **No secrets**")]
+            with self.subTest(file=rel):
+                self.assertEqual(len(rule), 1)
+                self.assertIn(self.SOURCE_EXCEPTION, rule[0])
+        hook = load_hook("core/hooks/guard-secrets.py", "guard_secrets")
+        with tempfile.TemporaryDirectory() as d:
+            event = lambda cmd: {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": d}
+            hook.check_event(event("source .env && npm test"))  # allowed: raises nothing
+            with self.assertRaises(hook.Blocked):
+                hook.check_event(event("cat .env"))
+
+    def test_agents_template_restates_the_tagged_lines(self):
+        """AGENTS.md.tmpl's restated block is exactly CLAUDE.kit.md.tmpl's tagged lines, then CLAUDE.md.tmpl's.
+        The installer rebuilds the block on install, so without this the template's copy could drift unseen."""
+        tagged = [l for rel in ("core/CLAUDE.kit.md.tmpl", "core/CLAUDE.md.tmpl")
+                  for l in readf(os.path.join(KIT, rel)).split("\n") if l.rstrip().endswith("<!-- codex-restate -->")]
+        agents = readf(os.path.join(KIT, "core", "AGENTS.md.tmpl"))
+        block = agents.split("<!-- codex-restate:start -->\n", 1)[1].split("<!-- codex-restate:end -->", 1)[0]
+        self.assertTrue(tagged)
+        self.assertEqual([l for l in block.split("\n") if l.strip()], tagged)
 
 
 class Placeholders(unittest.TestCase):

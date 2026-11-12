@@ -31,14 +31,19 @@ installed version before an upgrade.
     Templates (`.example`, `.sample`, `.template`, `.dist`) are committed, so they're scanned for tokens too; only
     their sample URLs are left alone. Placeholders (`${VAR}`, `${VAR:-default}`, `{password}`, `#{x}`, `%s`, `<pass>`)
     and localhost dev URLs aren't secrets. The content scan runs even when a command can't be parsed.
+- **Rule text:** the No secrets rule in `CLAUDE.kit.md` and its `AGENTS.md` restatement now say "`source` an env
+  file only to run a command", matching the hook.
 - **New project-owned file `docs/agent/secret-files.md`:** your extra secret-file globs, one per bullet. The kit
   defaults are always enforced; the file only adds.
 - **Parser:** `env` or `sudo` with nothing after it is now reported as the command itself, and a redirect on a
   keyword (`done < file`) is kept.
 - **Kit test:** every token-shape entry in the manifest denylist must have a rule in the hook and a blocked sample.
+  The No secrets rule must carry the env-file exception the hook allows, and `AGENTS.md.tmpl`'s restated block
+  must equal the tagged lines it copies.
 
 **Upgrade touches:** `.claude/settings.json` (adds the `guard-secrets.py` PreToolUse hook), `.claude/hooks/` (adds
-`guard-secrets.py`, updates `kit_shell.py`), `docs/agent/secret-files.md` (created if absent, never overwritten).
+`guard-secrets.py`, updates `kit_shell.py`), `CLAUDE.kit.md`, the `AGENTS.md` Codex section, `docs/agent/secret-files.md`
+(created if absent, never overwritten).
 
 ## 1.4.0 — 2026-11-11
 
