@@ -9,9 +9,10 @@ out of what it writes.
     password. Projects add their own globs in `docs/agent/secret-files.md` (one per bullet); the defaults always
     apply. Bash is checked on the file arguments of readers and copiers and on `< file` redirects, and `env`,
     `printenv`, `set`, `export -p` with no names (they dump every secret) and `printenv <secret-name>` are blocked.
-    A recursive `grep -r` (or `rg` / `ag` told to search hidden files) over a tree that holds a secret file is
-    blocked unless the command excludes it (`--exclude='.env*'`, `-g '!.env*'`) or prints only names (`-l`).
-    `source .env` / `. .env` are allowed (owner decision): loading values doesn't print them, and the print checks
+    A recursive search (`grep -r`, `rg`, `ag`) over a tree that holds a secret file the tool would read (rg and ag
+    skip hidden and gitignored files unless told otherwise) is blocked unless the command excludes it by name
+    (`--exclude='.env*'`, `-g '!.env*'`) or prints only names (`-l`).
+    `source .env` / `. .env` (env files only, not keys) are allowed (owner decision): loading values doesn't print them, and the print checks
     stay. With `set -x` / `set -v` on in the same command it would print them, so that is blocked. (A malformed line
     can still show a fragment in a shell error.)
     Writing a new `.env` with Write is allowed; the content scan below still runs.
@@ -29,6 +30,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -47,6 +49,7 @@ ENV_TEMPLATES = (".example", ".sample", ".template", ".dist")
 DEFAULT_GLOBS = [".env", ".env.*", "*.pem", "*.key", "*.p8", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*", "id_ecdsa*",
                  ".claude/notify.env", ".netrc", ".aws/credentials", ".docker/config.json", ".kube/config",
                  ".config/gh/hosts.yml", ".git-credentials", "*.env", ".envrc"]
+ENV_FILE_GLOBS = {".env", ".env.*", "*.env", ".envrc"}  # the secret files `source` may load (owner decision)
 TOKEN_FILES = {".npmrc", ".pypirc"}  # secret only when they hold a credential
 # a credential with a literal value (an `${ENV}` reference is not one)
 TOKEN_FILE_RE = re.compile(r"(_authToken|_auth|_password|password)\s*[=:]\s*(?!\$\{|\$[A-Za-z_]|\s*$)\S", re.I | re.M)
@@ -379,10 +382,33 @@ def short_letters(prog, strs):
     return letters
 
 
+def ordered_filters(args, kinds, braces="unquoted"):
+    """[(kind, glob), …] in command order, for options mapped to "exclude" / "include" in `kinds`. An rg glob is
+    one option for both: `!x` excludes, `x` includes."""
+    out = []
+    for k, a in enumerate(args):
+        text = str(a)
+        if text == "--":
+            break
+        for n, kind in kinds.items():
+            if text == n and k + 1 < len(args):
+                found = option_values([a, args[k + 1]], [n], braces)
+            elif text.startswith(n + "=") or (not n.startswith("--") and text.startswith(n) and len(text) > len(n)):
+                found = option_values([a], [n], braces)
+            else:
+                continue
+            for g in found:
+                if kind == "rg":
+                    out.append(("exclude", g[1:]) if g.startswith("!") else ("include", g))
+                else:
+                    out.append((kind, g))
+            break
+    # a glob with a `/` is matched differently by each tool (and never by grep while recursing): it excludes nothing
+    return [(kind, g) for kind, g in out if "/" not in g.rstrip("/")]
+
+
 def recursive_search(prog, args):
-    """A dict (excludes, dir_excludes, includes, follow, path_globs) when this grep / rg / ag searches directory trees
-    and prints matching lines, else None. rg and ag skip hidden files unless told otherwise, so they count only
-    with --hidden / -u."""
+    """How this grep / rg / ag searches directory trees, as a dict, when it prints matching lines; else None."""
     strs = [str(a) for a in args]
     letters = short_letters(prog, strs)
     short, longs = NAMES_ONLY.get(prog, ("", set()))
@@ -393,43 +419,51 @@ def recursive_search(prog, args):
             "recurse" in option_values(args, ["--directories", "-d"])
         if not recursive:
             return None
-        # grep matches --exclude / --include against base names while recursing: a glob with a `/` never matches
-        return {"excludes": [g for g in option_values(args, ["--exclude"]) if "/" not in g],
+        return {"tool": "grep", "filters": ordered_filters(args, {"--exclude": "exclude", "--include": "include"}),
                 "dir_excludes": option_values(args, ["--exclude-dir"]),
-                "includes": [g for g in option_values(args, ["--include"]) if "/" not in g],
-                "follow": "R" in letters or "--dereference-recursive" in strs, "path_globs": False}
+                "follow": "R" in letters or "--dereference-recursive" in strs, "hidden": True, "vcs_ignore": False}
     if prog == "rg":
-        hidden = "--hidden" in strs or "." in letters or letters.count("u") >= 2 or \
-            any(a in ("--unrestricted",) for a in strs) and strs.count("--unrestricted") >= 2
-        if not hidden:
-            return None
-        globs_ = option_values(args, ["-g", "--glob", "--iglob"], braces="always")
-        return {"excludes": [g[1:] for g in globs_ if g.startswith("!")], "dir_excludes": [],
-                "includes": [g for g in globs_ if not g.startswith("!")],
-                "follow": "L" in letters or "--follow" in strs, "path_globs": True}
+        unrestricted = letters.count("u") + strs.count("--unrestricted")
+        return {"tool": "rg", "filters": ordered_filters(args, {"-g": "rg", "--glob": "rg", "--iglob": "rg"}, "always"),
+                "dir_excludes": [], "follow": "L" in letters or "--follow" in strs,
+                "hidden": "--hidden" in strs or "." in letters or unrestricted >= 2,
+                "vcs_ignore": not (unrestricted or set(strs) & {"--no-ignore", "--no-ignore-vcs"})}
     if prog == "ag":
-        if not set(strs) & {"--hidden", "-u", "--unrestricted"} and "u" not in letters:
-            return None
-        return {"excludes": option_values(args, ["--ignore"]), "dir_excludes": [], "includes": [],
-                "follow": "f" in letters or "--follow" in strs, "path_globs": False}
+        unrestricted = "u" in letters or "--unrestricted" in strs
+        return {"tool": "ag", "filters": ordered_filters(args, {"--ignore": "exclude"}), "dir_excludes": [],
+                "follow": "f" in letters or "--follow" in strs, "hidden": unrestricted or "--hidden" in strs,
+                "vcs_ignore": not (unrestricted or "U" in letters or "--skip-vcs-ignores" in strs)}
     return None
 
 
-def glob_hits(name, rel, patterns, path_globs):
-    """True when a file matches one of the globs: by base name, or (rg) by its path under the search root."""
-    for g in patterns:
-        if "/" in g:
-            if path_globs and fnmatch.fnmatchcase(rel, g.lstrip("/")):
-                return True
-        elif fnmatch.fnmatchcase(name, g):
-            return True
-    return False
+def filtered_out(name, spec):
+    """True when the search skips this file name because of its --exclude / --include / -g globs."""
+    filters = [(kind, g) for kind, g in spec["filters"]]
+    if not filters:
+        return False
+    matches = [kind for kind, g in filters if fnmatch.fnmatchcase(name, g)]
+    includes = [g for kind, g in filters if kind == "include"]
+    # plain reading: any exclude wins; with includes, only included names are searched
+    plain = "exclude" in matches or (bool(includes) and "include" not in matches)
+    if spec["tool"] == "rg":  # rg: the last matching glob wins; with any include glob, unmatched names are skipped
+        return matches[-1] == "exclude" if matches else bool(includes)
+    # GNU grep: the last matching option wins; with none matching, the file is skipped only when the first is an include
+    gnu = matches[-1] == "exclude" if matches else filters[0][0] == "include"
+    return plain and gnu  # BSD and GNU grep differ: count the file as searched if either would search it
 
 
-def first_secret_in_tree(top, project, globs, spec):
-    """The first secret file a recursive search of `top` would read, as (path, glob), or None."""
-    deadline = time.monotonic() + WALK_SECONDS
-    count = 0
+def git_ignored(path):
+    try:
+        out = subprocess.run(["git", "-C", os.path.dirname(path), "check-ignore", "-q", path], capture_output=True,
+                             timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0
+
+
+def first_secret_in_tree(top, project, globs, spec, budget):
+    """The first secret file a recursive search of `top` would read, as (path, glob), or None. `budget` is shared by
+    every root of one command; when it runs out the walk stops (fail open)."""
     seen_dirs = set()
     for root, dirs, files in os.walk(top, followlinks=spec["follow"]):
         real = os.path.realpath(root)
@@ -437,41 +471,52 @@ def first_secret_in_tree(top, project, globs, spec):
             dirs[:] = []
             continue
         seen_dirs.add(real)
-        dirs[:] = [d for d in dirs if d not in PRUNE_DIRS
+        dirs[:] = [d for d in dirs if d not in PRUNE_DIRS and (spec["hidden"] or not d.startswith("."))
                    and not any(fnmatch.fnmatchcase(d, g.rstrip("/")) for g in spec["dir_excludes"])]
         for name in files:
-            count += 1
-            if count > WALK_LIMIT_FILES or time.monotonic() > deadline:
+            budget["files"] += 1
+            if budget["files"] > WALK_LIMIT_FILES or time.monotonic() > budget["deadline"]:
                 return None
+            if (not spec["hidden"] and name.startswith(".")) or filtered_out(name, spec):
+                continue
             full = os.path.join(root, name)
-            rel = os.path.relpath(full, top).replace(os.sep, "/")
-            if glob_hits(name, rel, spec["excludes"], spec["path_globs"]):
-                continue
-            if spec["includes"] and not glob_hits(name, rel, spec["includes"], spec["path_globs"]):
-                continue
             reason = secret_reason(full, project, globs)
-            if reason:
+            if reason and not (spec["vcs_ignore"] and git_ignored(full)):
                 return full, reason
     return None
+
+
+def operand_paths(word, cwd, project):
+    """The paths one search operand names: braces and globs expanded, `$PWD` / `$(pwd)` / `$CLAUDE_PROJECT_DIR`
+    resolved. Any other expansion: none (the path isn't known)."""
+    text = str(word)
+    for var, value in (("$(pwd)", cwd), ("${PWD}", cwd), ("$PWD", cwd), ("${CLAUDE_PROJECT_DIR}", project),
+                       ("$CLAUDE_PROJECT_DIR", project)):
+        text = text.replace(var, value)
+    text = home_expanded(text)
+    if set(text) & set("$`"):
+        return []
+    raw = getattr(word, "raw", str(word))
+    words = brace_alternatives(text) if not set(raw) & set("'\"\\") else [text]
+    out = []
+    for w in words:
+        if set(w) & set("*?["):  # `grep -r KEY *`: the shell hands grep every match, and grep recurses into them
+            out.extend(sorted(glob.glob(os.path.join(cwd, w)))[:200])
+        else:
+            out.append(os.path.normpath(os.path.join(cwd, w)))
+    return out
 
 
 def check_recursive_search(prog, args, files, cwd, project, globs):
     spec = recursive_search(prog, args)
     if spec is None:
         return
-    tops = []
-    for f in files or ["."]:
-        text = home_expanded(str(f))
-        if set(text) & set("$`"):
-            continue  # an expansion: the path isn't known
-        if set(text) & set("*?["):  # `grep -r KEY *`: the shell hands grep every match, and grep recurses into them
-            tops.extend(sorted(glob.glob(os.path.join(cwd, text)))[:200])
-        else:
-            tops.append(os.path.normpath(os.path.join(cwd, text)))
+    budget = {"files": 0, "deadline": time.monotonic() + WALK_SECONDS}
+    tops = [p for f in (files or ["."]) for p in operand_paths(f, cwd, project)]
     for top in tops:
         if not os.path.isdir(top):
             continue
-        hit = first_secret_in_tree(top, project, globs, spec)
+        hit = first_secret_in_tree(top, project, globs, spec, budget)
         if hit:
             name = os.path.basename(hit[0])
             pattern = ".env*" if name.startswith(".env") else name
@@ -504,8 +549,14 @@ def check_bash(command, cwd, project, globs):
         if prog == "set":
             state = turns_tracing(args)
             tracing = tracing if state is None else state
-        if prog in ("source", ".") and args and tracing:
-            check_operand(args[0], cmd.cwd, project, globs, "load with tracing on (`set -x` prints every value)")
+        if prog in ("source", ".") and args:
+            if tracing:
+                check_operand(args[0], cmd.cwd, project, globs, "load with tracing on (`set -x` prints every value)")
+            # sourcing is allowed for env files only; a key or token file isn't shell, so bash echoes it in errors
+            reason = secret_reason(os.path.join(cmd.cwd, home_expanded(str(args[0]))), project, globs)
+            if reason and reason not in ENV_FILE_GLOBS:
+                raise Blocked("%s is a secret file (%s) and isn't shell: sourcing it prints its lines in errors"
+                              % (os.path.basename(str(args[0])), reason))
         for op, target in cmd.redirects:
             if op.endswith("<") or op in ("<", "<>"):
                 check_operand(target, cmd.cwd, project, globs, "read")

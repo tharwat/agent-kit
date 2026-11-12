@@ -14,11 +14,12 @@ installed version before an upgrade.
     is fine). `~/…` and `$HOME/…` paths are expanded. In Bash it checks the files given to readers, copiers and archivers (`cat`, `grep`, `sed`, `cp`, `cp -t`,
     `tar`, …), globs such as `cat .env*`, `< file` redirects, `git show HEAD:.env`, and files sent with
     `curl -d @file` / `-F x=@file` / `-T file`. Writing a *new* `.env` is allowed, and so is `source .env` /
-    `. .env`: loading the values doesn't print them, and the print checks below still apply (with `set -x` / `set -v`
+    `. .env` (env files only; sourcing a key or token file would print it in shell errors): loading the values doesn't print them, and the print checks below still apply (with `set -x` / `set -v`
     on in the same command it would, so that is blocked).
-  - **Recursive searches:** `grep -r` (and `rg` / `ag` told to search hidden files) over a folder that holds a secret
-    file is blocked unless the command excludes it: the message says to add `--exclude='.env*'` (rg:
-    `-g '!.env*'`). Glob operands (`grep -rn KEY *`) and followed symlinks (`grep -R`) count. `-l` / `-c` / `-q`
+  - **Recursive searches:** `grep -r`, `rg` or `ag` over a folder that holds a secret file the tool would read (rg and
+    ag skip hidden and gitignored files unless told otherwise) is blocked unless the command excludes it by name: the message says to add `--exclude='.env*'` (rg:
+    `-g '!.env*'`). Glob and brace operands (`grep -rn KEY *`) and followed symlinks (`grep -R`) count; a path
+    glob (`--exclude=app/.env`) doesn't exclude. `-l` / `-c` / `-q`
     (names, counts, nothing) are fine, and dependency folders (`node_modules`, `.venv`, `vendor`) are skipped.
   - **Environment dumps:** blocks `env`, `printenv`, bare `set` and `export -p` with no command or names, and
     `printenv` / `declare -p` / `echo $NAME` of a secret-looking name (`*_TOKEN`, `*_KEY`, `*PASSWORD*`, a
