@@ -46,13 +46,15 @@ run it once.
    (and through which direct dependency), and whether a fixed version exists.
 3. **Severity.** A `critical` or `high` advisory in a runtime dependency whose vulnerable code this project can reach
    is **S2**. Everything else, including dev-only and unreachable advisories, is `noted` with the reason.
-4. **Which S2s this ticket fixes.** An S2 is a **must-fix** finding of this ticket only when this ticket brought it
-   in: the lockfile diff (`git diff origin/<MAIN_BRANCH>...HEAD -- <lockfile>`) adds the vulnerable package or changes
-   it to a vulnerable version. Fix it by upgrading the dependency (a dependency change under `<DEPENDENCY_POLICY>`;
-   say why in the PR). An advisory already on `<MAIN_BRANCH>` is not on this ticket's path: its class here is
-   `noted`, not S2, so it doesn't block this ticket. `/release` still blocks on it as S2.
+4. **Which S2s this ticket fixes.** An S2 is a **must-fix** finding of this ticket when this ticket brought it in or
+   newly reaches it: the lockfile diff (`git diff origin/<MAIN_BRANCH>...HEAD -- <lockfile>`) adds the vulnerable
+   package or changes it to a vulnerable version, or the code diff adds a call into the vulnerable function or module
+   the advisory names. Fix it by upgrading the dependency (a dependency change under `<DEPENDENCY_POLICY>`; say why in
+   the PR). An advisory already on `<MAIN_BRANCH>` that this diff doesn't newly reach is not on this ticket's path:
+   its class here is `noted`, not S2, so it doesn't block this ticket. `/release` still blocks on it as S2.
    - **Report it** on the `Pack checks:` line as `⚠️ pre-existing: <package> <advisory id> (noted)`. A ❌ there is only
-     for an advisory this ticket brought in.
+     for an S2 this ticket must fix. A pre-existing ⚠️ alone leaves the `/security` verdict ✅ CLEAR and the post-op
+     Security gate Pass: there is nothing to fix or re-run.
    - **File it:** post one ticket op **comment** `<ticket>` whose first line is
      `Noted for the tracker (security <date>)`, listing each pre-existing advisory with package, severity, advisory
      id and fixed version. `/ship` files it on `<OPEN_ITEMS_TICKET>` with the other noted findings. Leave out an

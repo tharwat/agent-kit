@@ -13,7 +13,8 @@ installed version before an upgrade.
 - **node-esm 1.1.0, typescript 1.1.0: dependency vulnerability audit.** A `## /security` section runs
   `npm audit --omit=dev --json` (or the pnpm / yarn form for that lockfile) and reports direct vs transitive and
   whether a fix exists. A reachable critical or high advisory in a runtime dependency is S2. A ticket must fix an
-  S2 only when its own lockfile change brought it in. One already on main is class `noted` for the ticket: shown as
+  S2 only when its own lockfile change brought it in or its code newly calls the vulnerable code. One already on
+  main is class `noted` for the ticket (the verdict stays CLEAR): shown as
   `⚠️ pre-existing` on the `Pack checks:` line and posted in a `Noted for the tracker (security <date>)` comment,
   which `/ship` files on the open-items ticket. The rest is `noted`. `/release` runs the same audit and blocks on any
   open S2.
@@ -27,7 +28,8 @@ installed version before an upgrade.
 
 **Upgrade touches:** with notify-telegram, `.claude/settings.json` (adds the Notification hook) and
 `.claude/hooks/notify-waiting.py`; with node-esm or typescript, `.claude/packs/<pack>.md` and the allow rules in
-`.claude/settings.json`; always, `docs/workflow/ticket-ops.md` (adds the `Noted for the tracker (security …)` row).
+`.claude/settings.json`; always, `docs/workflow/ticket-ops.md` (adds the `Noted for the tracker (security …)` row) and
+`.claude/commands/post-op.md` (round rule 11 names that comment).
 
 ## 1.6.0 — 2026-11-11
 

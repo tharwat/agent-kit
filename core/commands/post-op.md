@@ -294,8 +294,8 @@ This section is the one definition. Other commands cite it as "round rule N".
     tickets) writes **one** comment on `<OPEN_ITEMS_TICKET>` with ticket op **comment**, before closing, from the
     records already on the ticket. Never a ticket per finding. Post-op and `/peer-review` only record items on the
     ticket.
-    - **Filed:** every `noted` item in the round records, every item in a `Noted for the tracker` comment from
-      `/peer-review`, and every noted sibling, pre-existing gap or accepted bounded race the records name.
+    - **Filed:** every `noted` item in the round records, every item in a `Noted for the tracker` comment (from
+      `/peer-review`, or a pack's `/security` audit), and every noted sibling, pre-existing gap or accepted bounded race the records name.
     - **Format:** `## <ticket> — <title> (closed <date>; round records <comment refs>)`, then one numbered item
       each: **where** (`file:line` or function), **effect** (what happens, to whom), **why it was left open** (class,
       pre-existing or not), **suggested fix and test**, tagged `(worth fixing)` or `(minor)`, plus `· S3` when it
