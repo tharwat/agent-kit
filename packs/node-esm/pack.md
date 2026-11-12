@@ -56,8 +56,8 @@ run it once.
      for an S2 this ticket must fix. A pre-existing ⚠️ alone leaves the `/security` verdict ✅ CLEAR and the post-op
      Security gate Pass: there is nothing to fix or re-run.
    - **File it:** post one ticket op **comment** `<ticket>` whose first line is
-     `Noted for the tracker (security <date>)`, listing each pre-existing advisory with package, severity, advisory
-     id and fixed version. `/ship` files it on `<OPEN_ITEMS_TICKET>` with the other noted findings. Leave out an
+     `Noted for the tracker (security <date>)`, listing each pre-existing advisory, and every other advisory step 3
+     marked `noted`, with package, severity, advisory id and fixed version. `/ship` files it on `<OPEN_ITEMS_TICKET>` with the other noted findings. Leave out an
      advisory `<OPEN_ITEMS_TICKET>` already lists.
 5. **Never run `npm audit fix`** (or `pnpm` / `yarn` equivalents). It rewrites the lockfile, which is a dependency
    change you must make on purpose.
