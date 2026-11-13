@@ -244,6 +244,51 @@ class BlockPushBeforeReview(unittest.TestCase):
             with self.subTest(cmd=cmd, branch="main"):
                 self.assertEqual(p.run(cmd).returncode, 2)
 
+    def test_round_three_routes(self):
+        self.p.arm()
+        for cmd in [
+            # switching to main earlier in the same command
+            "git checkout main && git merge --ff-only feature/abc-7 && git push",
+            "git switch main && git merge feature/abc-7 && git push origin HEAD",
+            "git checkout main; git pull; git merge feature/abc-7; git push origin",
+            'git checkout main && git merge --ff-only feature/abc-7 && git push origin "$(git branch --show-current)"',
+            # a shell behind a launcher
+            "op run --env-file=.env.prod -- sh -c 'npx prisma migrate deploy'",
+            "op run -- sh -c 'git push origin HEAD:main'",
+            "op run -- bash -c 'gh pr merge 7 --squash'",
+            'docker compose exec api sh -c "npx prisma migrate deploy"',
+            'kubectl exec deploy/api -- sh -c "cd /app && npx prisma migrate deploy"',
+            'dotenv -e .env.production -- bash -c "npx prisma migrate deploy"',
+            # gh's repo option before merge
+            "gh pr -R o/r merge 7 --squash",
+            "gh pr --repo o/r merge 7 --squash --delete-branch",
+            "gh -R o/r pr merge 7",
+            # a contents path that ends like an issue path
+            "gh api -X PUT repos/o/r/contents/app/issues/page.tsx -f message=x -f content=eA==",
+            "gh api -X PUT repos/o/r/contents/src/issues/new -f message=x -f content=eA== -f branch=main",
+            # the API host in a variable
+            'API=https://api.github.com; curl -X PUT -H "Authorization: Bearer $T" $API/repos/o/r/pulls/7/merge',
+        ]:
+            with self.subTest(cmd=cmd):
+                result = self.p.run(cmd)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("ABC-7", result.stderr)
+
+    def test_round_three_ordinary_work(self):
+        self.p.arm()
+        for cmd in [
+            'cd "$(git rev-parse --show-toplevel)" && git push -u origin HEAD',
+            "cd \"$PROJECT\" && git push",
+            'git push -u origin "$(git branch --show-current)"',
+            "tldr gh pr merge",
+            "python3 -c \"import subprocess; subprocess.run(['git','push'])\"",
+            "gh api repos/o/r/pulls -f title=x -f head=feature/abc-7 -f base=main",
+            "git checkout -b feature/abc-7-part2 && git push -u origin HEAD",
+            "op run -- sh -c 'npm test'",
+        ]:
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(self.p.run(cmd))
+
     def test_mentions_are_not_commands(self):
         self.p.arm()
         for cmd in [

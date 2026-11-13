@@ -4,11 +4,14 @@
 
 A /hardening run arms `.claude/state/hardening/<ticket>.active` when it branches. While an armed marker exists and
 its `.claude/state/hardening/<ticket>.postop-passed` doesn't (or says `restored`), this hook blocks:
-  - `git push` that can update the main branch: a refspec whose destination is it (also `HEAD` / `@` while on it),
-    `:` and glob refspecs, `--all` / `--mirror` / `--branches`, and a bare `git push` while on it;
-  - `gh pr merge`;
+  - `git push` that can update the main branch: a refspec whose destination is it (also `HEAD` / `@` / a
+    shell-filled branch name while on it), `:` and glob refspecs, `--all` / `--mirror` / `--branches`, and a bare
+    `git push` while on it. "On it" follows a `git checkout` / `git switch` earlier in the same command; a `cd` the
+    parser can't follow is taken to stay in this repo;
+  - `gh pr merge` (also with `-R` / `--repo` before `merge`);
   - writes through the GitHub API, from `gh api`, `curl`, `wget`, httpie (`http`) or `xh`: any method other than
-    GET/HEAD, except comments, labels, reviews, review requests and issues, which can't move a branch. A REST
+    GET/HEAD, except comments, labels, reviews, review requests, issues and opening or editing a PR, which can't move
+    a branch. A REST
     merge, a `/merges` call, a ref update or a contents write is blocked whatever its endpoint. httpie and xh send
     stdin as a body without saying so, so a call to the GitHub API with no explicit GET is a write;
   - GraphQL mutations (also JSON-escaped in a body file), and a GraphQL write whose query can't be read;
@@ -17,9 +20,11 @@ its `.claude/state/hardening/<ticket>.postop-passed` doesn't (or says `restored`
   - GitHub MCP tools that merge (`merge_pull_request`), or that write files (`push_files`, `create_or_update_file`,
     `delete_file`) on the main branch or with no branch named.
 Commands are read with the core shared parser (`kit_shell.py`): `bash -c`, `eval`, `$(…)`, heredoc scripts and
-`xargs` are seen, and these tools are found anywhere in a command's words, so a launcher in front (`op run --`,
-`caffeinate -i`, `watch -n 5`) doesn't hide them. A quoted word with spaces in it (a commit message, a grep pattern)
-is data: a command that only mentions these as text is not blocked.
+`xargs` are seen, and these tools, and a shell's `-c` code or stdin script, are found anywhere in a command's words,
+so a launcher in front (`op run --`, `caffeinate -i`, `watch -n 5`, `docker compose exec api sh -c …`) doesn't hide
+them. A quoted word with spaces in it (a commit message, a grep pattern) is data, and so are the words given to a
+program that only searches or reads them (`grep`, `cat`, `man`, …): a command that only mentions these as text is
+not blocked.
 Everything else is allowed. A marker whose first line is `restored` is a finished run and arms nothing.
 
 Known gaps: a script file run by name (`python3 merge.py`), a command held in a variable or a quoted launcher string
@@ -83,11 +88,14 @@ SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")", "{", "}", "\n"}
 
 READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 HTTP_METHODS = READ_METHODS | {"POST", "PUT", "PATCH", "DELETE"}
-# REST writes that can't move a branch: comments, labels, reviews, review requests, assignees, issues.
+# REST writes that can't move a branch: comments, labels, reviews, review requests, assignees, issues, and opening
+# or editing a PR. Anchored at `repos/<owner>/<repo>/`, so a contents path such as `contents/app/issues/x` isn't one.
 SAFE_WRITE_RE = re.compile(
-    r"(?:^|/)(?:issues(?:/[^/]+(?:/(?:comments|labels(?:/[^/]+)?|assignees))?)?"
-    r"|issues/comments/[^/]+|pulls/[^/]+/(?:comments(?:/[^/]+/replies)?|reviews(?:/[^/]+(?:/events|/comments)?)?"
-    r"|requested_reviewers)|pulls/comments/[^/]+)$")
+    r"^repos/[^/]+/[^/]+/(?:issues(?:/[^/]+(?:/(?:comments|labels(?:/[^/]+)?|assignees))?)?"
+    r"|issues/comments/[^/]+|pulls(?:/[^/]+)?|pulls/[^/]+/(?:comments(?:/[^/]+/replies)?"
+    r"|reviews(?:/[^/]+(?:/events|/comments)?)?|requested_reviewers)|pulls/comments/[^/]+)$")
+# A URL whose host is in a variable (`$API/repos/o/r/…`): the visible path still says it's the GitHub API.
+VAR_API_PATH_RE = re.compile(r"(?:^|/)(repos/[^/\s]+/[^/\s]+/\S*|graphql)$")
 # api.github.com in any case, with a port or a trailing dot; GitHub Enterprise's /api/v3 and /api/graphql.
 GITHUB_HOST_RE = re.compile(r"(?i)(?:^|[/@.])api\.github\.com\.?(?::\d+)?(?=/|$|\?)")
 GHE_PATH_RE = re.compile(r"(?i)/api/(v3|graphql)(?=/|$|\?)")
@@ -120,6 +128,12 @@ CURL_VALUE_LONG = {"--request", "--header", "--user", "--user-agent", "--referer
                    "--telnet-option", "--connect-to", "--aws-sigv4", "--variable", "--expand-url"}
 HTTPIE = {"http", "https", "xh", "xhs"}
 TOOLS = {"gh", "curl", "wget", "git"} | HTTPIE
+# Programs that search or read their words and never run them: a tool name among their words is data. (`echo` and
+# `printf` aren't here: their output can be run, as in `eval "$(echo gh pr merge 1)"`.)
+DATA_PROGS = {"grep", "egrep", "fgrep", "rg", "ag", "cat", "less", "head", "tail", "sed", "awk",
+              "jq", "wc", "man", "which", "type", "whereis", "apropos", "tldr", "git"}
+GH_REPO_OPTS = {"-R", "--repo"}
+MAX_NESTING = 3
 
 
 def project_dir(event):
@@ -247,7 +261,7 @@ def refspecs_reach_main(args, main, current):
         src, colon, dest = spec.partition(":")
         if not colon:
             dest = src
-        if dest in ("HEAD", "@"):
+        if dest in ("HEAD", "@") or (not colon and expands(refspec)):  # `"$(git branch --show-current)"`, `"$BRANCH"`
             dest = current if current else main  # unknown current branch: assume the worst
         if dest.startswith("refs/heads/"):
             dest = dest[len("refs/heads/"):]
@@ -258,11 +272,41 @@ def refspecs_reach_main(args, main, current):
     return False
 
 
-def git_push_action(argv, cmd, main):
+class State:
+    """Per tool call: the branch each directory is on as the commands run (a `git checkout main` earlier in the same
+    command counts), and the session's own directory."""
+
+    def __init__(self, main, cwd):
+        self.main = main
+        self.cwd = cwd
+        self.tracker = kit_facts.BranchTracker(main) if kit_facts is not None else None
+
+    def branch(self, cmd, cwd=None):
+        """The branch a command in cmd's directory is on, or None when unknown. A `cd` the parser couldn't follow
+        is taken to stay in this repo, unless the command also switched branches somewhere."""
+        if self.tracker is None:
+            return None
+        if cmd.cwd_known:
+            return self.tracker.branch_of(cwd or cmd.cwd)
+        return None if self.tracker.branches else self.tracker.branch_of(self.cwd)
+
+    def saw(self, cmd):
+        argv = list(cmd.argv)
+        if self.tracker is None or not argv or os.path.basename(argv[0]) != "git":
+            return
+        sub, rest, cwd = kit_shell.git_split(argv[1:], cmd.cwd)
+        if sub in ("checkout", "switch"):
+            if cmd.cwd_known:
+                self.tracker.saw(sub, rest, cwd)
+            else:  # a switch somewhere we can't place: every branch is now unknown
+                self.tracker.branches[os.path.normpath(self.cwd)] = None
+
+
+def git_push_action(argv, cmd, main, state):
     sub, args, cwd = kit_shell.git_split(list(argv[1:]), cmd.cwd)
     if sub != "push":
         return None
-    current = kit_facts.current_branch(cwd) if (kit_facts is not None and cmd.cwd_known) else None
+    current = state.branch(cmd, cwd)
     reach = refspecs_reach_main(args, main, current)
     if reach is None:  # no refspec: git pushes the current branch
         reach = current is None or current == main
@@ -438,7 +482,12 @@ def gh_api_action(args, cmd):
 
 
 def api_endpoint(url):
-    """The API path of a GitHub API URL (`repos/o/r/…`, `graphql`), or None for any other URL."""
+    """The API path of a GitHub API URL (`repos/o/r/…`, `graphql`), or None for any other URL. A URL whose host the
+    shell fills in (`$API/repos/o/r/pulls/1/merge`) counts when its visible path is a GitHub API path."""
+    if expands(url):
+        m = VAR_API_PATH_RE.search(re.sub(r"[?#].*$", "", str(url)))
+        if m:
+            return m.group(1)
     url = str(url)
     m = GITHUB_HOST_RE.search(url)
     if m:
@@ -559,8 +608,8 @@ def wget_action(args, cmd):
 
 # ---------------------------------------------------------------- per command
 
-def code_action(code, main):
-    """Inline code or a script fed on stdin, matched as text."""
+def code_action(code, main, current=None):
+    """Inline code or a script fed on stdin, matched as text. current: the branch it runs on, if known."""
     flat = re.sub(r"[\"'`\[\](),{}]+", " ", code)
     if CODE_GH_MERGE_RE.search(flat):
         return "gh pr merge (in inline code)"
@@ -571,17 +620,25 @@ def code_action(code, main):
     if CODE_GH_LIB_RE.search(code) and CODE_GH_LIB_WRITE_RE.search(code):
         return "a write through a GitHub client library (in inline code)"
     for m in CODE_GIT_PUSH_RE.finditer(flat):
-        if refspecs_reach_main(m.group(1).split(), main, None) is not False:
+        reach = refspecs_reach_main(m.group(1).split(), main, current)
+        if reach or (reach is None and (current is None or current == main)):
             return f"git push to {main} (in inline code)"
     return None
 
 
-def tool_action(argv, cmd, main):
+def tool_action(argv, cmd, main, state):
     """argv starts at one of TOOLS."""
     prog = os.path.basename(argv[0])
     args = argv[1:]
     if prog == "gh":
-        pos = [a for a in args if not a.startswith("-")]
+        pos, skip = [], False
+        for a in args:
+            if skip:
+                skip = False
+            elif a in GH_REPO_OPTS:
+                skip = True  # its value isn't a subcommand: gh -R o/r pr merge, gh pr --repo o/r merge
+            elif not a.startswith("-"):
+                pos.append(a)
         if pos[:2] == ["pr", "merge"]:
             return "gh pr merge"
         if pos[:1] == ["api"]:
@@ -593,7 +650,7 @@ def tool_action(argv, cmd, main):
     elif prog == "wget":
         return wget_action(args, cmd)
     elif prog == "git":
-        return git_push_action(argv, cmd, main)
+        return git_push_action(argv, cmd, main, state)
     return None
 
 
@@ -601,17 +658,40 @@ def has_space(word):
     return any(ch.isspace() for ch in str(word))
 
 
-def command_action(cmd, main):
+def shell_code_action(argv, cmd, main, state, depth):
+    """A shell started behind a launcher (`op run -- sh -c '…'`, `docker compose exec api sh -c …`): parse its code."""
+    mode = kit_shell._shell_mode(list(argv[1:])) if hasattr(kit_shell, "_shell_mode") else ("code", None)
+    if mode[0] == "code":
+        code = mode[1]
+    elif mode[0] == "stdin" and cmd.stdin:
+        code = "\n".join(cmd.stdin)
+    else:
+        return None
+    if not code:
+        return None
+    return bash_action(code, cmd.cwd, main, state, depth + 1)
+
+
+def command_action(cmd, main, state, depth=0):
     argv = list(cmd.argv)  # Words: str values that keep their source text for expands()
     if not argv:
         return None
+    prog = os.path.basename(argv[0])
     # The tools anywhere in the words, so a launcher (`op run --`, `caffeinate -i`, `watch -n 5`) can't hide them.
-    # A word with spaces in it is quoted data (a message, a pattern) and is never taken for a program.
+    # A word with spaces in it is quoted data (a message, a pattern) and is never taken for a program, and neither
+    # is a word given to a program that only prints or searches (`echo git push origin main`).
     for i, w in enumerate(argv):
-        if not has_space(w) and os.path.basename(w) in TOOLS:
-            action = tool_action(argv[i:], cmd, main)
-            if action:
-                return action
+        if has_space(w) or (i > 0 and prog in DATA_PROGS):
+            continue
+        name = os.path.basename(w)
+        if name in TOOLS:
+            action = tool_action(argv[i:], cmd, main, state)
+        elif i > 0 and name in kit_shell.SHELLS:
+            action = shell_code_action(argv[i:], cmd, main, state, depth)
+        else:
+            continue
+        if action:
+            return action
     if MIGRATION_RE.search(" ".join(str(w) for w in argv if not has_space(w))):
         return "a migration apply command"
     for i in range(len(argv)):
@@ -621,23 +701,25 @@ def command_action(cmd, main):
         if code is None and kit_shell.interpreter_reads_stdin(argv[i:]) and cmd.stdin:
             code = "\n".join(cmd.stdin)
         if code:
-            action = code_action(code, main)
+            action = code_action(code, main, state.branch(cmd))
             if action:
                 return action
     return None
 
 
-def bash_action(command, cwd, main):
-    if kit_shell is None:
+def bash_action(command, cwd, main, state=None, depth=0):
+    if kit_shell is None or depth > MAX_NESTING:
         return raw_text_action(command, main)
+    state = state or State(main, cwd)
     try:
         cmds = kit_shell.iter_commands(command, cwd)
     except kit_shell.ParseError:
         return raw_text_action(command, main)
     for cmd in cmds:
-        action = command_action(cmd, main)
+        action = command_action(cmd, main, state, depth)
         if action:
             return action
+        state.saw(cmd)
     return None
 
 
