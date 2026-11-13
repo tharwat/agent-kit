@@ -145,6 +145,7 @@ A post-merge failure is fixed forward on a new ticket and alerts the owner.
   | `post-op.md` | Contains `Fingerprint: <h>` and `Result: clean\|capped\|escalate`. `clean` with a `⏭️ Skipped — Codex` review row means the gates passed and the review round was skipped |
   | `self-review.diff`, `round-<n>.diff` | The saved diffs the fingerprints were taken from |
   | `upstream.txt` | Saved upstream for the fallback review path. Marked `restored` afterwards, never removed |
+  | `.started-<kind>`, `.checked-<kind>`, `.cancelled-<kind>`, `.abandoned-<kind>` | Record-check markers (`check-record.py`): a command began, passed its record check, stopped early on purpose (`--cancel`), or was left unfinished for 24 h. Renamed between states, never deleted; a name already taken gets a `.<epoch-ms>` suffix. `/handoff`'s live in `.claude/state/` itself |
   | `peer-review.json` | See below |
 
   `peer-review.json` holds: `ticket`, `branch`, `snapshot_hash`, `fingerprint` (the `kit-tools fingerprint` output at freeze, re-taken after peer review's own fix step once tests and gates re-ran; ship checks it with `covered`, and post-op's fingerprint stays the authoritative coverage check), `engines` (bteam and codex, each

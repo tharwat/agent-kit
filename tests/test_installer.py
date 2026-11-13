@@ -402,7 +402,7 @@ class SettingsMerge(Base):
         self.assertEqual(new["permissions"]["allow"][0], "Bash(ls *)")
         self.assertEqual(new["permissions"]["deny"][0], "Bash(curl *)")
         self.assertEqual(new["hooks"]["PreToolUse"][0], theirs["hooks"]["PreToolUse"][0])
-        self.assertEqual(new["hooks"]["Stop"], theirs["hooks"]["Stop"])
+        self.assertEqual(new["hooks"]["Stop"][0], theirs["hooks"]["Stop"][0])  # the kit's Stop hook goes after it
         cmds = [h["command"] for g in new["hooks"]["PreToolUse"] for h in g["hooks"]]
         self.assertTrue(any("block-main-branch" in c for c in cmds))
         self.assertEqual(len(cmds), len(set(cmds)))

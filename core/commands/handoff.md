@@ -9,6 +9,8 @@ description: Save the session state to .claude/handoffs/latest.md before a compa
 
 Saves the session state for `/resume`. Fully automatic: never ask the user anything. Run it, then compact.
 
+**Record check.** First run `python3 .claude/hooks/check-record.py --start handoff`. The last step runs `--kind handoff` the same way, and a Stop hook reminds Claude once if the record is still missing. If the command stops early on purpose (BLOCKED, nothing to do), run `--cancel handoff` the same way instead. Codex runs these steps too.
+
 ## Step 1: Git state (in parallel)
 
 ```bash
@@ -82,6 +84,8 @@ In progress: <items or "none">. Pending: <items or "none">.
 ## Pick up here
 <one sentence: the most likely next action>
 ```
+
+Then run `python3 .claude/hooks/check-record.py --kind handoff`; fix the file and re-run until it exits 0.
 
 ## Step 5: Confirm (last thing in the response)
 

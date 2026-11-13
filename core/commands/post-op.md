@@ -11,6 +11,8 @@ argument-hint: "[ticket]"
 Invoked with: `/post-op [ticket]`. With no ticket, take the key from the branch name. Post-op reads the branch's
 diff against `origin/<MAIN_BRANCH>`, committed or not.
 
+**Record check.** First run `python3 .claude/hooks/check-record.py --start post-op --ticket <ticket>`. The last step runs `--kind post-op` the same way, and a Stop hook reminds Claude once if the record is still missing. If the command stops early on purpose (BLOCKED, nothing to do), run `--cancel post-op` the same way instead. Codex runs these steps too.
+
 ## Purpose
 
 Post-op is your own check of your own work: the self-red-team, the contract audit, eight gates, the code-review
@@ -371,7 +373,8 @@ Result: clean | capped | escalate
 `Result` is the end state (round rule 6); `escalate` is written only once the owner's answer is recorded. On a
 docs-only branch, write `Fingerprint: none (no reviewable change)` and `Result: clean`. On a Codex run, `Result:
 clean` means the gates passed and the report's Code review row says `⏭️ Skipped — Codex`. `/ship` reads this file
-for its covered check, so write it last, after every fix.
+for its covered check, so write it last, after every fix. Then run
+`python3 .claude/hooks/check-record.py --kind post-op --ticket <ticket>`; fix the file and re-run until it exits 0.
 
 ---
 

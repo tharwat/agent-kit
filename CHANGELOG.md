@@ -4,6 +4,38 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.6.0 — 2026-11-11
+
+- **Record checks (`check-record.py`, core).** `/triage`, `/operate`, `/post-op` and `/handoff` now start with
+  `check-record.py --start <kind>` and end with `check-record.py --kind <kind>`, which checks the record the
+  command must leave:
+  - **triage:** the contract table, with at least one row;
+  - **operate:** a `Fingerprint:` line;
+  - **post-op:** `Fingerprint:` and `Result:`;
+  - **handoff:** a fresh `latest.md` with its git block.
+
+  A **Stop hook** catches a command that started and never passed its check, and sends Claude back with what's
+  missing, **once per run**: a command waiting on a background review or the owner isn't pushed to fake a record.
+  It checks only the current branch's ticket, and costs nothing when no command is open. A command that stops early
+  on purpose runs `check-record.py --cancel <kind>`. A marker older than 24 h is closed (checked or abandoned), and
+  session-context reports abandoned runs. Markers are renamed, never deleted or overwritten. Codex runs the same steps
+  from the command text.
+- **Session context (`session-context.py`, core).** On startup, resume and after a compaction, a SessionStart hook
+  prints up to 15 lines:
+  - the branch, ticket, commits ahead and changed files;
+  - which records exist, and a pointer to the contract;
+  - an unfinished command;
+  - "run `/resume`" when a handoff is newer than the last commit.
+
+  It works in the checkout the session is in (a worktree's own root), shows the handoff hint only for the branch the
+  handoff was written on, and prints paths and status words only, never file contents. Codex has no session hooks; `/resume` stays the
+  manual path.
+- **Allow rule** `Bash(python3 .claude/hooks/check-record.py *)`.
+
+**Upgrade touches:** `.claude/settings.json` (adds the Stop and SessionStart hooks and the allow rule; your own
+hooks are kept), `.claude/hooks/` (adds `check-record.py` and `session-context.py`), `.claude/commands/triage.md`,
+`operate.md`, `post-op.md`, `handoff.md`.
+
 ## 1.5.1 — 2026-11-11
 
 - **New hook `guard-commit-message.py` (core).** It checks the message of `git commit` (`-m`, `--message`, `-F` file

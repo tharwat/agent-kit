@@ -192,5 +192,42 @@ class SecretGuard(Base):
         self.assertEqual(read(self.t("docs/agent/secret-files.md")), "# ours\n\n- `*.tfvars`\n")
 
 
+
+class RecordsAndContext(Base):
+    STOP = 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/check-record.py --stop'
+    START = 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/session-context.py'
+
+    def wired(self, settings):
+        return (hook_commands(settings, "Stop"), hook_commands(settings, "SessionStart"))
+
+    def test_fresh_install(self):
+        self.apply(self.answers())
+        settings = load_json(self.t(".claude/settings.json"))
+        stop, start = self.wired(settings)
+        self.assertIn((None, self.STOP), stop)
+        self.assertIn(("startup|resume|compact", self.START), start)
+        self.assertIn("Bash(python3 .claude/hooks/check-record.py *)", settings["permissions"]["allow"])
+        for f in ("check-record.py", "session-context.py", "kit_facts.py"):
+            self.assertTrue(os.path.isfile(self.t(".claude/hooks/" + f)), f)
+        for cmd in ("triage", "operate", "post-op", "handoff"):
+            text = read(self.t(".claude/commands/%s.md" % cmd))
+            self.assertIn("check-record.py --start %s" % cmd, text)
+            self.assertIn("check-record.py --kind %s" % cmd, text)
+
+    def test_upgrade_from_1_3_0_keeps_the_projects_stop_hook(self):
+        self.apply(self.answers())
+        path = self.t(".claude/settings.json")
+        settings = load_json(path)
+        settings["hooks"] = json.loads(json.dumps(HOOKS_1_3_0))
+        settings["hooks"]["Stop"] = [{"hooks": [{"type": "command", "command": "echo ours"}]}]
+        write(path, json.dumps(settings, indent=2))
+        rc, out, err = run(["upgrade", "--target", self.target, "--kit", self.kit])
+        self.assertEqual(rc, 0, out + err)
+        stop, start = self.wired(load_json(path))
+        self.assertEqual(stop[0], (None, "echo ours"))
+        self.assertIn((None, self.STOP), stop)
+        self.assertIn(("startup|resume|compact", self.START), start)
+
+
 if __name__ == "__main__":
     unittest.main()
