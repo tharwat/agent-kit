@@ -1,6 +1,6 @@
 {
   "name": "hardening",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Deep-security mode: release-wide edge-case analysis, and per-ticket runs with required peer review and no merge before review.",
   "kind": "workflow",
   "requires": ["core"],
@@ -28,7 +28,7 @@
   ],
   "hooks": [
     {"event": "PreToolUse", "matcher": "Bash", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-push-before-review.py", "timeout": 10},
-    {"event": "PreToolUse", "matcher": "mcp__.*apply_migration", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-push-before-review.py", "timeout": 10}
+    {"event": "PreToolUse", "matcher": "mcp__.*(apply_migration|merge_pull_request|push_files|create_or_update_file|delete_file)", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-push-before-review.py", "timeout": 10}
   ],
   "permissions": {"allow": [], "deny": []},
   "owner_tasks": [

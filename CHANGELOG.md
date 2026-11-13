@@ -4,6 +4,25 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.7.1 — 2026-11-12 (hardening 1.0.1)
+
+- **hardening pack: `block-push-before-review.py` closes the GitHub API route to main.** While a hardening run
+  hasn't passed post-op it now also blocks:
+  - any write through the GitHub API from `gh api`, `curl`, httpie, `xh` or `wget` (method other than GET/HEAD,
+    in any flag spelling such as `-sXPUT` or `--method=put`), except comments, labels, reviews, review requests and
+    issues. That covers PR merges, `/merges`, ref updates and contents writes;
+  - GraphQL mutations, and a GraphQL write whose query is a shell variable, an unreadable file or unseen stdin;
+  - inline code (`python3 -c`, `node -e`, a script on stdin) that writes to the GitHub API;
+  - GitHub MCP `merge_pull_request`, and `push_files` / `create_or_update_file` / `delete_file` on the main branch
+    or with no branch named (the hook's MCP matcher now includes them).
+- **It reads commands with the core parser** (`kit_shell.py`), so `bash -c "…"`, `eval`, heredoc scripts and `xargs`
+  are checked, and a command that only mentions a merge as text (`grep`, a commit message, a heredoc file) is no
+  longer blocked. Without the parser, or when a command doesn't parse, it falls back to the old raw-text match.
+- Known gaps: a script file run by name, a URL held in a variable, a `gh` alias.
+
+**Upgrade touches:** `.claude/settings.json` (the hardening hook's MCP matcher), `.claude/hooks/block-push-before-review.py`,
+its test and `.claude/packs/hardening.md`, if the hardening pack is installed.
+
 ## 1.7.0 — 2026-11-11
 
 - **New pack `statusline` (extra, asked at install).** A Claude Code status line:
