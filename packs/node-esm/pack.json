@@ -1,6 +1,6 @@
 {
   "name": "node-esm",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Node.js ESM code with no compiler: ESM, .mjs and Node-version rules, node --check as the syntax check, node --test notes.",
   "kind": "stack",
   "requires": ["core"],
@@ -16,7 +16,7 @@
     {"src": "rules/node-esm.md", "dest": ".claude/rules/node-esm.md"}
   ],
   "hooks": [],
-  "permissions": {"allow": [], "deny": []},
+  "permissions": {"allow": ["Bash(npm audit --omit=dev --json)", "Bash(pnpm audit --prod --json)", "Bash(yarn audit --groups dependencies --json)", "Bash(yarn npm audit --all --recursive --environment production --json)"], "deny": ["Bash(npm audit fix)", "Bash(npm audit fix *)", "Bash(npm audit * fix)", "Bash(npm audit * fix *)", "Bash(npm * audit fix)", "Bash(npm * audit fix *)", "Bash(npm * audit * fix)", "Bash(npm * audit * fix *)", "Bash(pnpm audit --fix)", "Bash(pnpm audit --fix *)", "Bash(pnpm audit * --fix)", "Bash(pnpm audit * --fix *)", "Bash(pnpm * audit --fix)", "Bash(pnpm * audit --fix *)", "Bash(pnpm * audit * --fix)", "Bash(pnpm * audit * --fix *)", "Bash(pnpm audit --ignore)", "Bash(pnpm audit --ignore *)", "Bash(pnpm audit * --ignore)", "Bash(pnpm audit * --ignore *)", "Bash(pnpm * audit --ignore)", "Bash(pnpm * audit --ignore *)", "Bash(pnpm * audit * --ignore)", "Bash(pnpm * audit * --ignore *)", "Bash(pnpm audit --ignore-unfixable)", "Bash(pnpm audit --ignore-unfixable *)", "Bash(pnpm audit * --ignore-unfixable)", "Bash(pnpm audit * --ignore-unfixable *)", "Bash(pnpm * audit --ignore-unfixable)", "Bash(pnpm * audit --ignore-unfixable *)", "Bash(pnpm * audit * --ignore-unfixable)", "Bash(pnpm * audit * --ignore-unfixable *)", "Bash(yarn npm audit --fix)", "Bash(yarn npm audit --fix *)", "Bash(yarn npm audit * --fix)", "Bash(yarn npm audit * --fix *)", "Bash(yarn npm * audit --fix)", "Bash(yarn npm * audit --fix *)", "Bash(yarn npm * audit * --fix)", "Bash(yarn npm * audit * --fix *)"]},
   "mcp": {},
   "env": [],
   "third_party": [],

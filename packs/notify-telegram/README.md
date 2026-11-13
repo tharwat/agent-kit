@@ -46,5 +46,9 @@ Use **one channel per project**, so projects never share a chat.
   `notify: not configured (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID)`; a failed send prints one `notify: send failed`
   line. Both exit 0.
 - The token is never printed, including in error messages.
+- **Waiting pings (Claude Code).** A Notification hook (`.claude/hooks/notify-waiting.py`) sends
+  `[<project>] Waiting for you: a permission prompt (Bash)` or `… idle, waiting for your input` when a run stalls on
+  you. It sends at most one per 10 minutes per session, and only the event type and tool name, never the prompt's
+  text. Codex has no hooks, so it sends none.
 
 If the token leaks, revoke it with @BotFather (`/revoke`) and set the new one.

@@ -4,6 +4,33 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.6.1 — 2026-11-11
+
+- **notify-telegram 1.1.0: waiting pings.** A Notification hook (`notify-waiting.py`) pings the project's chat when
+  Claude is waiting on a permission prompt or sits idle: `[<PROJECT_NAME>] Waiting for you: <reason>`. It sends at
+  most one ping per 10 minutes per session, and only the event type and tool name, never the prompt text. A
+  failed send is reported and doesn't use up the 10-minute slot. It is installed only with the pack.
+- **node-esm 1.1.0, typescript 1.1.0: dependency vulnerability audit.** A `## /security` section runs
+  `npm audit --omit=dev --json` (or the pnpm / yarn form for that lockfile) and reports direct vs transitive and
+  whether a fix exists. A reachable critical or high advisory in a runtime dependency is S2. A ticket must fix an
+  S2 only when its own lockfile change brought it in or its code newly calls the vulnerable code. One already on
+  main is class `noted` for the ticket (the verdict stays CLEAR): shown as
+  `⚠️ pre-existing` on the `Pack checks:` line and posted in a `Noted for the tracker (security <date>)` comment,
+  which `/ship` files on the open-items ticket. The rest is `noted`. `/release` runs the same audit and blocks on any
+  open S2.
+  - A workspace is audited once, at its root lockfile.
+  - Yarn 2+ audits transitive dependencies (`--all --recursive`).
+  - Non-zero exits with JSON advisories are results. No lockfile, a Bun lockfile, or output with no JSON (offline,
+    registry error) reads as "not run", never as a pass.
+  - Allow rules cover only the exact read-only audit commands. `npm audit fix`, `pnpm audit --fix` and
+    `pnpm audit --ignore…` are denied, global flags before `audit` included.
+- **Conventions:** future stack packs add their ecosystem's audit the same way (`pip-audit`, `govulncheck`).
+
+**Upgrade touches:** with notify-telegram, `.claude/settings.json` (adds the Notification hook) and
+`.claude/hooks/notify-waiting.py`; with node-esm or typescript, `.claude/packs/<pack>.md` and the allow rules in
+`.claude/settings.json`; always, `docs/workflow/ticket-ops.md` (adds the `Noted for the tracker (security …)` row) and
+`.claude/commands/post-op.md` (round rule 11 names that comment).
+
 ## 1.6.0 — 2026-11-11
 
 - **Record checks (`check-record.py`, core).** `/triage`, `/operate`, `/post-op` and `/handoff` now start with

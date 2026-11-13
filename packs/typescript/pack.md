@@ -91,3 +91,51 @@ Type-system ripple (Step 4.5 C), TypeScript specifics:
   to a mutable-array parameter fails. Find the call sites.
 - A value's type widening or narrowing (`string` → literal union, optional → required): find the casts and `!`
   assertions that hid the old shape, since they hide the new one too.
+
+## /security
+
+At Step 8 (pack checks): **dependency vulnerability audit.** If both the node-esm and typescript packs are installed,
+run it once.
+
+1. Find every JavaScript lockfile in the repo (`git ls-files` for `package-lock.json`, `npm-shrinkwrap.json`,
+   `pnpm-lock.yaml`, `yarn.lock`, `bun.lock*`), not only those under `<TEST_COMMANDS>` dirs. A workspace keeps one at
+   its root. Run each lockfile's audit once, in its dir. The package manager is the one `package.json`
+   `packageManager` names. Without that field, it is the one whose lockfile is there; if a dir holds several, audit
+   each and say which is stale.
+
+   | Lockfile | Command |
+   |---|---|
+   | `package-lock.json` or `npm-shrinkwrap.json` | `npm audit --omit=dev --json` |
+   | `pnpm-lock.yaml` | `pnpm audit --prod --json` |
+   | `yarn.lock`, Yarn 1 (`packageManager: yarn@1…`, or no `.yarnrc.yml` and no `packageManager`) | `yarn audit --groups dependencies --json` |
+   | `yarn.lock`, Yarn 2+ (`packageManager: yarn@2…` or later, or a `.yarnrc.yml`) | `yarn npm audit --all --recursive --environment production --json` |
+   | none, or only `bun.lock` / `bun.lockb` | none: report `Dependency audit: not run (no supported lockfile)` |
+
+2. For each advisory, record the package, severity, whether it is **direct** (in `package.json`) or **transitive**
+   (and through which direct dependency), and whether a fixed version exists.
+3. **Severity.** A `critical` or `high` advisory in a runtime dependency whose vulnerable code this project can reach
+   is **S2**. Everything else, including dev-only and unreachable advisories, is `noted` with the reason.
+4. **Which S2s this ticket fixes.** An S2 is a **must-fix** finding of this ticket when this ticket brought it in or
+   newly reaches it: the lockfile diff (`git diff origin/<MAIN_BRANCH>...HEAD -- <lockfile>`) adds the vulnerable
+   package or changes it to a vulnerable version, or the code diff adds a call into the vulnerable function or module
+   the advisory names. Fix it by upgrading the dependency (a dependency change under `<DEPENDENCY_POLICY>`; say why in
+   the PR). An advisory already on `<MAIN_BRANCH>` that this diff doesn't newly reach is not on this ticket's path:
+   its class here is `noted`, not S2, so it doesn't block this ticket. `/release` still blocks on it as S2.
+   - **Report it** on the `Pack checks:` line as `⚠️ pre-existing: <package> <advisory id> (noted)`. A ❌ there is only
+     for an S2 this ticket must fix. A pre-existing ⚠️ alone leaves the `/security` verdict ✅ CLEAR and the post-op
+     Security gate Pass: there is nothing to fix or re-run.
+   - **File it:** post one ticket op **comment** `<ticket>` whose first line is
+     `Noted for the tracker (security <date>)`, listing each pre-existing advisory, and every other advisory step 3
+     marked `noted`, with package, severity, advisory id and fixed version. `/ship` files it on `<OPEN_ITEMS_TICKET>` with the other noted findings. Leave out an
+     advisory `<OPEN_ITEMS_TICKET>` already lists.
+5. **Never run `npm audit fix`** (or `pnpm` / `yarn` equivalents). It rewrites the lockfile, which is a dependency
+   change you must make on purpose.
+6. **Exit codes.** These commands exit non-zero when they *find* advisories: a non-zero exit with JSON advisories in
+   the output is a result, not an error. Only when there is no parseable JSON (offline, a registry error, a retired
+   audit endpoint, a missing lockfile) report `Dependency audit: not run (<reason>)`. That, or an empty answer, is
+   never a pass.
+
+## /release
+
+At Step 6: run the `/security` dependency audit above on the release commit. An open S2 advisory blocks the release
+until it is fixed or the owner accepts it.

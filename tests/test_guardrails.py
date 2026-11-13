@@ -229,5 +229,71 @@ class RecordsAndContext(Base):
         self.assertIn(("startup|resume|compact", self.START), start)
 
 
+
+class PackGuardrails(Base):
+    NOTIFY = 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/notify-waiting.py'
+    AUDIT = ["Bash(npm audit --omit=dev --json)", "Bash(pnpm audit --prod --json)",
+             "Bash(yarn audit --groups dependencies --json)",
+             "Bash(yarn npm audit --all --recursive --environment production --json)"]
+
+    def test_notify_hook_only_with_its_pack(self):
+        self.apply(self.answers())
+        settings = load_json(self.t(".claude/settings.json"))
+        self.assertNotIn((("permission_prompt|idle_prompt"), self.NOTIFY), hook_commands(settings, "Notification"))
+        self.assertFalse(os.path.exists(self.t(".claude/hooks/notify-waiting.py")))
+        self.apply(self.answers(packs=("notify-telegram",)))
+        settings = load_json(self.t(".claude/settings.json"))
+        self.assertIn(("permission_prompt|idle_prompt", self.NOTIFY), hook_commands(settings, "Notification"))
+        self.assertTrue(os.path.isfile(self.t(".claude/hooks/notify-waiting.py")))
+        self.assertFalse(os.path.exists(self.t(".claude/hooks/test_notify_waiting.py")))
+
+    def test_audit_section_and_allow_rules_with_stack_packs(self):
+        self.apply(self.answers(packs=("node-esm",)))
+        allow = load_json(self.t(".claude/settings.json"))["permissions"]["allow"]
+        for rule in self.AUDIT:
+            self.assertIn(rule, allow)
+        settings = load_json(self.t(".claude/settings.json"))
+        deny = settings["permissions"]["deny"]
+        for cmd in ("npm audit fix", "npm audit fix --force", "npm audit --omit=dev fix", "pnpm audit --fix",
+                    "pnpm audit --prod --fix", "npm --prefix packages/api audit fix", "npm -w api audit fix",
+                    "pnpm -C packages/api audit --fix", "pnpm audit --prod --json --ignore-unfixable"):
+            with self.subTest(fix=cmd):
+                self.assertTrue(any(rule_matches(r, cmd) for r in deny), cmd)
+        for cmd in ("npm audit --omit=dev --json", "pnpm audit --prod --json",
+                    "npm audit --omit=dev --json --prefix fixtures/app", "pnpm audit --ignore-registry-errors"):
+            with self.subTest(not_denied=cmd):
+                self.assertFalse(any(rule_matches(r, cmd) for r in deny), cmd)
+        for cmd in ("npm audit --omit=dev --json", "pnpm audit --prod --json"):
+            with self.subTest(read=cmd):
+                self.assertTrue(any(rule_matches(r, cmd) for r in allow))
+                self.assertFalse(any(rule_matches(r, cmd) for r in deny))
+        for cmd in ("pnpm audit --prod --json --ignore-unfixable", "npm audit --omit=dev --json fix"):
+            with self.subTest(not_allowed=cmd):
+                self.assertTrue(any(rule_matches(r, cmd) for r in deny) or
+                                not any(rule_matches(r, cmd) for r in allow))
+        text = read(self.t(".claude/packs/node-esm.md"))
+        self.assertIn("## /security", text)
+        self.assertIn("npm audit --omit=dev --json", text)
+        self.assertIn("Never run `npm audit fix`", text)
+
+
+class AuditSectionsInStep(unittest.TestCase):
+    """node-esm and typescript carry the same audit procedure; they must not drift apart."""
+
+    def section(self, pack, heading):
+        text = read(os.path.join(KIT, "packs", pack, "pack.md"))
+        start = text.index(heading + "\n")
+        nxt = text.find("\n## ", start + 1)
+        return text[start:nxt if nxt >= 0 else len(text)].strip()
+
+    def test_identical(self):
+        for heading in ("## /security", "## /release"):
+            with self.subTest(heading=heading):
+                self.assertEqual(self.section("node-esm", heading), self.section("typescript", heading))
+        a = load_json(os.path.join(KIT, "packs", "node-esm", "pack.json"))["permissions"]
+        b = load_json(os.path.join(KIT, "packs", "typescript", "pack.json"))["permissions"]
+        self.assertEqual(a, b)
+
+
 if __name__ == "__main__":
     unittest.main()

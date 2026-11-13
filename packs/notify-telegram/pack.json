@@ -1,6 +1,6 @@
 {
   "name": "notify-telegram",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Outcome notifications to one Telegram chat per project through the Bot API (.claude/scripts/notify)",
   "kind": "workflow",
   "requires": [
@@ -36,9 +36,20 @@
       "src": "README.md",
       "dest": "docs/agent/notify-telegram.md",
       "project_owned": true
+    },
+    {
+      "src": "hooks/*.py",
+      "dest": ".claude/hooks/"
     }
   ],
-  "hooks": [],
+  "hooks": [
+    {
+      "event": "Notification",
+      "matcher": "permission_prompt|idle_prompt",
+      "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/notify-waiting.py",
+      "timeout": 15
+    }
+  ],
   "permissions": {
     "allow": [
       "Bash(.claude/scripts/notify *)"
