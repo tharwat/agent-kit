@@ -62,6 +62,7 @@ reference them by path.
 | `docs/agent/sibling-paths.md` | Known pairs of code paths that must change together |
 | `docs/agent/defect-classes.md` | Defect classes this project ships. Seeded with the kit's generic list |
 | `docs/agent/lessons.md` | Lessons learned, appended by `/post-op`. Commands read the relevant section before work |
+| `docs/agent/secret-files.md` | Extra secret-file globs the secret guard hook blocks, one per bullet. Seeded with the kit defaults, which the hook always enforces |
 
 ## 4. Branch model (owner, 2026-11-07)
 
@@ -267,7 +268,10 @@ Rules for `pack.json`:
 - **Core hooks** are declared in `core/pack.json` `hooks`, the same way packs declare theirs. New hook commands use
   `python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/<x>.py` and an explicit `timeout`.
 - **A rule and its hook stay in step.** `manifest.json` `checks.destructive_patterns` reasons are the keys of
-  `block-destructive.py` `RULES`, and each has a blocked case in its test. A kit test enforces both.
+  `block-destructive.py` `RULES`, and the token-shape reasons of `checks.denylist` are the keys of
+  `guard-secrets.py` `SHAPES`. Each has a blocked case in its hook's test. A kit test enforces both.
+- **Fake secrets in tests** are built by concatenation (`"gh" + "p_" + "A" * 36`) so the kit's leak scan stays
+  green. In an installed project, a line carrying `agent-kit: allow-secret-shape` is skipped by the secret guard.
 
 **Codex.** Codex reads `AGENTS.md`. Hook enforcement is Claude-only in v1. Pack commands say what Codex does instead,
 as in conventions §8.7.

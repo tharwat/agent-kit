@@ -32,6 +32,7 @@ __all__ = ["ParseError", "Cmd", "Word", "parse", "iter_commands", "inline_code",
 MAX_DEPTH = 4
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 OPERATORS = ("&&", "||", ";;", "|&", ";", "|", "&", "(", ")")
+WRAPPERS = {"env", "command", "builtin", "exec", "nohup", "time", "stdbuf", "sudo", "nice", "timeout", "xargs"}
 RESERVED = {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "{", "}"}
 ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 HEREDOC_OP_RE = re.compile(r"<<(-?)[ \t]*(\\?[A-Za-z_][A-Za-z0-9_.-]*|'[^'\n]*'|\"[^\"\n]*\")")
@@ -75,8 +76,10 @@ class Cmd:
     """One simple command after prefix stripping: argv (list of Word), the cwd it runs in, its redirects, the bodies
     of its heredocs as (body, quoted), and the stdin text it gets (`stdin`)."""
 
-    def __init__(self, argv, cwd, redirects=(), heredocs=(), cwd_known=True, stdin=(), operands_unknown=False):
+    def __init__(self, argv, cwd, redirects=(), heredocs=(), cwd_known=True, stdin=(), operands_unknown=False,
+                 pipe_out=False):
         self.argv = argv
+        self.pipe_out = pipe_out  # its stdout feeds the next command, not the terminal
         self.operands_unknown = operands_unknown  # run by xargs or find -exec: more operands arrive at run time
         self.cwd = cwd
         self.cwd_known = cwd_known  # False after `cd -`, `cd "$DIR"`, `popd`: cwd is then only a guess
@@ -516,8 +519,10 @@ def _skip_opts(argv, i, with_value=()):
 
 
 def strip_prefix(argv):
-    """Remove leading assignments, reserved words and wrappers. Returns the argv of the command that runs, or []."""
+    """Remove leading assignments, reserved words and wrappers. Returns the argv of the command that runs, or [].
+    A wrapper with no command after it (`env`, `sudo -l`) is itself the command: `env` alone prints the environment."""
     i = 0
+    wrapper_at = None
     while i < len(argv):
         a = argv[i]
         if ASSIGN_RE.match(a) or a in RESERVED:
@@ -534,6 +539,8 @@ def strip_prefix(argv):
         if prog in ("npx", "bunx", "pnpx"):  # the package named next is the program
             i = _skip_opts(argv, i + 1, ("-p", "--package", "-c", "--call"))
             continue
+        if prog in WRAPPERS:
+            wrapper_at = i
         if prog == "env":
             j = i + 1
             while j < len(argv) and argv[j].startswith("-") and argv[j] != "--":
@@ -575,6 +582,8 @@ def strip_prefix(argv):
                                          "--eof", "--replace"))
             continue
         break
+    if i >= len(argv) and wrapper_at is not None:
+        return argv[wrapper_at:]
     return argv[i:]
 
 
@@ -699,20 +708,23 @@ def _walk(command, state, depth):
         if prev is not None and prev.pipe_out:
             stdin.extend(_stdin_from(prev, registry))
         yield from _dispatch(simple.words, state, depth, simple.redirects, heredocs,
-                             simple.piped or simple.background, stdin)
+                             simple.piped or simple.background, stdin, pipe_out=simple.pipe_out)
         prev = simple
 
 
-def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, stdin=(), operands_unknown=False):
+def _dispatch(words, state, depth, redirects=(), heredocs=(), subshell=False, stdin=(), operands_unknown=False,
+              pipe_out=False):
     words = list(words)
     argv = strip_prefix(words)
     if not argv:
+        if redirects:  # `done < file`, `> out`: no command, but the redirects still happen
+            yield Cmd([], state["cwd"], redirects, heredocs)
         return
     prog = os.path.basename(argv[0])
     known = state.get("cwd_known", True)
     wrappers = words[:max(0, len(words) - len(argv))]
     operands_unknown = operands_unknown or any(os.path.basename(str(w)) == "xargs" for w in wrappers)
-    cmd = Cmd(argv, state["cwd"], redirects, heredocs, known, stdin, operands_unknown)
+    cmd = Cmd(argv, state["cwd"], redirects, heredocs, known, stdin, operands_unknown, pipe_out)
     yield cmd
     args = argv[1:]
     registry = state.get("registry", [])

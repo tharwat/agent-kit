@@ -84,6 +84,7 @@ are fine to begin with; fill them in as tickets need them.
 | `defect-classes.md` | `/triage`, `/operate`, `/post-op` | Bug classes this project has had, so reviews look for them |
 | `lessons.md` | `/post-op` writes; `/triage`, `/operate`, `/investigate` read | Lessons recorded after each ticket |
 | `sibling-paths.md` | `/triage`, `/operate`, `/investigate` | Code paths that must change together |
+| `secret-files.md` | the `guard-secrets.py` hook | Extra secret-file globs agents must never open (the kit defaults always apply) |
 
 **Do the owner tasks** the install report lists, for example creating a Telegram bot or installing a CLI a pack
 uses.
@@ -178,6 +179,7 @@ Installed with the kit and binding on Claude and Codex alike:
 |---|---|---|
 | `block-main-branch.py` | core | `git commit` on `main`, any `git push` to `main` (forced or not), `gh pr merge --admin` |
 | `block-destructive.py` | core | Deleting or discarding: `rm`, `rmdir`, `unlink`, `find -delete`, `git reset --hard`, `git clean`, `git branch -D`, force pushes, `git checkout -- <path>`, `git restore`, `git switch -f`, `git stash drop`, `git worktree remove --force`, and file deletes in `python -c` / `node -e` code. It parses the command, so `git -C x reset --hard`, `xargs rm`, `find -exec rm` and `bash -c "rm x"` are caught and `grep "rm -rf" docs/` isn't. Allowed: `git rm --cached`, `git restore --staged`, `git clean -n`, and `rm` inside the session scratch dir |
+| `guard-secrets.py` | core | Opening, printing or copying a secret file (`.env`, private keys, `.netrc`, a token-holding `.npmrc`, plus your globs in `docs/agent/secret-files.md`), a recursive `grep` / `rg` over a folder holding one unless it's excluded, `env` / `printenv` dumps, and writing a token or a password-bearing URL into a file or command. The message names the shape and line, never the value |
 | `typecheck` | `typescript` | Runs the type checker after each edit and hands any type errors back to the agent to fix |
 | `block_main_repo_writes.py` | `worktrees` | Writes into the main checkout from a worktree session |
 | `block-push-before-review.py` | `hardening` | Push to `main`, merges and migrations during a hardening run until its review passes |

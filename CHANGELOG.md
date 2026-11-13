@@ -4,6 +4,47 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.5.0 — 2026-11-11
+
+- **New hook `guard-secrets.py` (core),** on Read, Edit, Write, MultiEdit, NotebookEdit, Bash and Grep.
+  - **Secret files:** blocks opening, printing or copying `.env` / `.env.*` / `*.env` / `.envrc` (templates such as
+    `.env.example` are fine), private keys (`*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`),
+    `.claude/notify.env`, `.netrc`, `.git-credentials`, cloud CLI credentials (`.aws/credentials`, `.docker/config.json`,
+    `.kube/config`, `.config/gh/hosts.yml`), and `.npmrc` / `.pypirc` that hold a literal token (an `${ENV}` reference
+    is fine). `~/…` and `$HOME/…` paths are expanded. In Bash it checks the files given to readers, copiers and archivers (`cat`, `grep`, `sed`, `cp`, `cp -t`,
+    `tar`, …), globs such as `cat .env*`, `< file` redirects, `git show HEAD:.env`, and files sent with
+    `curl -d @file` / `-F x=@file` / `-T file`. Writing a *new* `.env` is allowed, and so is `source .env` /
+    `. .env` (env files only; sourcing a key or token file would print it in shell errors): loading the values doesn't print them, and the print checks below still apply (with `set -x` / `set -v`
+    on in the same command it would, so that is blocked).
+  - **Recursive searches:** `grep -r`, `rg` or `ag` over a folder that holds a secret file the tool would read (rg and
+    ag skip hidden and gitignored files unless told otherwise; an rg include glob such as `-g '.env*'` overrides that) is blocked unless the command excludes it by name: the message says to add `--exclude='.env*'` (rg:
+    `-g '!.env*'`). Glob and brace operands (`grep -rn KEY *`) and followed symlinks (`grep -R`) count; a path
+    glob (`--exclude=app/.env`) doesn't exclude. `-l` / `-c` / `-q`
+    (names, counts, nothing) are fine, and dependency folders (`node_modules`, `.venv`, `vendor`) are skipped.
+  - **Environment dumps:** blocks `env`, `printenv`, bare `set` and `export -p` with no command or names, and
+    `printenv` / `declare -p` / `echo $NAME` of a secret-looking name (`*_TOKEN`, `*_KEY`, `*PASSWORD*`, a
+    `DATABASE_URL`-style connection string, …). `set -x`, `printenv SSH_AUTH_SOCK` and
+    `echo "$TOKEN" | docker login --password-stdin` are fine.
+  - **Secret content:** blocks writing a token shape (JWT, `sk-`, GitHub, AWS, Slack, Supabase, Render, Atlassian,
+    Telegram bot, private key) or a URL with an inline password into a file or a command. The message names the
+    shape and line, never the value. A line marked `agent-kit: allow-secret-shape` (for test fixtures) is skipped.
+    Templates (`.example`, `.sample`, `.template`, `.dist`) are committed, so they're scanned for tokens too; only
+    their sample URLs are left alone. Placeholders (`${VAR}`, `${VAR:-default}`, `{password}`, `#{x}`, `%s`, `<pass>`)
+    and localhost dev URLs aren't secrets. The content scan runs even when a command can't be parsed.
+- **Rule text:** the No secrets rule in `CLAUDE.kit.md` and its `AGENTS.md` restatement now say "`source` an env
+  file only to run a command", matching the hook.
+- **New project-owned file `docs/agent/secret-files.md`:** your extra secret-file globs, one per bullet. The kit
+  defaults are always enforced; the file only adds.
+- **Parser:** `env` or `sudo` with nothing after it is now reported as the command itself, and a redirect on a
+  keyword (`done < file`) is kept.
+- **Kit test:** every token-shape entry in the manifest denylist must have a rule in the hook and a blocked sample.
+  The No secrets rule must carry the env-file exception the hook allows, and `AGENTS.md.tmpl`'s restated block
+  must equal the tagged lines it copies.
+
+**Upgrade touches:** `.claude/settings.json` (adds the `guard-secrets.py` PreToolUse hook), `.claude/hooks/` (adds
+`guard-secrets.py`, updates `kit_shell.py`), `CLAUDE.kit.md`, the `AGENTS.md` Codex section, `docs/agent/secret-files.md`
+(created if absent, never overwritten).
+
 ## 1.4.0 — 2026-11-11
 
 - **New hook `block-destructive.py` (core).** It blocks destructive filesystem and git commands that the deny list
