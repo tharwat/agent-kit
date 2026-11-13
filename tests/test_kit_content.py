@@ -254,6 +254,23 @@ class HooksEnforcePatterns(unittest.TestCase):
         self.assertEqual([l for l in block.split("\n") if l.strip()], tagged)
 
 
+class HookEntries(unittest.TestCase):
+    def test_no_two_hook_entries_share_an_event_and_command(self):
+        """The installer merges hooks by command text within an event, so a second entry with the same command (another
+        matcher) would be dropped. Give it a distinct command, e.g. a trailing argument the hook ignores."""
+        seen = {}
+        sources = [("core/settings.json.tmpl", [(ev, h["command"]) for ev, gs in
+                                                 (load_json(os.path.join(KIT, "core", "settings.json.tmpl")).get("hooks") or {}).items()
+                                                 for g in gs for h in g["hooks"]])]
+        for name, path in unit_files().items():
+            sources.append((name, [(h["event"], h["command"]) for h in load_json(path).get("hooks", [])]))
+        for src, entries in sources:
+            for key in entries:
+                with self.subTest(source=src, event=key[0], command=key[1]):
+                    self.assertNotIn(key, seen, "also in %s" % seen.get(key))
+                    seen[key] = src
+
+
 class Placeholders(unittest.TestCase):
     def setUp(self):
         self.table = facts_by_unit()

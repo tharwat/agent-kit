@@ -21,6 +21,9 @@ Everything else is allowed. A marker whose first line is `restored` is a finishe
 
 Known gaps: a script file run by name (`python3 merge.py`), a URL held in a variable, and a `gh` alias.
 
+Its MCP registration runs it as `block-push-before-review.py --mcp-tools`: the argument is ignored, and only makes the
+command differ from the Bash one, since the installer merges hooks by command text.
+
 Contract: reads the event JSON on stdin. Exit 2 with the reason on stderr blocks; exit 0 allows. Any internal error
 fails open with a one-line stderr note. If `kit_shell.py` is missing or the command doesn't parse, it falls back to
 matching the raw command text. It writes nothing and makes no network call. Python 3.9+, stdlib only.

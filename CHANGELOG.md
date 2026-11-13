@@ -18,9 +18,13 @@ installed version before an upgrade.
 - **It reads commands with the core parser** (`kit_shell.py`), so `bash -c "…"`, `eval`, heredoc scripts and `xargs`
   are checked, and a command that only mentions a merge as text (`grep`, a commit message, a heredoc file) is no
   longer blocked. Without the parser, or when a command doesn't parse, it falls back to the old raw-text match.
+- **Fix: the hook's MCP entry was never installed.** The installer merges hooks by command text, and the MCP entry
+  had the same command as the Bash one, so it was dropped: MCP `apply_migration` tools were never checked. The MCP
+  entry now runs `block-push-before-review.py --mcp-tools` (the argument is ignored), so install and upgrade add it.
+  A new kit test fails when two hook entries share an event and a command.
 - Known gaps: a script file run by name, a URL held in a variable, a `gh` alias.
 
-**Upgrade touches:** `.claude/settings.json` (the hardening hook's MCP matcher), `.claude/hooks/block-push-before-review.py`,
+**Upgrade touches:** `.claude/settings.json` (adds the hardening hook's MCP entry), `.claude/hooks/block-push-before-review.py`,
 its test and `.claude/packs/hardening.md`, if the hardening pack is installed.
 
 ## 1.7.0 — 2026-11-11
