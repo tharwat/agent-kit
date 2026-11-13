@@ -239,6 +239,10 @@ pack rule without `paths:` counts against the 2,500-word always-loaded budget an
 Rules for `pack.json`:
 - **`detect.ask`** is set when a scan can't decide (for example worktrees). The installer then asks that question.
   Ticket packs carry no `detect.ask`: the installer selects the one named by the `TICKET_SYSTEM` fact.
+- **`settings`** sets top-level `.claude/settings.json` keys from an allow-list (`statusLine` only). The installer
+  adds a key when the project has none, and updates it only while it still holds the value the kit wrote (recorded
+  in the lock). A project value, or a key the project removed, is kept and reported. A key left behind by a pack
+  that's no longer installed is reported, never removed.
 - **`owner_tasks`** are `{task, why, when?}`. `when` is `{fact, equals}`, and the task is shown only when that fact
   has that value.
 - **`template: true`** means the file holds `{{FACT}}` placeholders to fill at install.

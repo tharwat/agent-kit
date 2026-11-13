@@ -1,7 +1,7 @@
 {
   "$schema": "schemas/manifest.schema.json",
   "name": "agent-kit",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Claude Code + Codex working conventions, installable into any project. installer/agent_kit.py does every write; INSTALL.md tells the agent how to drive it.",
   "units": [
     "core/pack.json",
@@ -17,6 +17,7 @@
     "packs/remotion/pack.json",
     "packs/render/pack.json",
     "packs/scrollcraft/pack.json",
+    "packs/statusline/pack.json",
     "packs/supabase/pack.json",
     "packs/ticket-trains/pack.json",
     "packs/turnstile/pack.json",

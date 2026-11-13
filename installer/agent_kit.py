@@ -71,6 +71,7 @@ SKIP_NAMES = {"__pycache__", ".DS_Store"}
 SKIP_SUFFIXES = (".pyc",)
 # A glob never installs a unit's own tests; list a test file explicitly in `files` to install it.
 TEST_FILE_RE = re.compile(r"(^test_.*\.py$|_test\.py$|\.test\.[A-Za-z0-9]+$|\.spec\.[A-Za-z0-9]+$)")
+PACK_SETTINGS_KEYS = {"statusLine"}  # top-level settings a pack may set (schema: settings)
 
 LOCK_FILES = ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock",
               "poetry.lock", "Pipfile.lock", "uv.lock", "Cargo.lock", "go.sum", "Gemfile.lock", "composer.lock",
@@ -612,7 +613,7 @@ class Plan:
     def __init__(self):
         self.rows = []
         self.mcp = []          # dicts: server, unit, action, reason, env
-        self.settings = {"hooks": [], "permissions": [], "keys": []}
+        self.settings = {"hooks": [], "permissions": [], "keys": [], "kept": []}
         self.gitignore = []
         self.env = []
         self.owner_tasks = []
@@ -957,7 +958,7 @@ def build_plan(kit, target, answers_path, upgrade=False):
         produced.add("AGENTS.md")
     settings_spec = merges.get("settings-json")
     plan.rows.append(plan_settings(kit, target, units, settings_spec, render(settings_spec) if settings_spec else None,
-                                   plan, values, names))
+                                   plan, values, names, lock_files.get(".claude/settings.json")))
     produced.add(".claude/settings.json")
     plan.rows.append(plan_mcp(kit, target, units, answers["mcp_map"], plan, values, missing,
                               lock_files.get(".mcp.json"), resolutions))
@@ -1278,7 +1279,15 @@ def _merge_json_target(target, rel, plan):
     return raw, data
 
 
-def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=None):
+def valid_pack_setting(key, value):
+    """A pack's top-level setting value is well-formed (the schema's allow-list, checked again at install)."""
+    if key == "statusLine":
+        return isinstance(value, dict) and value.get("type") == "command" and isinstance(value.get("command"), str) \
+            and value["command"].strip() != ""
+    return False
+
+
+def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=None, lock_entry=None):
     rel = ".claude/settings.json"
     raw, cur = _merge_json_target(target, rel, plan)
     unit, src = (spec.unit, spec.src) if spec else ("core", "(pack hooks/permissions)")
@@ -1299,6 +1308,53 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
         if k not in new:
             new[k] = copy.deepcopy(v)
             plan.settings["keys"].append(k)
+    # Pack settings (allow-listed top-level keys): added when absent, updated when the value is the one the kit
+    # installed last time (the lock records it), and otherwise kept: the project's own value always wins.
+    kit_wrote = (lock_entry or {}).get("pack_settings")
+    kit_wrote = dict(kit_wrote) if isinstance(kit_wrote, dict) else {}  # a hand-edited lock can't crash the plan
+    written, claimed = {}, {}
+    for u in units:
+        settings = kit.units[u].get("settings") or {}
+        if not isinstance(settings, dict):
+            plan.errors.append(f"{u}: pack.json settings must be an object")
+            continue
+        for k, v in settings.items():
+            if k not in PACK_SETTINGS_KEYS:
+                plan.errors.append(f"{u}: pack.json settings.{k} is not allowed (only {sorted(PACK_SETTINGS_KEYS)})")
+                continue
+            if values is not None:
+                unknown = set()
+                v = fill_json(v, values, unknown)
+                if unknown:
+                    plan.errors.append(f"{u}: pack.json settings.{k} names unknown facts: {sorted(unknown)}")
+                    continue
+            if not valid_pack_setting(k, v):
+                plan.errors.append(f"{u}: pack.json settings.{k} is malformed")
+                continue
+            if k in claimed:
+                plan.settings["kept"].append({"key": k, "unit": u, "reason": f"already claimed by the {claimed[k]} pack"})
+                continue
+            claimed[k] = u
+            if k not in new and k in kit_wrote:
+                # the kit set it before and the project removed it: that choice stands. Recorded as removed (None),
+                # so a value the project puts back later counts as the project's own.
+                written[k] = None
+                plan.settings["kept"].append({"key": k, "unit": u, "reason": "the project removed it earlier"})
+            elif k not in new:
+                new[k] = copy.deepcopy(v)
+                plan.settings["keys"].append(k)
+                written[k] = v
+            elif new[k] == v:
+                written[k] = v
+            elif kit_wrote.get(k) is not None and new[k] == kit_wrote[k]:
+                new[k] = copy.deepcopy(v)  # the kit's own earlier value: take the new one
+                plan.settings["keys"].append(k)
+                written[k] = v
+            else:
+                plan.settings["kept"].append({"key": k, "unit": u, "reason": "the project sets its own"})
+            if k == "statusLine" and k in plan.settings["keys"] and personal_setting(k):
+                plan.warnings.append("statusLine: this project's status line (from the statusline pack) takes "
+                                     "precedence over the one in your ~/.claude/settings.json")
     # Permissions: union, existing order first.
     perm_sources = [("core", tmpl.get("permissions", {}))] + [(u, kit.units[u].get("permissions", {})) for u in units]
     if values is not None:  # a pack's allow rules may name a fact, e.g. Bash({{EAS_CLI}} whoami)
@@ -1353,7 +1409,14 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
             lst.append(ng)
             for h in add:
                 plan.settings["hooks"].append(f"{event}[{g.get('matcher', '*')}]: {h.get('command')} ({u})")
+    for k, v in kit_wrote.items():  # set by a pack that's no longer installed: reported, never removed by the kit
+        if k not in claimed and v is not None and new.get(k) == v:
+            written[k] = v
+            plan.warnings.append(f"{k}: set by a pack that is no longer installed; it stays in .claude/settings.json "
+                                 "until you remove it")
     lock = {"src": src, "unit": unit, "project_owned": False, "merge": "settings-json", "status": "installed"}
+    if written:
+        lock["pack_settings"] = written
     if cur is None:
         if not new:
             return Row(unit, src, rel, "skip", "nothing to add")
@@ -1368,6 +1431,16 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
                 content=text.encode("utf-8"))
     r.lock = dict(lock, sha256_as_installed=sha256(text.encode("utf-8")))
     return r
+
+
+def personal_setting(key):
+    """True when the user's own ~/.claude/settings.json sets this top-level key (a project setting overrides it)."""
+    try:
+        with open(os.path.join(os.path.expanduser("~"), ".claude", "settings.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and key in data
 
 
 def fill_text(text, values):
@@ -1797,9 +1870,11 @@ def plan_markdown(kit, target, plan):
                 json.dumps({"claude_only": plan.no_description}), "```"]
     out += ["", "## Settings (.claude/settings.json)", ""]
     s = plan.settings
-    if s["hooks"] or s["permissions"] or s["keys"]:
+    if s["hooks"] or s["permissions"] or s["keys"] or s.get("kept"):
         out += [f"- hook {h}" for h in s["hooks"]] + [f"- permission {p}" for p in s["permissions"]] + \
-               [f"- top-level key `{k}` (absent before)" for k in s["keys"]]
+               [f"- top-level key `{k}` (set by the kit)" for k in s["keys"]] + \
+               [f"- top-level key `{k['key']}` kept, not taken from the {k['unit']} pack: {k['reason']}"
+                for k in s.get("kept", [])]
     else:
         out.append("Nothing to add.")
     out += ["", "## .gitignore", ""] + ([f"- `{l}`" for l in plan.gitignore] or ["Nothing to add."])

@@ -1,0 +1,31 @@
+{
+  "name": "statusline",
+  "version": "1.0.0",
+  "description": "Opt-in extra: a Claude Code status line showing model, branch, ticket and how much of the context window is used.",
+  "kind": "extra",
+  "requires": ["core"],
+  "conflicts": [],
+  "detect": {
+    "files": [],
+    "package_deps": [],
+    "ask": "Show a status line with model, branch, ticket and context use?"
+  },
+  "facts": [],
+  "files": [
+    {"src": "pack.md", "dest": ".claude/packs/statusline.md"},
+    {"src": "scripts/statusline.py", "dest": ".claude/scripts/statusline.py"}
+  ],
+  "hooks": [],
+  "permissions": {"allow": [], "deny": []},
+  "settings": {
+    "statusLine": {
+      "type": "command",
+      "command": "p=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$p/.claude/scripts/statusline.py\" ] || p=\"$PWD\"; while [ ! -f \"$p/.claude/scripts/statusline.py\" ] && [ \"$(dirname \"$p\")\" != \"$p\" ]; do p=$(dirname \"$p\"); done; python3 \"$p/.claude/scripts/statusline.py\"",
+      "padding": 0
+    }
+  },
+  "mcp": {},
+  "env": [],
+  "third_party": [],
+  "ci": []
+}
