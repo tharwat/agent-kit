@@ -142,6 +142,23 @@ class BlockTests(HookCase):
     def test_push_main_inside_bash_c(self):
         self.assertBlocked('bash -c "git push origin main"')
 
+    def test_push_main_inside_substitution(self):
+        self.assertBlocked('echo "$(git push origin main)"')
+
+    def test_switch_back_to_main_then_commit(self):
+        self.assertBlocked("git checkout -b feat && git checkout main && git commit -m x", cwd=self.on_main)
+        self.assertBlocked("git switch -c feat && git switch main && git commit -m x", cwd=self.on_main)
+
+    def test_push_main_with_shell_options(self):
+        self.assertBlocked('bash -o pipefail -c "git push origin main"')
+
+    def test_push_main_after_rare_global_option(self):
+        self.assertBlocked("git --super-prefix x push origin main")
+
+    def test_push_main_via_xargs_and_eval(self):
+        self.assertBlocked("echo main | xargs git push origin main")
+        self.assertBlocked('eval "git push origin main"')
+
     def test_gh_pr_merge_admin(self):
         self.assertBlocked("gh pr merge 12 --squash --admin")
 
@@ -150,6 +167,14 @@ class BlockTests(HookCase):
 
 
 class AllowTests(HookCase):
+    def test_new_branch_then_commit_on_main(self):
+        # The commit lands on the branch created first in the same command.
+        for cmd in ("git checkout -b feat && git commit -m x", "git switch -c feat; git commit -am wip",
+                    "git checkout -b feat origin/main && git push -u origin HEAD",
+                    "git switch --create=feat && git commit -m x"):
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(cmd, cwd=self.on_main)
+
     def test_commit_on_feature_mentioning_main(self):
         self.assertAllowed('git commit -m "fix main nav on the main screen"')
 

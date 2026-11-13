@@ -4,6 +4,31 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.4.0 — 2026-11-11
+
+- **New hook `block-destructive.py` (core).** It blocks destructive filesystem and git commands that the deny list
+  can't see: options before the subcommand (`git -C x reset --hard`), combined short flags (`git push -uf`),
+  `+refspec` force pushes, `git checkout <path>` / `<rev> <path>` / `--ours`, `git branch -f`, `git checkout -B` / `git switch -C` / `git branch -M/-C` over a branch that already exists (a new name is allowed), `git restore`
+  (allowed: `--staged` alone), `git rm` (allowed: `--cached`), `find -delete`, and deletes passed as arguments
+  (`xargs rm`, `find -exec rm`, `bash -c "…"`, `bash <<'EOF'`, `eval`, `git submodule foreach`, and `python3 -c` /
+  `node -e` / `perl -e` / `python3 - <<'EOF'` code, also behind `uv run` / `poetry run` / `npx`). `rm` is allowed only when every operand is a plain path inside this session's
+  scratch dir or `.claude/state/tmp/` (no globs or `$`, symlinks and `..` resolved, never the root itself). The
+  settings deny rules still win, so `rm -rf` stays refused even there. The block message names the rule and the
+  allowed alternative.
+- **Shared shell parser `kit_shell.py`** in `.claude/hooks/`. The hooks parse commands instead of matching text, so
+  `git commit -m "drop the rm call"` and `grep "rm -rf" docs/` are allowed. It now also reads `$(…)`, backticks,
+  `<(…)`, `eval`, `xargs` and `find -exec` payloads, scripts fed to a shell (`bash <<'EOF'`, `bash <<< "…"`), and
+  `$(…)` inside an unquoted heredoc. A `cd` inside `( … )` or a pipeline doesn't carry over to later commands.
+  `block-main-branch.py` uses it, so it now also catches a push to main inside `$(…)` or `bash -o pipefail -c`, and
+  it no longer blocks `git checkout -b feat && git commit` run from main (the commit lands on `feat`).
+- **Core hooks are declared in `core/pack.json`** (they were in the settings template). The main-branch hook's
+  command is unchanged, so an upgrade doesn't add it twice.
+- **Kit test:** every `destructive_patterns` reason in `manifest.json` must have a rule in the hook and a blocked
+  test case.
+
+**Upgrade touches:** `.claude/settings.json` (adds the `block-destructive.py` PreToolUse hook), `.claude/hooks/`
+(adds `block-destructive.py` and `kit_shell.py`, updates `block-main-branch.py`).
+
 ## 1.3.1 — 2026-11-11
 
 - **Wider destructive-command deny list.** The installed `.claude/settings.json` now also denies `rmdir`, `unlink`,

@@ -118,5 +118,39 @@ class DenyListInstall(Base):
         self.assertEqual(load_json(lock_path)["kit"]["version"], load_json(os.path.join(KIT, "manifest.json"))["version"])
 
 
+def bash_hooks(settings):
+    return [h["command"] for g in settings.get("hooks", {}).get("PreToolUse", []) if g.get("matcher") == "Bash"
+            for h in g["hooks"]]
+
+
+# The hook block as 1.3.0 installed it.
+HOOKS_1_3_0 = {"PreToolUse": [{"matcher": "Bash", "hooks": [
+    {"type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-main-branch.py", "timeout": 10}]}]}
+
+
+class DestructiveHook(Base):
+    def test_fresh_install_wires_the_hook_and_its_parser(self):
+        self.apply(self.answers())
+        cmds = bash_hooks(load_json(self.t(".claude/settings.json")))
+        self.assertTrue(any(c.endswith("/.claude/hooks/block-destructive.py") for c in cmds), cmds)
+        self.assertTrue(any(c.endswith("/.claude/hooks/block-main-branch.py") for c in cmds), cmds)
+        self.assertEqual(len(cmds), len(set(cmds)))
+        for f in ("block-destructive.py", "kit_shell.py", "block-main-branch.py"):
+            self.assertTrue(os.path.isfile(self.t(".claude/hooks/" + f)), f)
+
+    def test_upgrade_from_1_3_0_adds_the_hook_once(self):
+        self.apply(self.answers())
+        path = self.t(".claude/settings.json")
+        settings = load_json(path)
+        settings["hooks"] = json.loads(json.dumps(HOOKS_1_3_0))
+        write(path, json.dumps(settings, indent=2))
+        rc, out, err = run(["upgrade", "--target", self.target, "--kit", self.kit])
+        self.assertEqual(rc, 0, out + err)
+        cmds = bash_hooks(load_json(path))
+        self.assertEqual(cmds[0], HOOKS_1_3_0["PreToolUse"][0]["hooks"][0]["command"])
+        self.assertEqual(len(cmds), len(set(cmds)))
+        self.assertTrue(any(c.endswith("/.claude/hooks/block-destructive.py") for c in cmds), cmds)
+
+
 if __name__ == "__main__":
     unittest.main()

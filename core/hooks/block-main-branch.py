@@ -24,16 +24,17 @@ note) on any internal error.
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 
+sys.dont_write_bytecode = True  # never leave __pycache__ in .claude/hooks/
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import kit_shell
+except ImportError:  # a partial install: fail open in main()
+    kit_shell = None
+
 DEFAULT_MAIN = "main"
-SEPARATORS = {";", "&&", "||", "|", "&", "|&", ";;", "(", ")"}
-WRAPPERS = {"env", "command", "exec", "nohup", "time", "sudo", "nice"}
-SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
-GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
-PUSH_OPTS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
@@ -93,59 +94,6 @@ def current_branch(directory):
     return out.stdout.strip() or None
 
 
-# ---------------------------------------------------------------- parsing
-
-HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
-
-
-def strip_heredocs(command):
-    """Drop heredoc bodies (they are data, not commands). Keeps the `<<TAG` marker."""
-    lines = command.split("\n")
-    out = []
-    pending = []
-    for line in lines:
-        if pending:
-            if line.strip() == pending[0]:
-                pending.pop(0)
-            continue
-        out.append(line)
-        pending.extend(m.group(2) for m in HEREDOC_RE.finditer(line))
-    return "\n".join(out)
-
-
-def split_commands(command):
-    """Tokenize and split on shell operators. Quoted text stays one token."""
-    text = strip_heredocs(command).replace("\n", " ; ")
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()")
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    commands, current = [], []
-    for token in lexer:
-        if token in SEPARATORS:
-            if current:
-                commands.append(current)
-            current = []
-        else:
-            current.append(token)
-    if current:
-        commands.append(current)
-    return commands
-
-
-def strip_prefix(tokens):
-    """Remove leading VAR=value assignments and wrappers such as `env`."""
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tok):
-            i += 1
-        elif tok in WRAPPERS:
-            i += 1
-        else:
-            break
-    return tokens[i:]
-
-
 # ---------------------------------------------------------------- checks
 
 def normalize_ref(ref):
@@ -154,7 +102,8 @@ def normalize_ref(ref):
     return ref
 
 
-def check_push(args, directory, main):
+def check_push(args, directory, main, branch_of=None):
+    branch_of = branch_of or current_branch
     positionals = []
     everything = False
     i = 0
@@ -167,7 +116,7 @@ def check_push(args, directory, main):
             name = tok.split("=", 1)[0]
             if name in ("--all", "--mirror", "--branches"):
                 everything = True
-            if name in PUSH_OPTS_WITH_VALUE and "=" not in tok:
+            if name in kit_shell.PUSH_OPTS_WITH_VALUE and "=" not in tok:
                 i += 1
         else:
             positionals.append(tok)
@@ -178,7 +127,7 @@ def check_push(args, directory, main):
 
     refspecs = positionals[1:]
     if not refspecs:
-        branch = current_branch(directory)
+        branch = branch_of(directory)
         if branch == main:
             raise Blocked("`git push` with no refspec while on `%s` pushes `%s`" % (main, main))
         return
@@ -191,34 +140,74 @@ def check_push(args, directory, main):
         else:
             src = dst = spec
         if dst == "HEAD":
-            dst = current_branch(directory) or ""
+            dst = branch_of(directory) or ""
         if normalize_ref(dst) == main:
             raise Blocked("`git push` targets `%s`" % main)
 
 
-def check_git(args, directory, main):
-    i = 0
-    while i < len(args):
-        tok = args[i]
-        if not tok.startswith("-"):
-            break
-        name = tok.split("=", 1)[0]
-        if name in GIT_OPTS_WITH_VALUE and "=" not in tok:
-            if name == "-C" and i + 1 < len(args):
-                directory = os.path.join(directory, args[i + 1])
-            i += 2
-            continue
-        i += 1
-    if i >= len(args):
-        return
-    sub, rest = args[i], args[i + 1:]
+def ref_exists(directory, ref):
+    try:
+        out = subprocess.run(["git", "-C", directory, "show-ref", "--verify", "--quiet", ref],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0
+
+
+def switched_to(sub, rest, directory, main=None):
+    """The branch a `git checkout` / `git switch` in this command moves to: a name, "" for detached, or None when it
+    doesn't switch branches (or we can't tell)."""
+    def value_of(names):
+        for k, a in enumerate(rest):
+            for n in names:
+                if a == n and k + 1 < len(rest):
+                    return rest[k + 1]
+                if n.startswith("--") and a.startswith(n + "="):
+                    return a.split("=", 1)[1]
+                if not n.startswith("--") and a.startswith(n) and len(a) > len(n):
+                    return a[len(n):]
+        return None
+
+    if "--detach" in rest or (sub == "switch" and "-d" in rest):
+        return ""
+    created = value_of(("-b", "-B", "--orphan") if sub == "checkout" else
+                       ("-c", "-C", "--create", "--force-create", "--orphan"))
+    if created:
+        return created
+    if "--" in rest:
+        return None
+    pos = [a for a in rest if not a.startswith("-")]
+    if len(pos) != 1:
+        return None
+    name = pos[0]
+    if sub == "switch" or name == main:
+        return name
+    # `git checkout <name>`: a branch only if one exists by that name (else it may be a path)
+    if ref_exists(directory, "refs/heads/" + name) or ref_exists(directory, "refs/remotes/origin/" + name):
+        return name
+    return None
+
+
+def check_git(args, directory, main, branches=None):
+    """`branches` maps a directory to the branch an earlier command in this same tool call switched it to."""
+    branches = {} if branches is None else branches
+
+    def branch_of(d):
+        key = os.path.normpath(d)
+        return branches[key] if key in branches else current_branch(d)
+
+    sub, rest, directory = kit_shell.git_split(args, directory)
     if sub == "commit":
         if "-h" in rest or "--help" in rest:
             return
-        if current_branch(directory) == main:
+        if branch_of(directory) == main:
             raise Blocked("`git commit` on `%s`" % main)
     elif sub == "push":
-        check_push(rest, directory, main)
+        check_push(rest, directory, main, branch_of)
+    elif sub in ("checkout", "switch"):
+        target = switched_to(sub, rest, directory, main)
+        if target is not None:
+            branches[os.path.normpath(directory)] = target or None
 
 
 def check_gh(args):
@@ -226,25 +215,13 @@ def check_gh(args):
         raise Blocked("`gh pr merge --admin` bypasses branch protection (gate G4)")
 
 
-def check_command(command, cwd, main, depth=0):
-    directory = cwd
-    for tokens in split_commands(command):
-        tokens = strip_prefix(tokens)
-        if not tokens:
-            continue
-        prog = os.path.basename(tokens[0])
-        args = tokens[1:]
-        if prog == "cd":
-            target = args[0] if args else os.path.expanduser("~")
-            directory = os.path.join(directory, os.path.expanduser(target))
-        elif prog == "git":
-            check_git(args, directory, main)
-        elif prog == "gh":
-            check_gh(args)
-        elif prog in SHELLS and "-c" in args and depth < 3:
-            idx = args.index("-c")
-            if idx + 1 < len(args):
-                check_command(args[idx + 1], directory, main, depth + 1)
+def check_command(command, cwd, main):
+    branches = {}
+    for cmd in kit_shell.iter_commands(command, cwd):
+        if cmd.prog == "git":
+            check_git(list(cmd.args), cmd.cwd, main, branches)
+        elif cmd.prog == "gh":
+            check_gh(list(cmd.args))
 
 
 # ---------------------------------------------------------------- entry point
@@ -253,6 +230,8 @@ def main():
     try:
         raw = sys.stdin.read()
         event = json.loads(raw)
+        if kit_shell is None:
+            raise ImportError("kit_shell.py is missing")
         if event.get("tool_name") != "Bash":
             return 0
         command = (event.get("tool_input") or {}).get("command") or ""
