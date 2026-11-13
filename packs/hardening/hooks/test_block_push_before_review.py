@@ -20,8 +20,9 @@ SHELL_PATH = str(KIT_CORE_HOOKS) if (KIT_CORE_HOOKS / "kit_shell.py").is_file() 
 
 
 class Project:
-    def __init__(self, root, main="main"):
+    def __init__(self, root, main="main", branch="feature/abc-7"):
         self.root = Path(root)
+        subprocess.run(["git", "init", "-q", "-b", branch, str(self.root)], check=True, capture_output=True)
         self.state = self.root / ".claude" / "state" / "hardening"
         (self.root / "CLAUDE.md").write_text(
             "# CLAUDE.md\n\n## Project facts\n\n| Fact | Value | Meaning |\n|---|---|---|\n"
@@ -176,7 +177,8 @@ class BlockPushBeforeReview(unittest.TestCase):
             "gh api graphql -F query=@read.graphql",
             "curl -s https://api.github.com/repos/o/r/pulls/12/merge",
             "curl -X POST -d '{}' https://hooks.example.invalid/notify",
-            "http api.github.com/repos/o/r/pulls/12",
+            "http GET api.github.com/repos/o/r/pulls/12",
+            "xh get https://api.github.com/repos/o/r/pulls/12",
             # text that only mentions these is data, not a command
             "grep -rn mergePullRequest src/",
             "git commit -m 'ABC-7: handle mergePullRequest errors and gh pr merge output'",
@@ -184,6 +186,75 @@ class BlockPushBeforeReview(unittest.TestCase):
         ]:
             with self.subTest(cmd=cmd):
                 self.assertAllowed(self.p.run(cmd))
+
+    def test_launchers_and_spellings_do_not_hide_writes(self):
+        self.p.arm()
+        (self.p.root / "q.json").write_text('{"query": "\\u006dutation { mergePullRequest(input: {pullRequestId: \\"x\\"}) { clientMutationId } }"}', encoding="utf-8")
+        for cmd in [
+            # a launcher in front
+            "caffeinate -i gh pr merge 12 --squash",
+            "op run -- gh pr merge 12 --squash",
+            "doppler run -- gh api -X PUT repos/o/r/pulls/1/merge",
+            "watch -n 5 gh pr merge 12",
+            'eval "$(echo gh pr merge 1)"',
+            "op run -- git push origin main",
+            # host and path spellings
+            "curl -X PUT https://api.github.com:443/repos/o/r/pulls/1/merge",
+            "curl -X PUT https://API.GITHUB.COM/repos/o/r/pulls/1/merge",
+            "curl -X PUT https://api.github.com./repos/o/r/pulls/1/merge",
+            "curl -X PUT https://api.github.com/repos/o/r/pulls/1/merge/issues/..",
+            "http PUT api.github.com:443/repos/o/r/pulls/1/merge",
+            # curl options
+            'curl -O -X PUT -H "Authorization: token x" https://api.github.com/repos/o/r/pulls/1/merge',
+            "curl -X PUT --request-target /repos/o/r/pulls/1/merge https://api.github.com/issues",
+            # httpie: an implicit method with a body on stdin, an option value before the method
+            "echo '{\"base\":\"main\",\"head\":\"feat\"}' | http api.github.com/repos/o/r/merges",
+            "http api.github.com/repos/o/r/merges < body.json",
+            "http --raw '{\"x\":1}' PUT api.github.com/repos/o/r/pulls/1/merge",
+            # a JSON-escaped GraphQL mutation in a body file
+            "gh api graphql --input q.json",
+            "curl -d @q.json https://api.github.com/graphql",
+            # inline code
+            "python3 -c \"import subprocess; subprocess.run(['gh','pr','merge','1','--squash'])\"",
+            "python3 -c \"import os; os.system('gh api -X PUT repos/o/r/pulls/1/merge')\"",
+            "python3 -c \"import urllib.request as u; u.urlopen(u.Request('https://api.github.com/repos/o/r/merges', data=b'{}'))\"",
+            "python3 -c \"from github import Github; Github('t').get_repo('o/r').get_pull(1).merge()\"",
+            "python3 -c \"import subprocess; subprocess.run(['npx','prisma','migrate','deploy'])\"",
+            # git push forms that reach main
+            "git --config-env core.x=HOME push origin main",
+            "git push origin :",
+            "git push origin 'refs/heads/*'",
+            "git push origin +HEAD:refs/heads/main",
+        ]:
+            with self.subTest(cmd=cmd):
+                result = self.p.run(cmd)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("ABC-7", result.stderr)
+
+    def test_push_follows_the_current_branch(self):
+        self.p.arm()
+        for cmd in ["git push", "git push origin", "git push -u origin HEAD", "git push origin @"]:
+            with self.subTest(cmd=cmd, branch="feature"):
+                self.assertAllowed(self.p.run(cmd))
+        on_main = tempfile.TemporaryDirectory()
+        self.addCleanup(on_main.cleanup)
+        p = Project(on_main.name, branch="main")
+        p.arm()
+        for cmd in ["git push", "git push origin", "git push -u origin HEAD", "git push origin @"]:
+            with self.subTest(cmd=cmd, branch="main"):
+                self.assertEqual(p.run(cmd).returncode, 2)
+
+    def test_mentions_are_not_commands(self):
+        self.p.arm()
+        for cmd in [
+            'git commit -m "docs: explain supabase db push"',
+            'grep -rn "prisma migrate deploy" docs',
+            "node -e \"const g=require('./src/graphql/schema'); console.log(g.Post)\"",
+            "python3 -c \"import requests; print(requests.get('https://api.github.com/repos/o/r').json())\"",
+        ]:
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(self.p.run(cmd))
+        self.assertAllowed(self.p.run(tool="mcp__filesystem__delete_file", tool_input={"path": "/tmp/x"}))
 
     def test_github_mcp_merge_and_main_writes(self):
         self.p.arm()
