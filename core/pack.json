@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/pack.schema.json",
   "name": "core",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "The workflow core: triage, operate, post-op, peer-review, ship and the supporting commands, rules, hooks and Claude/Codex sync. Always installed.",
   "kind": "core",
   "requires": [],
@@ -81,7 +81,8 @@
   "hooks": [
     {"event": "PreToolUse", "matcher": "Bash", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-main-branch.py", "timeout": 10},
     {"event": "PreToolUse", "matcher": "Bash", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-destructive.py", "timeout": 10},
-    {"event": "PreToolUse", "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|Grep", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-secrets.py", "timeout": 10}
+    {"event": "PreToolUse", "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|Grep", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-secrets.py", "timeout": 10},
+    {"event": "PreToolUse", "matcher": "Bash", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-commit-message.py", "timeout": 10}
   ],
   "permissions": {"allow": [], "deny": []},
   "mcp": {},

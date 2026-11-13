@@ -30,9 +30,10 @@ import sys
 sys.dont_write_bytecode = True  # never leave __pycache__ in .claude/hooks/
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
+    import kit_facts
     import kit_shell
 except ImportError:  # a partial install: fail open in main()
-    kit_shell = None
+    kit_shell = kit_facts = None
 
 DEFAULT_MAIN = "main"
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
@@ -44,54 +45,14 @@ class Blocked(Exception):
 
 # ---------------------------------------------------------------- main branch
 
-def find_claude_md(cwd):
-    """CLAUDE.md in $CLAUDE_PROJECT_DIR, else the nearest one at or above cwd."""
-    project = os.environ.get("CLAUDE_PROJECT_DIR")
-    if project:
-        path = os.path.join(project, "CLAUDE.md")
-        if os.path.isfile(path):
-            return path
-    here = os.path.abspath(cwd or os.getcwd())
-    while True:
-        path = os.path.join(here, "CLAUDE.md")
-        if os.path.isfile(path):
-            return path
-        parent = os.path.dirname(here)
-        if parent == here:
-            return None
-        here = parent
-
-
 def read_main_branch(cwd):
-    path = find_claude_md(cwd)
-    if not path:
-        return DEFAULT_MAIN
-    try:
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                cells = [c.strip().strip("`").strip() for c in line.strip().strip("|").split("|")]
-                if len(cells) >= 2 and cells[0] == "MAIN_BRANCH":
-                    value = cells[1]
-                    if BRANCH_RE.match(value):
-                        return value
-                    return DEFAULT_MAIN
-    except OSError:
-        pass
-    return DEFAULT_MAIN
+    value = kit_facts.fact(kit_facts.read_facts(cwd), "MAIN_BRANCH", DEFAULT_MAIN)
+    return value if BRANCH_RE.match(value) else DEFAULT_MAIN
 
 
 def current_branch(directory):
     """Short name of the checked-out branch, or None (detached, not a repo, error)."""
-    try:
-        out = subprocess.run(
-            ["git", "-C", directory, "symbolic-ref", "--short", "-q", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if out.returncode != 0:
-        return None
-    return out.stdout.strip() or None
+    return kit_facts.current_branch(directory)
 
 
 # ---------------------------------------------------------------- checks
@@ -145,49 +106,6 @@ def check_push(args, directory, main, branch_of=None):
             raise Blocked("`git push` targets `%s`" % main)
 
 
-def ref_exists(directory, ref):
-    try:
-        out = subprocess.run(["git", "-C", directory, "show-ref", "--verify", "--quiet", ref],
-                             capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return out.returncode == 0
-
-
-def switched_to(sub, rest, directory, main=None):
-    """The branch a `git checkout` / `git switch` in this command moves to: a name, "" for detached, or None when it
-    doesn't switch branches (or we can't tell)."""
-    def value_of(names):
-        for k, a in enumerate(rest):
-            for n in names:
-                if a == n and k + 1 < len(rest):
-                    return rest[k + 1]
-                if n.startswith("--") and a.startswith(n + "="):
-                    return a.split("=", 1)[1]
-                if not n.startswith("--") and a.startswith(n) and len(a) > len(n):
-                    return a[len(n):]
-        return None
-
-    if "--detach" in rest or (sub == "switch" and "-d" in rest):
-        return ""
-    created = value_of(("-b", "-B", "--orphan") if sub == "checkout" else
-                       ("-c", "-C", "--create", "--force-create", "--orphan"))
-    if created:
-        return created
-    if "--" in rest:
-        return None
-    pos = [a for a in rest if not a.startswith("-")]
-    if len(pos) != 1:
-        return None
-    name = pos[0]
-    if sub == "switch" or name == main:
-        return name
-    # `git checkout <name>`: a branch only if one exists by that name (else it may be a path)
-    if ref_exists(directory, "refs/heads/" + name) or ref_exists(directory, "refs/remotes/origin/" + name):
-        return name
-    return None
-
-
 def check_git(args, directory, main, branches=None):
     """`branches` maps a directory to the branch an earlier command in this same tool call switched it to."""
     branches = {} if branches is None else branches
@@ -205,7 +123,7 @@ def check_git(args, directory, main, branches=None):
     elif sub == "push":
         check_push(rest, directory, main, branch_of)
     elif sub in ("checkout", "switch"):
-        target = switched_to(sub, rest, directory, main)
+        target = kit_facts.switched_to(sub, rest, directory, main)
         if target is not None:
             branches[os.path.normpath(directory)] = target or None
 
@@ -230,8 +148,8 @@ def main():
     try:
         raw = sys.stdin.read()
         event = json.loads(raw)
-        if kit_shell is None:
-            raise ImportError("kit_shell.py is missing")
+        if kit_shell is None or kit_facts is None:
+            raise ImportError("kit_shell.py or kit_facts.py is missing")
         if event.get("tool_name") != "Bash":
             return 0
         command = (event.get("tool_input") or {}).get("command") or ""
