@@ -4,21 +4,59 @@
 
 A /hardening run arms `.claude/state/hardening/<ticket>.active` when it branches. While an armed marker exists and
 its `.claude/state/hardening/<ticket>.postop-passed` doesn't (or says `restored`), this hook blocks:
-  - `git push` to the main branch (a refspec whose destination is it, or --all / --mirror);
-  - `gh pr merge`;
-  - commands that apply database migrations, and MCP `apply_migration` tools.
+  - `git push` that can update the main branch: a refspec whose destination is it (also `HEAD` / `@` / a
+    shell-filled branch name while on it), `:` and glob refspecs, `--all` / `--mirror` / `--branches`, and a bare
+    `git push` while on it. "On it" follows a `git checkout` / `git switch` earlier in the same command; a `cd` the
+    parser can't follow is taken to stay in this repo;
+  - `gh pr merge` (also with `-R` / `--repo` before `merge`);
+  - writes through the GitHub API, from `gh api`, `curl`, `wget`, httpie (`http`) or `xh`: any method other than
+    GET/HEAD, except comments, labels, reviews, review requests, issues and opening or editing a PR, which can't move
+    a branch. A REST
+    merge, a `/merges` call, a ref update or a contents write is blocked whatever its endpoint. httpie and xh send
+    stdin as a body without saying so, so a call to the GitHub API with no explicit GET is a write;
+  - GraphQL mutations (also JSON-escaped in a body file), and a GraphQL write whose query can't be read;
+  - inline code (`python3 -c`, `node -e`, a script on stdin) that runs any of the above or writes to the GitHub API;
+  - commands that apply database migrations, and MCP `apply_migration` tools;
+  - GitHub MCP tools that merge (`merge_pull_request`), or that write files (`push_files`, `create_or_update_file`,
+    `delete_file`) on the main branch or with no branch named.
+Commands are read with the core shared parser (`kit_shell.py`): `bash -c`, `eval`, `$(…)`, heredoc scripts and
+`xargs` are seen, and these tools, and a shell's `-c` code or stdin script, are found anywhere in a command's words,
+so a launcher in front (`op run --`, `caffeinate -i`, `watch -n 5`, `docker compose exec api sh -c …`) doesn't hide
+them. A quoted word with spaces in it (a commit message, a grep pattern) is data, and so are the words given to a
+program that only searches or reads them (`grep`, `cat`, `man`, …): a command that only mentions these as text is
+not blocked.
 Everything else is allowed. A marker whose first line is `restored` is a finished run and arms nothing.
 
+Known gaps: a script file run by name (`python3 merge.py`), a command held in a variable or a quoted launcher string
+(`watch "gh pr merge 1"`), curl's `-K` config files, and a `gh` alias.
+
+Its MCP registration runs it as `block-push-before-review.py --mcp-tools`: the argument is ignored, and only makes the
+command differ from the Bash one, since the installer merges hooks by command text.
+
 Contract: reads the event JSON on stdin. Exit 2 with the reason on stderr blocks; exit 0 allows. Any internal error
-fails open with a one-line stderr note. It writes nothing and makes no network call. Python 3.9+, stdlib only.
+fails open with a one-line stderr note. If `kit_shell.py` is missing or the command doesn't parse, it falls back to
+matching the raw command text. It writes nothing and makes no network call. Python 3.9+, stdlib only.
 """
 
 import json
 import os
+import posixpath
 import re
 import shlex
 import sys
+from fnmatch import fnmatchcase
 from pathlib import Path
+
+sys.dont_write_bytecode = True  # write nothing into .claude/hooks/
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import kit_shell  # installed beside this hook by core
+except ImportError:
+    kit_shell = None
+try:
+    import kit_facts  # installed beside this hook by core
+except ImportError:
+    kit_facts = None
 
 STATE_SUBDIR = Path(".claude") / "state" / "hardening"
 DEFAULT_MAIN = "main"
@@ -43,8 +81,59 @@ MIGRATION_PATTERNS = [
 ]
 MIGRATION_RE = re.compile("|".join(MIGRATION_PATTERNS))
 MCP_MIGRATION_RE = re.compile(r"^mcp__.*apply_migration$")
+MCP_MERGE_RE = re.compile(r"^mcp__.*merge_pull_request$")
+MCP_FILE_WRITE_RE = re.compile(r"^mcp__.*(?:push_files|create_or_update_file|delete_file)$")
 GH_MERGE_RE = re.compile(r"\bgh\s+pr\s+merge\b")
 SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")", "{", "}", "\n"}
+
+READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+HTTP_METHODS = READ_METHODS | {"POST", "PUT", "PATCH", "DELETE"}
+# REST writes that can't move a branch: comments, labels, reviews, review requests, assignees, issues, and opening
+# or editing a PR. Anchored at `repos/<owner>/<repo>/`, so a contents path such as `contents/app/issues/x` isn't one.
+SAFE_WRITE_RE = re.compile(
+    r"^repos/[^/]+/[^/]+/(?:issues(?:/[^/]+(?:/(?:comments|labels(?:/[^/]+)?|assignees))?)?"
+    r"|issues/comments/[^/]+|pulls(?:/[^/]+)?|pulls/[^/]+/(?:comments(?:/[^/]+/replies)?"
+    r"|reviews(?:/[^/]+(?:/events|/comments)?)?|requested_reviewers)|pulls/comments/[^/]+)$")
+# A URL whose host is in a variable (`$API/repos/o/r/…`): the visible path still says it's the GitHub API.
+VAR_API_PATH_RE = re.compile(r"(?:^|/)(repos/[^/\s]+/[^/\s]+/\S*|graphql)$")
+# api.github.com in any case, with a port or a trailing dot; GitHub Enterprise's /api/v3 and /api/graphql.
+GITHUB_HOST_RE = re.compile(r"(?i)(?:^|[/@.])api\.github\.com\.?(?::\d+)?(?=/|$|\?)")
+GHE_PATH_RE = re.compile(r"(?i)/api/(v3|graphql)(?=/|$|\?)")
+MUTATION_RE = re.compile(r"\bmutation\b")
+
+# Inline code is matched as text, after quotes, commas and brackets become spaces (so ['gh', 'pr', 'merge'] reads
+# as gh pr merge).
+CODE_GH_MERGE_RE = re.compile(r"\bgh\s+pr\s+merge\b")
+CODE_GH_API_RE = re.compile(r"\bgh\s+api\b")
+CODE_API_HOST_RE = re.compile(r"(?i)api\.github\.com|/api/v3/|/api/graphql")
+CODE_WRITE_RE = re.compile(r"(?i)(?<![\w-])(?:put|post|patch|delete|mutation|merges?|-X|--method|-f|-F|--input)(?![\w-])"
+                           r"|\bdata\s*=")
+CODE_GH_LIB_RE = re.compile(r"(?i)\bfrom\s+github\s+import\b|\bimport\s+github\b|\bGithub\s*\(|octokit")
+CODE_GH_LIB_WRITE_RE = re.compile(
+    r"(?i)\.merge\s*\(|merge_?pull|mergePullRequest|update_?ref|create_?file|update_?file|delete_?file"
+    r"|createOrUpdateFileContents|\.merges?\b|repos\.merge")
+CODE_GIT_PUSH_RE = re.compile(r"\bgit\b(?:[ \t]+-\S+(?:[ \t]+\S+)?)*[ \t]+push\b([^\n]*)")
+
+GH_API_VALUE_LETTERS = set("XHfFqtp")
+GH_API_VALUE_LONG = {"--method", "--header", "--raw-field", "--field", "--input", "--jq", "--template", "--hostname",
+                     "--preview", "--cache"}
+# curl short options that take a value (from `curl --help all`).
+CURL_VALUE_LETTERS = set("bcCdDeEFHKmoPQrtTuUwxXyYz")
+CURL_DATA_LONG = ("--data", "--json", "--form")
+CURL_VALUE_LONG = {"--request", "--header", "--user", "--user-agent", "--referer", "--cookie", "--cookie-jar",
+                   "--output", "--max-time", "--connect-timeout", "--proxy", "--url", "--upload-file", "--config",
+                   "--cert", "--key", "--cacert", "--write-out", "--retry", "--resolve", "--interface", "--range",
+                   "--oauth2-bearer", "--form-string", "--request-target", "--dump-header", "--continue-at",
+                   "--proxy-user", "--quote", "--ftp-port", "--speed-limit", "--speed-time", "--time-cond",
+                   "--telnet-option", "--connect-to", "--aws-sigv4", "--variable", "--expand-url"}
+HTTPIE = {"http", "https", "xh", "xhs"}
+TOOLS = {"gh", "curl", "wget", "git"} | HTTPIE
+# Programs that search or read their words and never run them: a tool name among their words is data. (`echo` and
+# `printf` aren't here: their output can be run, as in `eval "$(echo gh pr merge 1)"`.)
+DATA_PROGS = {"grep", "egrep", "fgrep", "rg", "ag", "cat", "less", "head", "tail", "sed", "awk",
+              "jq", "wc", "man", "which", "type", "whereis", "apropos", "tldr", "git"}
+GH_REPO_OPTS = {"-R", "--repo"}
+MAX_NESTING = 3
 
 
 def project_dir(event):
@@ -87,6 +176,8 @@ def unpassed_runs(root):
     return tickets
 
 
+# ---------------------------------------------------------------- raw-text fallback (no kit_shell, or no parse)
+
 def tokens(command):
     lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
@@ -109,23 +200,43 @@ def segments(command):
         yield current
 
 
-def git_push_targets_main(words, main):
-    """True when a `git ... push ...` segment can update the main branch."""
-    # Skip env assignments and wrappers (`FOO=1 git push`, `command git push`).
+def raw_text_action(command, main):
+    """The pre-parser check: match the raw text. Broad on purpose; used only when the command can't be parsed."""
+    if GH_MERGE_RE.search(command):
+        return "gh pr merge"
+    if MIGRATION_RE.search(command):
+        return "a migration apply command"
+    if (CODE_API_HOST_RE.search(command) or CODE_GH_API_RE.search(command)) and CODE_WRITE_RE.search(command):
+        return "a write through the GitHub API (command not parsed)"
+    for words in segments(command):
+        if legacy_push_targets_main(words, main):
+            return f"git push to {main}"
+    return None
+
+
+def legacy_push_targets_main(words, main):
+    """The fallback's `git push` check, on plain tokens."""
     i = 0
     while i < len(words) and ("=" in words[i] and not words[i].startswith("-") or words[i] in ("command", "exec", "env", "sudo")):
         i += 1
     if i >= len(words) or os.path.basename(words[i]) != "git":
         return False
     i += 1
-    while i < len(words) and words[i].startswith("-"):  # git -C dir / -c k=v / --git-dir=...
-        if words[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace"):
+    while i < len(words) and words[i].startswith("-"):
+        if words[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"):
             i += 1
         i += 1
     if i >= len(words) or words[i] != "push":
         return False
+    return refspecs_reach_main(words[i + 1:], main, None) is not False
+
+
+# ---------------------------------------------------------------- git push
+
+def refspecs_reach_main(args, main, current):
+    """True when `git push <args>` can update main, False when it can't, None when there is no refspec (git pushes
+    the current branch). current: the checked-out branch, or None when unknown."""
     positional = []
-    args = words[i + 1:]
     skip_next = False
     for arg in args:
         if skip_next:
@@ -139,32 +250,501 @@ def git_push_targets_main(words, main):
         if arg.startswith("-"):
             continue
         positional.append(arg)
+    if len(positional) < 2:
+        return None
     for refspec in positional[1:]:  # positional[0] is the remote
-        dest = refspec.lstrip("+").split(":", 1)[-1]
+        spec = refspec.lstrip("+")
+        if spec.startswith("^"):  # a negative refspec excludes, it never pushes
+            continue
+        if spec in (":", ""):  # matching refs: every branch that exists on both sides, main included
+            return True
+        src, colon, dest = spec.partition(":")
+        if not colon:
+            dest = src
+        if dest in ("HEAD", "@") or (not colon and expands(refspec)):  # `"$(git branch --show-current)"`, `"$BRANCH"`
+            dest = current if current else main  # unknown current branch: assume the worst
         if dest.startswith("refs/heads/"):
             dest = dest[len("refs/heads/"):]
-        if dest == main:
+        elif dest.startswith("heads/"):
+            dest = dest[len("heads/"):]
+        if dest == main or ("*" in dest and fnmatchcase(main, dest)):
             return True
     return False
 
 
-def blocked_action(event, main):
+class State:
+    """Per tool call: the branch each directory is on as the commands run (a `git checkout main` earlier in the same
+    command counts), and the session's own directory."""
+
+    def __init__(self, main, cwd):
+        self.main = main
+        self.cwd = cwd
+        self.tracker = kit_facts.BranchTracker(main) if kit_facts is not None else None
+
+    def branch(self, cmd, cwd=None):
+        """The branch a command in cmd's directory is on, or None when unknown. A `cd` the parser couldn't follow
+        is taken to stay in this repo, unless the command also switched branches somewhere."""
+        if self.tracker is None:
+            return None
+        if cmd.cwd_known:
+            return self.tracker.branch_of(cwd or cmd.cwd)
+        return None if self.tracker.branches else self.tracker.branch_of(self.cwd)
+
+    def saw(self, cmd):
+        argv = list(cmd.argv)
+        if self.tracker is None or not argv or os.path.basename(argv[0]) != "git":
+            return
+        sub, rest, cwd = kit_shell.git_split(argv[1:], cmd.cwd)
+        if sub in ("checkout", "switch"):
+            if cmd.cwd_known:
+                self.tracker.saw(sub, rest, cwd)
+            else:  # a switch somewhere we can't place: every branch is now unknown
+                self.tracker.branches[os.path.normpath(self.cwd)] = None
+
+
+def git_push_action(argv, cmd, main, state):
+    sub, args, cwd = kit_shell.git_split(list(argv[1:]), cmd.cwd)
+    if sub != "push":
+        return None
+    current = state.branch(cmd, cwd)
+    reach = refspecs_reach_main(args, main, current)
+    if reach is None:  # no refspec: git pushes the current branch
+        reach = current is None or current == main
+    return f"git push to {main}" if reach else None
+
+
+# ---------------------------------------------------------------- GitHub API writes
+
+def read_file(path, cwd):
+    """A file's text, or None when it can't be read."""
+    try:
+        with open(os.path.join(cwd, os.path.expanduser(path)), encoding="utf-8") as fh:
+            return fh.read(1 << 20)
+    except (OSError, ValueError):
+        return None
+
+
+def expands(word):
+    """True when the shell would substitute something in this word: `$NAME`, `${…}`, `$(…)` or a backtick outside
+    single quotes. A `$var` inside single quotes (a GraphQL variable) is literal text."""
+    raw = getattr(word, "raw", None)
+    if raw is None:  # no source text: be strict
+        return bool(re.search(r"\$(?:[A-Za-z_{(]|\d)|`", str(word)))
+    single = double = False
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if single:
+            if ch == "'":
+                single = False
+        elif ch == "\\":
+            i += 1
+        elif ch == "'" and not double:
+            single = True
+        elif ch == '"':
+            double = not double
+        elif ch == "`":
+            return True
+        elif ch == "$" and i + 1 < len(raw):
+            nxt = raw[i + 1]
+            if nxt == "'" and not double:  # $'…' ANSI-C string: literal
+                single = True
+                i += 1
+            elif nxt.isalnum() or nxt in "_{(@*#?!-":
+                return True
+        i += 1
+    return False
+
+
+def body_text(value, cmd, file_prefix="@", unknown=False):
+    """The text a body argument supplies, or None when it can't be known (expanded by the shell, an unreadable file,
+    unseen stdin)."""
+    if unknown:
+        return None
+    if file_prefix and value.startswith(file_prefix):
+        path = value[len(file_prefix):]
+        if path == "-":
+            return "\n".join(cmd.stdin) if cmd.stdin else None
+        return read_file(path, cmd.cwd)
+    return value
+
+
+def json_strings(text):
+    """Every string inside `text` when it is JSON (so `\\u006dutation` reads as `mutation`), else []."""
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return []
+    out, stack = [], [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, dict):
+            stack.extend(item.keys())
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return out
+
+
+def normalized_path(endpoint):
+    """The API path without query or fragment, with `.` / `..` / `//` resolved as an HTTP client would."""
+    path = re.sub(r"[?#].*$", "", str(endpoint))
+    path = posixpath.normpath("/" + path).lstrip("/")
+    return "" if path == "." else path
+
+
+def api_write_action(method, endpoint, bodies):
+    """The block reason for a GitHub API call, or None. bodies: the request texts (None for one we can't read)."""
+    if method in READ_METHODS:
+        return None
+    path = normalized_path(endpoint)
+    if path == "graphql" or path.endswith("/graphql"):
+        if not bodies or any(b is None for b in bodies):
+            return "a GitHub GraphQL write whose query can't be read"
+        for b in bodies:
+            if any(MUTATION_RE.search(t) for t in [b] + json_strings(b)):
+                return "a GitHub GraphQL mutation"
+        return None
+    if SAFE_WRITE_RE.search(path):
+        return None
+    return f"a write through the GitHub API ({method} {endpoint})"
+
+
+def short_cluster(arg, value_letters):
+    """For a single-dash cluster (`-sX`, `-XPUT`): [(letter, attached value or None)], stopping at a value letter."""
+    out = []
+    group = arg[1:]
+    for idx, ch in enumerate(group):
+        if ch in value_letters:
+            out.append((ch, group[idx + 1:] or None))
+            return out
+        out.append((ch, None))
+    return out
+
+
+def gh_api_action(args, cmd):
+    """`gh api …` args (after `api`)."""
+    method, endpoint, fields, inputs = None, None, [], []
+    k = 0
+    while k < len(args):
+        a = args[k]
+        if a == "--":
+            if endpoint is None and k + 1 < len(args):
+                endpoint = args[k + 1]
+            break
+        if a.startswith("--"):
+            name, eq, val = a.partition("=")
+            if name in GH_API_VALUE_LONG:
+                if not eq:
+                    val = args[k + 1] if k + 1 < len(args) else ""
+                    k += 1
+                src = a if eq or k >= len(args) else args[k]
+                if name == "--method":
+                    method = val.upper()
+                elif name in ("--raw-field", "--field"):
+                    fields.append((name == "--field", val, expands(src)))
+                elif name == "--input":
+                    inputs.append((val, expands(src)))
+            k += 1
+            continue
+        if a.startswith("-") and len(a) > 1:
+            for ch, attached in short_cluster(a, GH_API_VALUE_LETTERS):
+                if ch in GH_API_VALUE_LETTERS:
+                    val, src = attached, a
+                    if val is None:
+                        val = args[k + 1] if k + 1 < len(args) else ""
+                        src = args[k + 1] if k + 1 < len(args) else a
+                        k += 1
+                    val = val[1:] if val.startswith("=") else val
+                    if ch == "X":
+                        method = val.upper()
+                    elif ch in "fF":
+                        fields.append((ch == "F", val, expands(src)))
+            k += 1
+            continue
+        if endpoint is None:
+            endpoint = a
+        k += 1
+    if endpoint is None:
+        return None
+    if method is None:
+        method = "POST" if fields or inputs else "GET"
+    bodies = []
+    for typed, val, unknown in fields:
+        key, _, v = val.partition("=")
+        if key == "query":
+            bodies.append(body_text(v, cmd, "@" if typed else "", unknown))
+    for path, unknown in inputs:
+        bodies.append(body_text("@" + path, cmd, unknown=unknown))
+    return api_write_action(method, endpoint, bodies)
+
+
+def api_endpoint(url):
+    """The API path of a GitHub API URL (`repos/o/r/…`, `graphql`), or None for any other URL. A URL whose host the
+    shell fills in (`$API/repos/o/r/pulls/1/merge`) counts when its visible path is a GitHub API path."""
+    if expands(url):
+        m = VAR_API_PATH_RE.search(re.sub(r"[?#].*$", "", str(url)))
+        if m:
+            return m.group(1)
+    url = str(url)
+    m = GITHUB_HOST_RE.search(url)
+    if m:
+        return url[m.end():].lstrip("/")
+    m = GHE_PATH_RE.search(url)
+    if m:
+        return "graphql" if m.group(1).lower() == "graphql" else url[m.end():].lstrip("/")
+    return None
+
+
+def curl_action(args, cmd):
+    method, urls, data, upload, force_get, target = None, [], [], False, False, None
+    k = 0
+    while k < len(args):
+        a = args[k]
+        if a.startswith("--"):
+            name, eq, val = a.partition("=")
+            takes = name in CURL_VALUE_LONG or name.startswith(CURL_DATA_LONG)
+            if takes and not eq:
+                val = args[k + 1] if k + 1 < len(args) else ""
+                k += 1
+            if name == "--request":
+                method = val.upper()
+            elif name == "--url":
+                urls.append(val)
+            elif name == "--upload-file":
+                upload = True
+            elif name == "--request-target":
+                target = val
+            elif name.startswith(CURL_DATA_LONG) or name == "--form-string":
+                data.append((val, expands(a if eq or k >= len(args) else args[k])))
+            elif name == "--get":
+                force_get = True
+            k += 1
+            continue
+        if a.startswith("-") and len(a) > 1:
+            for ch, attached in short_cluster(a, CURL_VALUE_LETTERS):
+                if ch == "G":
+                    force_get = True
+                if ch in CURL_VALUE_LETTERS:
+                    val, src = attached, a
+                    if val is None:
+                        val = args[k + 1] if k + 1 < len(args) else ""
+                        src = args[k + 1] if k + 1 < len(args) else a
+                        k += 1
+                    if ch == "X":
+                        method = val.upper()
+                    elif ch == "T":
+                        upload = True
+                    elif ch in "dF":
+                        data.append((val, expands(src)))
+            k += 1
+            continue
+        urls.append(a)
+        k += 1
+    if method is None:
+        method = "GET" if force_get else "PUT" if upload else "POST" if data else "GET"
+    for url in urls:
+        endpoint = api_endpoint(url)
+        if endpoint is not None:
+            if target is not None:  # curl sends this path instead of the URL's
+                endpoint = str(target).lstrip("/")
+                endpoint = endpoint[len("api/v3/"):] if endpoint.startswith("api/v3/") else endpoint
+            return api_write_action(method, endpoint, [body_text(d, cmd, unknown=u) for d, u in data])
+    return None
+
+
+def httpie_action(args, cmd):
+    """httpie / xh: the GitHub API URL may sit anywhere among the words; only an explicit GET/HEAD is a read."""
+    method = None
+    for i, a in enumerate(args):
+        if a.startswith("-"):
+            continue
+        endpoint = api_endpoint(a if "//" in a else "//" + a)
+        if endpoint is None:
+            if method is None and a.upper() in HTTP_METHODS:
+                method = a.upper()
+            continue
+        if method in READ_METHODS:
+            return None
+        bodies = []
+        for item in args[i + 1:]:
+            m = re.match(r"^([^=:@]+)(:=@|=@|@|:=|=)(.*)$", item, re.S)
+            if m and m.group(1) == "query":
+                bodies.append(body_text(("@" if "@" in m.group(2) else "") + m.group(3), cmd, "@", expands(item)))
+        if normalized_path(endpoint) == "graphql" and not bodies:
+            bodies.append(None)  # a body from stdin or a file we didn't read
+        return api_write_action(method or "POST", endpoint, bodies)
+    return None
+
+
+def wget_action(args, cmd):
+    method, urls, bodies = None, [], []
+    k = 0
+    while k < len(args):
+        a = args[k]
+        name, eq, val = a.partition("=")
+        if name in ("--method", "--post-data", "--post-file", "--body-data", "--body-file"):
+            if not eq:
+                val = args[k + 1] if k + 1 < len(args) else ""
+                k += 1
+            if name == "--method":
+                method = val.upper()
+            else:
+                method = method or "POST"
+                src = a if eq or k >= len(args) else args[k]
+                bodies.append(body_text(("@" + val) if name.endswith("-file") else val, cmd,
+                                        "@" if name.endswith("-file") else "", expands(src)))
+        elif not a.startswith("-"):
+            urls.append(a)
+        k += 1
+    for url in urls:
+        endpoint = api_endpoint(url)
+        if endpoint is not None:
+            return api_write_action(method or "GET", endpoint, bodies)
+    return None
+
+
+# ---------------------------------------------------------------- per command
+
+def code_action(code, main, current=None):
+    """Inline code or a script fed on stdin, matched as text. current: the branch it runs on, if known."""
+    flat = re.sub(r"[\"'`\[\](),{}]+", " ", code)
+    if CODE_GH_MERGE_RE.search(flat):
+        return "gh pr merge (in inline code)"
+    if MIGRATION_RE.search(flat):
+        return "a migration apply command (in inline code)"
+    if (CODE_API_HOST_RE.search(code) or CODE_GH_API_RE.search(flat)) and CODE_WRITE_RE.search(flat):
+        return "a write through the GitHub API (in inline code)"
+    if CODE_GH_LIB_RE.search(code) and CODE_GH_LIB_WRITE_RE.search(code):
+        return "a write through a GitHub client library (in inline code)"
+    for m in CODE_GIT_PUSH_RE.finditer(flat):
+        reach = refspecs_reach_main(m.group(1).split(), main, current)
+        if reach or (reach is None and (current is None or current == main)):
+            return f"git push to {main} (in inline code)"
+    return None
+
+
+def tool_action(argv, cmd, main, state):
+    """argv starts at one of TOOLS."""
+    prog = os.path.basename(argv[0])
+    args = argv[1:]
+    if prog == "gh":
+        pos, skip = [], False
+        for a in args:
+            if skip:
+                skip = False
+            elif a in GH_REPO_OPTS:
+                skip = True  # its value isn't a subcommand: gh -R o/r pr merge, gh pr --repo o/r merge
+            elif not a.startswith("-"):
+                pos.append(a)
+        if pos[:2] == ["pr", "merge"]:
+            return "gh pr merge"
+        if pos[:1] == ["api"]:
+            return gh_api_action(args[args.index("api") + 1:], cmd)
+    elif prog == "curl":
+        return curl_action(args, cmd)
+    elif prog in HTTPIE:
+        return httpie_action(args, cmd)
+    elif prog == "wget":
+        return wget_action(args, cmd)
+    elif prog == "git":
+        return git_push_action(argv, cmd, main, state)
+    return None
+
+
+def has_space(word):
+    return any(ch.isspace() for ch in str(word))
+
+
+def shell_code_action(argv, cmd, main, state, depth):
+    """A shell started behind a launcher (`op run -- sh -c '…'`, `docker compose exec api sh -c …`): parse its code."""
+    mode = kit_shell._shell_mode(list(argv[1:])) if hasattr(kit_shell, "_shell_mode") else ("code", None)
+    if mode[0] == "code":
+        code = mode[1]
+    elif mode[0] == "stdin" and cmd.stdin:
+        code = "\n".join(cmd.stdin)
+    else:
+        return None
+    if not code:
+        return None
+    return bash_action(code, cmd.cwd, main, state, depth + 1)
+
+
+def command_action(cmd, main, state, depth=0):
+    argv = list(cmd.argv)  # Words: str values that keep their source text for expands()
+    if not argv:
+        return None
+    prog = os.path.basename(argv[0])
+    # The tools anywhere in the words, so a launcher (`op run --`, `caffeinate -i`, `watch -n 5`) can't hide them.
+    # A word with spaces in it is quoted data (a message, a pattern) and is never taken for a program, and neither
+    # is a word given to a program that only prints or searches (`echo git push origin main`).
+    for i, w in enumerate(argv):
+        if has_space(w) or (i > 0 and prog in DATA_PROGS):
+            continue
+        name = os.path.basename(w)
+        if name in TOOLS:
+            action = tool_action(argv[i:], cmd, main, state)
+        elif i > 0 and name in kit_shell.SHELLS:
+            action = shell_code_action(argv[i:], cmd, main, state, depth)
+        else:
+            continue
+        if action:
+            return action
+    if MIGRATION_RE.search(" ".join(str(w) for w in argv if not has_space(w))):
+        return "a migration apply command"
+    for i in range(len(argv)):
+        if has_space(argv[i]):
+            continue
+        code = kit_shell.inline_code(argv[i:])
+        if code is None and kit_shell.interpreter_reads_stdin(argv[i:]) and cmd.stdin:
+            code = "\n".join(cmd.stdin)
+        if code:
+            action = code_action(code, main, state.branch(cmd))
+            if action:
+                return action
+    return None
+
+
+def bash_action(command, cwd, main, state=None, depth=0):
+    if kit_shell is None or depth > MAX_NESTING:
+        return raw_text_action(command, main)
+    state = state or State(main, cwd)
+    try:
+        cmds = kit_shell.iter_commands(command, cwd)
+    except kit_shell.ParseError:
+        return raw_text_action(command, main)
+    for cmd in cmds:
+        action = command_action(cmd, main, state, depth)
+        if action:
+            return action
+        state.saw(cmd)
+    return None
+
+
+def is_github_mcp(tool, ti):
+    return "github" in tool.lower() or ("owner" in ti and "repo" in ti)
+
+
+def blocked_action(event, main, cwd):
     tool = event.get("tool_name") or ""
+    ti = event.get("tool_input") or {}
     if MCP_MIGRATION_RE.match(tool):
         return f"migration apply through {tool}"
+    if MCP_MERGE_RE.match(tool) and is_github_mcp(tool, ti):
+        return f"a pull request merge through {tool}"
+    if MCP_FILE_WRITE_RE.match(tool) and is_github_mcp(tool, ti):
+        branch = str(ti.get("branch") or "")
+        if not branch or branch in (main, f"refs/heads/{main}"):
+            return f"a write to {main} through {tool}" if branch else f"a write through {tool} with no branch named"
+        return None
     if tool != "Bash":
         return None
-    command = (event.get("tool_input") or {}).get("command") or ""
+    command = ti.get("command") or ""
     if not command.strip():
         return None
-    if GH_MERGE_RE.search(command):
-        return "gh pr merge"
-    if MIGRATION_RE.search(command):
-        return "a migration apply command"
-    for words in segments(command):
-        if git_push_targets_main(words, main):
-            return f"git push to {main}"
-    return None
+    return bash_action(command, cwd, main)
 
 
 def message(tickets, action):
@@ -183,7 +763,8 @@ def run(stdin_text):
     tickets = unpassed_runs(root)
     if not tickets:
         return 0, ""
-    action = blocked_action(event, main_branch(root))
+    cwd = event.get("cwd") or str(root)
+    action = blocked_action(event, main_branch(root), cwd)
     if action is None:
         return 0, ""
     return 2, message(tickets, action)

@@ -4,6 +4,43 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.7.1 — 2026-11-13 (hardening 1.0.1)
+
+- **hardening pack: `block-push-before-review.py` closes the routes to main it missed.** While a hardening run hasn't
+  passed post-op it now also blocks:
+  - any write through the GitHub API from `gh api`, `curl`, `wget`, httpie or `xh` (a method other than GET/HEAD, in
+    any spelling such as `-sXPUT` or `--method=put`; the host in any case, with a port or a trailing dot; paths with
+    `..` resolved; curl's `--request-target`; a host in a variable when the path shows it's the GitHub API), except
+    comments, labels, reviews, review requests, issues and opening or editing a PR. That covers PR merges, `/merges`,
+    ref updates and contents writes. httpie and xh send stdin as a body without saying
+    so, so for them only an explicit `GET` / `HEAD` is a read;
+  - GraphQL mutations (also JSON-escaped in a body file), and a GraphQL write whose query is a shell variable, an
+    unreadable file or unseen stdin;
+  - inline code (`python3 -c`, `node -e`, a script on stdin) that runs `gh pr merge`, `gh api`, a migration or a push
+    to main (also in list form, `['gh', 'pr', 'merge']`), writes to the GitHub API, or merges through a GitHub client
+    library (PyGithub, Octokit);
+  - `git push` with a `:` or glob refspec, and `HEAD` / `@` / a shell-filled branch name or a bare `git push` while
+    on the main branch, including after a `git checkout main` / `git switch main` earlier in the same command; git's
+    `--config-env` option before `push`;
+  - `gh pr merge` with `-R` / `--repo` before `merge`;
+  - GitHub MCP `merge_pull_request`, and `push_files` / `create_or_update_file` / `delete_file` on the main branch or
+    with no branch named (a GitHub server by name, or a tool input with `owner` and `repo`).
+- **It reads commands with the core parser** (`kit_shell.py`) and finds these tools, and a shell's `-c` code, anywhere
+  in a command's words, so `bash -c "…"`, `eval`, heredoc scripts, `xargs` and launchers such as `op run --`,
+  `caffeinate -i`, `watch -n 5` or `docker compose exec api sh -c "…"` don't hide them. A quoted word with spaces (a commit message, a grep pattern) is data, and so are
+  the words of a program that only searches or reads them (`grep`, `cat`, `man`), so a command that only mentions a
+  merge or a migration is no longer blocked. Without the parser, or when a command doesn't
+  parse, it falls back to the old raw-text match.
+- **Fix: the hook's MCP entry was never installed.** The installer merges hooks by command text, and the MCP entry
+  had the same command as the Bash one, so it was dropped: MCP `apply_migration` tools were never checked. The MCP
+  entry now runs `block-push-before-review.py --mcp-tools` (the argument is ignored), so install and upgrade add it.
+  A new kit test fails when two hook entries share an event and a command.
+- Known gaps: a script file run by name, a command held in a variable or a quoted launcher string
+  (`watch "gh pr merge 1"`), curl `-K` config files, a `gh` alias.
+
+**Upgrade touches:** `.claude/settings.json` (adds the hardening hook's MCP entry), `.claude/hooks/block-push-before-review.py`,
+its test and `.claude/packs/hardening.md`, if the hardening pack is installed.
+
 ## 1.7.0 — 2026-11-11
 
 - **New pack `statusline` (extra, asked at install).** A Claude Code status line:

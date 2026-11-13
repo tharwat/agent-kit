@@ -14,11 +14,15 @@ import unittest
 from pathlib import Path
 
 HOOK = Path(__file__).resolve().parent / "block-push-before-review.py"
+# Installed, kit_shell.py sits beside the hook; in the kit repo it is in core/hooks.
+KIT_CORE_HOOKS = Path(__file__).resolve().parents[3] / "core" / "hooks"
+SHELL_PATH = str(KIT_CORE_HOOKS) if (KIT_CORE_HOOKS / "kit_shell.py").is_file() else ""
 
 
 class Project:
-    def __init__(self, root, main="main"):
+    def __init__(self, root, main="main", branch="feature/abc-7"):
         self.root = Path(root)
+        subprocess.run(["git", "init", "-q", "-b", branch, str(self.root)], check=True, capture_output=True)
         self.state = self.root / ".claude" / "state" / "hardening"
         (self.root / "CLAUDE.md").write_text(
             "# CLAUDE.md\n\n## Project facts\n\n| Fact | Value | Meaning |\n|---|---|---|\n"
@@ -34,11 +38,14 @@ class Project:
         self.state.mkdir(parents=True, exist_ok=True)
         (self.state / f"{ticket}.postop-passed").write_text(content + "\n", encoding="utf-8")
 
-    def run(self, command=None, tool="Bash", raw=None):
-        event = {"tool_name": tool, "tool_input": {"command": command} if command is not None else {}, "cwd": str(self.root)}
-        env = {**os.environ, "CLAUDE_PROJECT_DIR": str(self.root)}
+    def run(self, command=None, tool="Bash", raw=None, tool_input=None, hook=HOOK, shell_path=SHELL_PATH):
+        if tool_input is None:
+            tool_input = {"command": command} if command is not None else {}
+        event = {"tool_name": tool, "tool_input": tool_input, "cwd": str(self.root)}
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": str(self.root), "PYTHONPATH": shell_path,
+               "PYTHONDONTWRITEBYTECODE": "1"}
         return subprocess.run(
-            [sys.executable, str(HOOK)], input=raw if raw is not None else json.dumps(event),
+            [sys.executable, str(hook)], input=raw if raw is not None else json.dumps(event),
             capture_output=True, text=True, env=env, timeout=30,
         )
 
@@ -93,6 +100,228 @@ class BlockPushBeforeReview(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertBlocked(self.p.run(cmd), "gh pr merge")
 
+    def test_shared_parser_is_used(self):
+        self.assertTrue(SHELL_PATH or (HOOK.parent / "kit_shell.py").is_file(), "kit_shell.py not found")
+
+    def test_blocks_wrapped_merge_and_push(self):
+        self.p.arm()
+        for cmd, action in [
+            ('bash -c "gh pr merge 12"', "gh pr merge"),
+            ("bash <<'EOF'\ngh pr merge 12\nEOF", "gh pr merge"),
+            ("echo 12 | xargs gh pr merge", "gh pr merge"),
+            ('eval "gh pr merge 12"', "gh pr merge"),
+            ('python3 -c "import os; os.system(\'gh pr merge 12\')"', "gh pr merge"),
+            ('bash -c "git push origin HEAD:main"', "git push to main"),
+            ("echo $(git push origin HEAD:main)", "git push to main"),
+            ('bash -c "npx supabase db push"', "migration apply"),
+        ]:
+            with self.subTest(cmd=cmd):
+                self.assertBlocked(self.p.run(cmd), action)
+
+    def test_blocks_github_api_writes(self):
+        self.p.arm()
+        (self.p.root / "merge.graphql").write_text('mutation { mergePullRequest(input: {pullRequestId: "x"}) { clientMutationId } }\n', encoding="utf-8")
+        (self.p.root / "read.graphql").write_text("query { viewer { login } }\n", encoding="utf-8")
+        for cmd in [
+            # REST merges, whatever the endpoint or method spelling
+            "gh api -X PUT repos/o/r/pulls/12/merge",
+            "gh api -XPUT repos/o/r/pulls/12/merge",
+            "gh api --method PUT 'repos/{owner}/{repo}/pulls/12/merge' -f merge_method=squash",
+            "gh api --method=put repos/o/r/pulls/12/merge",
+            "gh api repos/o/r/merges -f base=main -f head=feature/abc-7",
+            "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc -F force=true",
+            "gh api -X PUT repos/o/r/contents/src/a.ts -f message=x -f content=eA==",
+            "gh api -X PUT \"$ENDPOINT\"",
+            # curl, with grouped and long flags
+            "curl -sX PUT -H 'Authorization: Bearer $T' https://api.github.com/repos/o/r/pulls/12/merge",
+            "curl -sSXPUT https://api.github.com/repos/o/r/pulls/12/merge",
+            "curl --request=PUT https://api.github.com/repos/o/r/pulls/12/merge",
+            "curl -d '{\"base\":\"main\",\"head\":\"x\"}' https://api.github.com/repos/o/r/merges",
+            "curl -X PUT https://ghe.example.invalid/api/v3/repos/o/r/pulls/12/merge",
+            # other clients
+            "http PUT api.github.com/repos/o/r/pulls/12/merge Authorization:'token $T'",
+            "xh put https://api.github.com/repos/o/r/pulls/12/merge",
+            "wget --method=PUT https://api.github.com/repos/o/r/pulls/12/merge",
+            # GraphQL: any mutation, and a query that can't be read
+            "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { mergeBranch(input: {repositoryId: \"x\", base: \"main\", head: \"y\"}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { updateRef(input: {refId: \"x\", oid: \"y\"}) { clientMutationId } }'",
+            "gh api graphql -F query=@merge.graphql",
+            "gh api graphql -F query=@missing.graphql",
+            'gh api graphql -f query="$Q"',
+            "gh api graphql --input q.json",
+            "gh api graphql -F query=@- <<'EOF'\nmutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }\nEOF",
+            "curl -d @q.json https://api.github.com/graphql",
+            # inline code
+            "python3 -c \"import requests; requests.put('https://api.github.com/repos/o/r/pulls/12/merge')\"",
+            "node -e \"fetch('https://api.github.com/repos/o/r/merges', {method: 'POST'})\"",
+            "python3 - <<'EOF'\nimport urllib.request\nurllib.request.urlopen(urllib.request.Request('https://api.github.com/repos/o/r/pulls/1/merge', method='PUT'))\nEOF",
+        ]:
+            with self.subTest(cmd=cmd):
+                result = self.p.run(cmd)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("ABC-7", result.stderr)
+
+    def test_github_api_reads_and_safe_writes_are_allowed(self):
+        self.p.arm()
+        (self.p.root / "read.graphql").write_text("query { viewer { login } }\n", encoding="utf-8")
+        for cmd in [
+            "gh api repos/o/r/pulls/12/merge",
+            "gh api repos/o/r/pulls/12 --jq .mergeable",
+            "gh api -X PUT repos/o/r/issues/12/labels -f labels[]=x",
+            "gh api repos/o/r/issues/12/comments -f body='looks good'",
+            "gh api -X POST repos/o/r/pulls/12/reviews -f event=COMMENT -f body=x",
+            "gh api -X PUT repos/o/r/issues/12/labels -f labels[]=x && gh api repos/o/r/pulls/12/merge",
+            "gh api graphql -f query='query($n: Int!) { repository(owner: \"o\", name: \"r\") { pullRequest(number: $n) { merged } } }' -F n=12",
+            "gh api graphql -F query=@read.graphql",
+            "curl -s https://api.github.com/repos/o/r/pulls/12/merge",
+            "curl -X POST -d '{}' https://hooks.example.invalid/notify",
+            "http GET api.github.com/repos/o/r/pulls/12",
+            "xh get https://api.github.com/repos/o/r/pulls/12",
+            # text that only mentions these is data, not a command
+            "grep -rn mergePullRequest src/",
+            "git commit -m 'ABC-7: handle mergePullRequest errors and gh pr merge output'",
+            "cat > notes.md <<'EOF'\nRun gh pr merge after review; never PUT /pulls/1/merge by hand.\nEOF",
+        ]:
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(self.p.run(cmd))
+
+    def test_launchers_and_spellings_do_not_hide_writes(self):
+        self.p.arm()
+        (self.p.root / "q.json").write_text('{"query": "\\u006dutation { mergePullRequest(input: {pullRequestId: \\"x\\"}) { clientMutationId } }"}', encoding="utf-8")
+        for cmd in [
+            # a launcher in front
+            "caffeinate -i gh pr merge 12 --squash",
+            "op run -- gh pr merge 12 --squash",
+            "doppler run -- gh api -X PUT repos/o/r/pulls/1/merge",
+            "watch -n 5 gh pr merge 12",
+            'eval "$(echo gh pr merge 1)"',
+            "op run -- git push origin main",
+            # host and path spellings
+            "curl -X PUT https://api.github.com:443/repos/o/r/pulls/1/merge",
+            "curl -X PUT https://API.GITHUB.COM/repos/o/r/pulls/1/merge",
+            "curl -X PUT https://api.github.com./repos/o/r/pulls/1/merge",
+            "curl -X PUT https://api.github.com/repos/o/r/pulls/1/merge/issues/..",
+            "http PUT api.github.com:443/repos/o/r/pulls/1/merge",
+            # curl options
+            'curl -O -X PUT -H "Authorization: token x" https://api.github.com/repos/o/r/pulls/1/merge',
+            "curl -X PUT --request-target /repos/o/r/pulls/1/merge https://api.github.com/issues",
+            # httpie: an implicit method with a body on stdin, an option value before the method
+            "echo '{\"base\":\"main\",\"head\":\"feat\"}' | http api.github.com/repos/o/r/merges",
+            "http api.github.com/repos/o/r/merges < body.json",
+            "http --raw '{\"x\":1}' PUT api.github.com/repos/o/r/pulls/1/merge",
+            # a JSON-escaped GraphQL mutation in a body file
+            "gh api graphql --input q.json",
+            "curl -d @q.json https://api.github.com/graphql",
+            # inline code
+            "python3 -c \"import subprocess; subprocess.run(['gh','pr','merge','1','--squash'])\"",
+            "python3 -c \"import os; os.system('gh api -X PUT repos/o/r/pulls/1/merge')\"",
+            "python3 -c \"import urllib.request as u; u.urlopen(u.Request('https://api.github.com/repos/o/r/merges', data=b'{}'))\"",
+            "python3 -c \"from github import Github; Github('t').get_repo('o/r').get_pull(1).merge()\"",
+            "python3 -c \"import subprocess; subprocess.run(['npx','prisma','migrate','deploy'])\"",
+            # git push forms that reach main
+            "git --config-env core.x=HOME push origin main",
+            "git push origin :",
+            "git push origin 'refs/heads/*'",
+            "git push origin +HEAD:refs/heads/main",
+        ]:
+            with self.subTest(cmd=cmd):
+                result = self.p.run(cmd)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("ABC-7", result.stderr)
+
+    def test_push_follows_the_current_branch(self):
+        self.p.arm()
+        for cmd in ["git push", "git push origin", "git push -u origin HEAD", "git push origin @"]:
+            with self.subTest(cmd=cmd, branch="feature"):
+                self.assertAllowed(self.p.run(cmd))
+        on_main = tempfile.TemporaryDirectory()
+        self.addCleanup(on_main.cleanup)
+        p = Project(on_main.name, branch="main")
+        p.arm()
+        for cmd in ["git push", "git push origin", "git push -u origin HEAD", "git push origin @"]:
+            with self.subTest(cmd=cmd, branch="main"):
+                self.assertEqual(p.run(cmd).returncode, 2)
+
+    def test_round_three_routes(self):
+        self.p.arm()
+        for cmd in [
+            # switching to main earlier in the same command
+            "git checkout main && git merge --ff-only feature/abc-7 && git push",
+            "git switch main && git merge feature/abc-7 && git push origin HEAD",
+            "git checkout main; git pull; git merge feature/abc-7; git push origin",
+            'git checkout main && git merge --ff-only feature/abc-7 && git push origin "$(git branch --show-current)"',
+            # a shell behind a launcher
+            "op run --env-file=.env.prod -- sh -c 'npx prisma migrate deploy'",
+            "op run -- sh -c 'git push origin HEAD:main'",
+            "op run -- bash -c 'gh pr merge 7 --squash'",
+            'docker compose exec api sh -c "npx prisma migrate deploy"',
+            'kubectl exec deploy/api -- sh -c "cd /app && npx prisma migrate deploy"',
+            'dotenv -e .env.production -- bash -c "npx prisma migrate deploy"',
+            # gh's repo option before merge
+            "gh pr -R o/r merge 7 --squash",
+            "gh pr --repo o/r merge 7 --squash --delete-branch",
+            "gh -R o/r pr merge 7",
+            # a contents path that ends like an issue path
+            "gh api -X PUT repos/o/r/contents/app/issues/page.tsx -f message=x -f content=eA==",
+            "gh api -X PUT repos/o/r/contents/src/issues/new -f message=x -f content=eA== -f branch=main",
+            # the API host in a variable
+            'API=https://api.github.com; curl -X PUT -H "Authorization: Bearer $T" $API/repos/o/r/pulls/7/merge',
+        ]:
+            with self.subTest(cmd=cmd):
+                result = self.p.run(cmd)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("ABC-7", result.stderr)
+
+    def test_round_three_ordinary_work(self):
+        self.p.arm()
+        for cmd in [
+            'cd "$(git rev-parse --show-toplevel)" && git push -u origin HEAD',
+            "cd \"$PROJECT\" && git push",
+            'git push -u origin "$(git branch --show-current)"',
+            "tldr gh pr merge",
+            "python3 -c \"import subprocess; subprocess.run(['git','push'])\"",
+            "gh api repos/o/r/pulls -f title=x -f head=feature/abc-7 -f base=main",
+            "git checkout -b feature/abc-7-part2 && git push -u origin HEAD",
+            "op run -- sh -c 'npm test'",
+        ]:
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(self.p.run(cmd))
+
+    def test_mentions_are_not_commands(self):
+        self.p.arm()
+        for cmd in [
+            'git commit -m "docs: explain supabase db push"',
+            'grep -rn "prisma migrate deploy" docs',
+            "node -e \"const g=require('./src/graphql/schema'); console.log(g.Post)\"",
+            "python3 -c \"import requests; print(requests.get('https://api.github.com/repos/o/r').json())\"",
+        ]:
+            with self.subTest(cmd=cmd):
+                self.assertAllowed(self.p.run(cmd))
+        self.assertAllowed(self.p.run(tool="mcp__filesystem__delete_file", tool_input={"path": "/tmp/x"}))
+
+    def test_github_mcp_merge_and_main_writes(self):
+        self.p.arm()
+        self.assertBlocked(self.p.run(tool="mcp__github__merge_pull_request", tool_input={"pullNumber": 12}),
+                           "merge through mcp__github__merge_pull_request")
+        for tool in ("mcp__github__push_files", "mcp__github__create_or_update_file", "mcp__github__delete_file"):
+            with self.subTest(tool=tool):
+                self.assertBlocked(self.p.run(tool=tool, tool_input={"branch": "main"}), "write to main")
+                self.assertBlocked(self.p.run(tool=tool, tool_input={}), "no branch named")
+                self.assertAllowed(self.p.run(tool=tool, tool_input={"branch": "feature/abc-7"}))
+
+    def test_falls_back_to_raw_text_without_the_parser(self):
+        alone = tempfile.TemporaryDirectory()
+        self.addCleanup(alone.cleanup)
+        hook = Path(alone.name) / HOOK.name
+        hook.write_text(HOOK.read_text(encoding="utf-8"), encoding="utf-8")
+        self.p.arm()
+        for cmd, action in [("gh pr merge 12", "gh pr merge"), ("git push origin main", "git push to main"),
+                            ("curl -X PUT https://api.github.com/repos/o/r/pulls/12/merge", "GitHub API")]:
+            with self.subTest(cmd=cmd):
+                self.assertBlocked(self.p.run(cmd, hook=hook, shell_path=""), action)
+
     def test_blocks_migration_apply(self):
         self.p.arm()
         for cmd in [
@@ -126,6 +355,9 @@ class BlockPushBeforeReview(unittest.TestCase):
             "git fetch origin main",
             "gh pr create --base main --title x",
             "gh pr view 12 --json state",
+            "gh api repos/o/r/pulls/12/merge",
+            "gh api -X PUT repos/o/r/issues/12/labels -f labels[]=x",
+            "gh api graphql -f query='{ repository(owner: \"o\", name: \"r\") { pullRequest(number: 12) { merged } } }'",
             "npm test",
             "npm run migrate:status-check-docs",
             "cat docs/main.md",
