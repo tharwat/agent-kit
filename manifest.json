@@ -1,7 +1,7 @@
 {
   "$schema": "schemas/manifest.schema.json",
   "name": "agent-kit",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Claude Code + Codex working conventions, installable into any project. installer/agent_kit.py does every write; INSTALL.md tells the agent how to drive it.",
   "units": [
     "core/pack.json",
@@ -157,7 +157,7 @@
         "reason": "programmatic delete"
       },
       {
-        "regex": "reset\\s+--hard",
+        "regex": "reset\\s+(\\S+\\s+)*--hard",
         "reason": "git reset --hard"
       },
       {
@@ -165,7 +165,7 @@
         "reason": "git clean"
       },
       {
-        "regex": "\\bbranch\\s+-D\\b",
+        "regex": "\\bbranch\\s+-D\\b|\\bgit\\s+branch\\s+(\\S+\\s+)*(-D\\b|-f\\b|--force\\b)",
         "reason": "git branch -D"
       },
       {
@@ -173,12 +173,24 @@
         "reason": "force push"
       },
       {
-        "regex": "\\bcheckout\\s+--\\s",
+        "regex": "\\bcheckout\\s+--\\s|\\bgit\\s+checkout\\s+(\\S+\\s+)*(--\\s|-f\\b|--force\\b|\\.(?=[\\s/`'\"]|$))",
         "reason": "git checkout -- <path> discards changes"
       },
       {
         "regex": "\\bstash\\s+(drop|clear)\\b",
         "reason": "git stash drop/clear"
+      },
+      {
+        "regex": "\\bgit\\s+restore\\s+(?!(--staged|-S)\\b)|\\bgit\\s+restore\\b.*(--worktree\\b|\\s-W\\b)",
+        "reason": "git restore"
+      },
+      {
+        "regex": "\\bgit\\s+switch\\s+(\\S+\\s+)*(-f\\b|--force\\b|--discard-changes\\b)",
+        "reason": "git switch -f"
+      },
+      {
+        "regex": "\\bgit\\s+worktree\\s+remove\\s+(\\S+\\s+)*(--force\\b|-f\\b)",
+        "reason": "git worktree remove --force"
       }
     ],
     "destructive_exempt": [

@@ -161,10 +161,18 @@ class NoDeleteInstructions(unittest.TestCase):
     def test_patterns_catch_and_spare(self):
         pats = compiled(CHECKS["destructive_patterns"])
         for s in ["rm -rf build", "rmdir x", "find . -delete", "fs.unlinkSync(p)", "git reset --hard",
-                  "git clean -fd", "git branch -D x", "git push --force", "git push origin x -f", "shutil.rmtree(d)"]:
+                  "git clean -fd", "git branch -D x", "git push --force", "git push origin x -f", "shutil.rmtree(d)",
+                  "git restore a.ts", "git restore --staged --worktree a.ts", "git restore -W a.ts",
+                  "git switch -f main", "git switch main --discard-changes", "git worktree remove --force ../wt",
+                  "git worktree remove ../wt -f", "git checkout HEAD -- a.ts", "git checkout .", "git checkout -f main",
+                  "git checkout main --force", "git reset HEAD~1 --hard", "git branch x -D", "git branch -f x y"]:
             with self.subTest(bad=s):
                 self.assertTrue(any(rx.search(s) for rx, _ in pats))
-        for s in ["confirm the deploy", "a just-deleted row", "git push origin feature/x", "format the term"]:
+        for s in ["confirm the deploy", "a just-deleted row", "git push origin feature/x", "format the term",
+                  "git restore --staged a.ts", "git restore -S a.ts", "git switch -c feature/x",
+                  "git worktree remove ../wt", "git worktree add ../wt", "switch to the log and run `tail -f out.log`",
+                  "git checkout feature/x", "git checkout --detach origin/main", "git branch -d x",
+                  "git checkout -b feature/x origin/main", "a git checkout.", "remove the worktree -f flag"]:
             with self.subTest(ok=s):
                 self.assertFalse(any(rx.search(s) for rx, _ in pats))
 
