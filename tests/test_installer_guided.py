@@ -85,12 +85,37 @@ class Guided(TempDirs, unittest.TestCase):
 
     def test_draft_and_preflight_write_nothing_in_the_project(self):
         before, lane = snapshot(self.top), snapshot(self.lane)
-        path, _d = self.draft()
+        path, d = self.draft()
         rc, out, _e = run(["preflight", "--target", self.top, "--answers", path])
-        self.assertEqual(snapshot(self.top), before)
+        outside = {k: v for k, v in snapshot(self.top).items() if "agent-kit-install" not in k}
+        self.assertEqual(outside, before)  # only the install worktree is new
         self.assertEqual(snapshot(self.lane), lane)
+        self.assertEqual(d["notes"]["install_worktree"],
+                         os.path.realpath(os.path.join(self.top, ".claude", "worktrees", "agent-kit-install")))
         self.assertIn("work in flight", out)
         self.assertIn("feature/abc-13-other", out)
+
+    def test_the_checkouts_branch_and_changes_never_reach_the_install(self):
+        # The checkout sits on an unmerged branch whose docs and workflow differ from main, plus an uncommitted edit.
+        git(self.top, "switch", "-q", "-c", "feature/abc-20-paused")
+        write(os.path.join(self.top, "docs", "open.md"), "# Notes\n\nOpen items live on ABC-99.\n")
+        write(os.path.join(self.top, ".claude", "commands", "triage.md"), "---\ndescription: paused work\n---\n# x\n")
+        git(self.top, "add", "-A")
+        git(self.top, "commit", "-q", "-m", "ABC-20: paused, do not merge")
+        write(os.path.join(self.top, "CLAUDE.md"), "# Proj\n\nJira: other.atlassian.net\n")  # uncommitted
+        _p, d = self.draft()
+        self.assertEqual(d["facts"]["OPEN_ITEMS_TICKET"]["value"], "ABC-1")     # main's docs, not the branch's
+        self.assertEqual(d["facts"]["JIRA_SITE"]["value"], "acme.atlassian.net")  # main's CLAUDE.md
+        self.assertIn("feature/abc-20-paused", d["notes"]["checkout_branch"])
+        self.assertEqual(d["mcp_map"], {"jira": "proj_x_jira"})                  # local-only: from the checkout
+        answers = self.filled(d)
+        rc, out, err = run(["apply", "--target", self.top, "--answers", answers, "--worktree"])
+        self.assertEqual(rc, 0, out + err)
+        wt = d["notes"]["install_worktree"]
+        self.assertNotIn("paused work", read(os.path.join(wt, ".claude", "commands", "triage.md")))
+        self.assertEqual(git(self.top, "rev-parse", "--abbrev-ref", "HEAD"), "feature/abc-20-paused")  # untouched
+        pf = agent_kit.preflight(agent_kit.Kit(KIT), self.top, d)
+        self.assertTrue(any(i["check"] == "checkout branch" and not i["blocker"] for i in pf["items"]))
 
     def test_preflight_ready_and_its_blockers(self):
         path, d = self.draft()
@@ -116,7 +141,8 @@ class Guided(TempDirs, unittest.TestCase):
     def test_review_is_one_page_and_creates_only_the_install_worktree(self):
         _p, d = self.draft()
         answers = self.filled(d)
-        before, lane = snapshot(self.top), snapshot(self.lane)
+        before = {k: v for k, v in snapshot(self.top).items() if "agent-kit-install" not in k}
+        lane = snapshot(self.lane)
         page = os.path.join(self.tmp(), "review.md")
         rc, out, err = run(["review", "--target", self.top, "--answers", answers, "--out", page])
         self.assertIn(rc, (0, 1), err)
@@ -132,7 +158,8 @@ class Guided(TempDirs, unittest.TestCase):
     def test_apply_worktree_writes_only_the_install_worktree(self):
         _p, d = self.draft()
         answers = self.filled(d)
-        before, lane = snapshot(self.top), snapshot(self.lane)
+        before = {k: v for k, v in snapshot(self.top).items() if "agent-kit-install" not in k}
+        lane = snapshot(self.lane)
         mcp_before = read(os.path.join(self.top, ".mcp.json"))
         rc, out, err = run(["apply", "--target", self.top, "--answers", answers, "--worktree"])
         self.assertEqual(rc, 0, out + err)

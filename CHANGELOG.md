@@ -4,6 +4,18 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.9.2 — 2026-11-18
+
+- **The branch the checkout is on no longer matters.** `draft` creates the install worktree (`agent-kit/install`,
+  from `origin/<MAIN_BRANCH>`) and reads the project's tracked files there: package scripts, docs, `CLAUDE.md`,
+  `settings.json`. Only local-only files and the lanes come from the checkout. A checkout parked on an unmerged
+  branch, or holding uncommitted edits, can't leak into the install, and nobody has to switch branches first.
+- `preflight` notes the checkout's branch, and says it isn't part of the install.
+- `INSTALL.md`: the agent reads the project's own commands and rules in the install worktree, never in the
+  checkout.
+
+**Upgrade touches:** nothing installed.
+
 ## 1.9.1 — 2026-11-18
 
 - **README: install into a new project vs an existing one.** Each case is spelled out: a new project needs a git

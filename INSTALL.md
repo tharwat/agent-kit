@@ -74,7 +74,9 @@ Then run `preflight` again. **If the lock file exists, this is an upgrade: go to
 python3 <kit>/installer/agent_kit.py draft --target <project> --out <scratch>/answers.json
 ```
 
-Every fact comes back as `{value, source, evidence}`:
+`draft` creates the install worktree (branch `agent-kit/install`, from `origin/<MAIN_BRANCH>`) and reads the
+project's tracked files there, so the branch the checkout is on doesn't matter. Every fact comes back as
+`{value, source, evidence}`:
 - `found` came from the project;
 - `default` is the kit's;
 - `guess` needs a check;
@@ -86,7 +88,10 @@ servers mapped to the project's own, by name). `notes.packs_to_ask` lists the ch
 
 Then do the judgment, writing your answers into the same file:
 1. **Read the project's own `CLAUDE.md`, `AGENTS.md`, README, `.claude/commands/*`, `.claude/rules/*` and
-   `.agents/skills/*`.**
+   `.agents/skills/*` in the install worktree that `draft` printed, never in the checkout.** The worktree is
+   `origin/<MAIN_BRANCH>`. The checkout may be on an unmerged branch or hold uncommitted edits, which must not
+   shape the install. Nobody needs to switch branches first. Read only the local-only files (`.mcp.json`,
+   `.env*` names, `settings.local.json`) from the checkout.
 2. **Fill the judgment facts as `guess`, with your evidence:** `PROJECT_SUMMARY` (one line), `CRITICAL_DOMAIN`
    (the one area of logic that must never be wrong, which is severity S3), and `CRITICAL_SYSTEMS`. A proposal the
    owner can correct beats a blank they must write.
