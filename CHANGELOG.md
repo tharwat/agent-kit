@@ -4,6 +4,17 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.9.1 — 2026-11-18
+
+- **README: install into a new project vs an existing one.** Each case is spelled out: a new project needs a git
+  repo, a GitHub `origin` and a pushed `main` first, which the agent offers to set up. An existing project installs
+  from its real folder, and its work in progress is left untouched.
+- **`preflight` fixes say how to set up a new project:** `git init`, a first commit, then
+  `gh repo create <name> --private --source . --push`. `INSTALL.md` tells the agent to offer this, and to create
+  the repo only with the owner's yes.
+
+**Upgrade touches:** nothing installed.
+
 ## 1.9.0 — 2026-11-18
 
 **A guided installer: three owner touch points instead of a string of questions.** A real install exposed four

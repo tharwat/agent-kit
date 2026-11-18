@@ -2894,19 +2894,22 @@ def preflight(kit, target, answers=None):
         items.append({"check": check, "ok": ok, "detail": detail, "fix": fix, "blocker": blocker and not ok})
 
     is_repo = git_out(target, "rev-parse", "--is-inside-work-tree") == "true"
-    add("git repository", is_repo, target if is_repo else "not a git repository", "run the install from the project's "
-        "git checkout")
+    add("git repository", is_repo, target if is_repo else "not a git repository",
+        "a new project: git init, make a first commit, then create the GitHub repo and push it (gh repo create "
+        "<name> --private --source . --push). An existing project: run the install from its git checkout")
     if not is_repo:
         return {"status": "BLOCKED", "target": target, "items": items}
     url = git_out(target, "remote", "get-url", "origin")
     add("origin remote", bool(url), remote_host(url) or "a local path" if url else "no remote named origin",
-        "add one: git remote add origin <url> (reviews compare against origin/<MAIN_BRANCH>)")
+        "create the GitHub repo and push: gh repo create <name> --private --source . --push (or git remote add "
+        "origin <url>, then push). Reviews and the install worktree start from origin/<MAIN_BRANCH>")
     ref = git_out(target, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
     main_branch = (answers or {}).get("facts", {}).get("MAIN_BRANCH") or (ref.rsplit("/", 1)[-1] if ref else "main")
     if isinstance(main_branch, dict):
         main_branch = main_branch.get("value") or "main"
     has_main = git_out(target, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{main_branch}") is not None
-    add("origin main branch", has_main, f"origin/{main_branch}", f"git fetch origin {main_branch}")
+    add("origin main branch", has_main, f"origin/{main_branch}",
+        f"push the main branch at least once (git push -u origin {main_branch}), then git fetch origin")
     dirty = git_out(target, "status", "--porcelain") or ""
     add("checkout changes", True, (f"{len(dirty.splitlines())} uncommitted change(s) in the checkout: left untouched"
                                    if dirty else "clean"), blocker=False)
