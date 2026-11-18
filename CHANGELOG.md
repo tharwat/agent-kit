@@ -4,6 +4,47 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.9.0 — 2026-11-18
+
+**A guided installer: three owner touch points instead of a string of questions.** A real install exposed four
+problems:
+- it ran from a fresh clone, which lacks the local-only files (`.mcp.json`, `.env*`) the install needs;
+- it asked one at a time for answers the project already held;
+- it found a blocker (an unauthorized Jira connector) halfway through;
+- it bundled two packs into one choice.
+
+New installer commands (`installer/agent_kit.py`):
+- **`preflight`** reports every blocker before the first question, each with its fix:
+  - git: origin, uncommitted changes, worktree lanes, work in flight;
+  - tools: Python, Node, `gh`;
+  - local-only files: names only;
+  - the MCP server each pack needs.
+
+  The installing agent then makes one read call through each server.
+- **`draft`** writes the answers it finds, each `{value, source: found | default | guess | ask, evidence}`:
+  - the ticket and branch prefixes, from branch names and commits;
+  - `MCP_PREFIX`, and `mcp_map` to the project's own servers;
+  - the worktrees pack, `WORKTREE_DIR` and the env files, from `git worktree list`;
+  - the open-items ticket and Jira site, from the docs;
+  - choice-only packs to ask about, saying when the project already has one.
+- **`review`** writes the one page the owner approves:
+  - A. blockers;
+  - B. answers, with source and evidence;
+  - C. what happens to each existing file;
+  - D. what gets added;
+  - E. after-merge steps;
+  - F., on an upgrade: the CHANGELOG since the installed version.
+- **`plan | apply | upgrade --worktree`:** `--target` is the real checkout. The install is built in its own
+  worktree, on branch `agent-kit/install` from `origin/<MAIN_BRANCH>`, and the checkout and its lanes are never
+  written. A gitignored `.mcp.json` is read from the checkout. A server the kit must add is written there, the only
+  copy, and only when the page listed it.
+- **`answers.json` accepts the draft form,** and refuses while a fact is still `ask`.
+
+`INSTALL.md` and the README install section are rewritten around these steps. A test covers each: a real git
+checkout with an origin and a lane, before-and-after snapshots, local-only `.mcp.json` routing, and an upgrade.
+
+**Upgrade touches:** nothing installed. The installer and `INSTALL.md` are used at install time.
+
 ## 1.8.2 — 2026-11-18
 
 - **INSTALL.md: one pack per choice.** The install asks about each pack on its own, and never bundles two packs
