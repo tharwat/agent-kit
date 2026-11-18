@@ -127,7 +127,8 @@ upgrades follow them without asking again.
   2. **Move area rules** into `.claude/rules/project-<area>.md` with `paths:` for their folders.
   3. **Condense process notes:** keep each rule as one line, with a one-line why. Move the stories and full
      reasons to a history doc in `docs/`, and leave a pointer. Nothing is deleted; it stops loading in every
-     session.
+     session. **Before rewording any rule,** search the project's tests for its sentences. A sentence a test pins
+     (often a safety rule) stays word for word. Never loosen the test to fit the shorter text.
   4. **Only if it's still over:** keep a short always-loaded core with the safety and money rules, and raise the
      project's budget through the answers: `options.word_budget` plus `word_budget_reason`.
 - **Never:**
