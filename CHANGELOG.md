@@ -4,6 +4,14 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.8.2 — 2026-11-18
+
+- **INSTALL.md: one pack per choice.** The install asks about each pack on its own, and never bundles two packs
+  into one option. When the project already has what a pack adds (a status line, a notify script, a worktree
+  manager), the option says so, and says what choosing the pack would do.
+
+**Upgrade touches:** nothing installed. `INSTALL.md` is read by the installing agent.
+
 ## 1.8.1 — 2026-11-18
 
 - **The two new records are fill-in JSON forms, not formatted notes.**
