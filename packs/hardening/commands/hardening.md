@@ -75,8 +75,9 @@ Run `/operate <ticket>`. Claude writes the code. It ends with the self-review re
 ## Step 4: Own gates first
 
 Run `/post-op <ticket>`: Before starting (self-red-team, contract audit), gates 1–8, then the Step 1.5 review rounds
-under round rules 1–11. Fix every must-fix finding (S1–S4) on this ticket; the rest are noted. The reviewers in Step
-5 start only when post-op ends `clean` or `capped` with the code covered. An `escalate` → ask the owner (round rule
+under round rules 1–11. Fix every must-fix finding on this ticket (S1–S4, and every real defect in code the ticket
+wrote); only pre-existing ones below the bar are noted. The reviewers in Step 5 start only when post-op ends `clean`
+with the code covered. An `escalate` → ask the owner (round rule
 6) and continue with the answer. The engines confirm this work; they don't do it.
 
 ## Step 5: Required peer review (at most 3 snapshots)
@@ -96,9 +97,9 @@ comment); **rejected** with new evidence; **owner decision** only for a product,
 
 Repair through `/peer-review` Step 6. Every fix batch goes back through Step 4 (`/operate` Phase 3 steps 1, 7 and 8
 on the fix delta, the gates, a review round if one is due), then a **fresh snapshot** in Step 5 over the whole
-feature. Repeat until a snapshot has no unresolved must-fix, **at most three snapshots**. After the third, fix any
-remaining must-fix; if one is S1–S3, escalate with round rule 6's message, whatever the round count. Review rounds
-the fixes make due still run within their own cap.
+feature. Repeat until a snapshot has no unresolved must-fix, **at most three snapshots**. A must-fix left after the third
+escalates with round rule 6's message, whatever the round count: no fix ships unreviewed. Review rounds the fixes
+make due run under round rules 3 and 10.
 
 ## Step 6: Post-op report and the pass marker
 
@@ -108,8 +109,8 @@ summary (they aren't post-op rows).
 
 Any gate failing → **stop**: report which gates failed and what each needs. Don't continue.
 
-Only when the report is `✅ All gates passed`, `.claude/state/<ticket>/post-op.md` holds `Result: clean` or
-`capped` (or an answered `escalate`), and `.claude/state/<ticket>/peer-review.json` has `verdict: "CLEAN"`, record the
+Only when the report is `✅ All gates passed`, `.claude/state/<ticket>/post-op.md` holds `Result: clean` (or
+an answered `escalate`), and `.claude/state/<ticket>/peer-review.json` has `verdict: "CLEAN"`, record the
 pass:
 
 ```bash

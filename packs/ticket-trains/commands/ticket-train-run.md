@@ -117,7 +117,8 @@ Take the first `pending` ticket.
 5. **Own gates and review rounds: run `/post-op <ticket>`** (Before starting, gates 1–8, Step 1.5) under round rules
    1–11, unattended (round rule 9). After each round, update `code_review` (`rounds`, `extra_round`, `redesign`,
    `end_state`, `self_review` = the record's fingerprint, every disposition appended). Then by end state:
-   - `clean` or `capped` → step 6.
+   - `clean` → step 6.
+   - A spiral assessment (round rule 10) is an `escalate`: no edit until the owner answers.
    - `escalate` → post-op has already posted its one escalation comment and notified (round rule 6). Preserve the
      work (below), add each open item to `open_findings`, add one `cr-e<n>` question (the items, a recommendation,
      options each with a pro and a con), block with `question cr-e<n>: <one line>`.

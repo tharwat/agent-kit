@@ -72,11 +72,14 @@ git status --short
 
 ### 0.1 Post-op report
 
-Read `.claude/state/<ticket>/post-op.md`. It must hold `Result: clean` or `Result: capped` (or `escalate` with the
-owner's answer recorded), and its Code review row must be `✅ Clear`, `✅ N found, N resolved` or
+Read `.claude/state/<ticket>/post-op.md`. It must hold `Result: clean` (or `escalate` with the owner's answer
+**ship with these named defects** recorded), and its Code review row must be `✅ Clear`, `✅ N found, N resolved`,
+`✅ Accepted by owner`,
 `⏭️ Skipped — Codex` or `⏭️ Skipped — no reviewable change` (docs-only branch; its `Fingerprint: none (no
 reviewable change)` is handled by the empty-diff case in 0.2). `⚠️ Escalated`, `⚠️ N open`, `⚠️ Not run` or a missing file → **stop**: `/post-op` hasn't
-passed. `/ship` never runs the gates for you.
+passed. `Result: capped` is from a kit before 1.8.0, when fixes after the last round shipped unreviewed → **stop**:
+re-run `/post-op`, whose rounds now continue until the code is clean or the owner decides. `/ship` never runs the
+gates for you.
 
 ### 0.2 Covered check
 
@@ -229,12 +232,14 @@ git branch -d <branch>
    `Open items (PR #`.
 2. A record for **this** PR exists → already filed. Go to 4.4.
 3. Otherwise collect items from comments after the latest earlier `Open items` record (all comments if none):
-   every `noted` item in a `Review round` record, and every item in a `Noted for the tracker` comment. List an item
-   found more than once only once.
+   every `noted` item in a `Review round` record, every item in a `Noted for the tracker` comment, and every defect
+   the owner accepted by name in an escalation answer (tagged `accepted by owner`). Never a `must-fix` or a `nit`:
+   a ticket's own defects are fixed on it, not filed (post-op Step 1.5 round rule 11). List an item found more than
+   once only once.
 4. Items found → ticket op **comment** `<OPEN_ITEMS_TICKET>` with one comment:
    `## <ticket> — <title> (closed <date>; round records <comment ids>)`, then one numbered item each with
-   **where** (`file:line` or function), **effect** (what happens, to whom), **why left open** (class, pre-existing
-   or not) and **suggested fix and test**, tagged `(worth fixing)` or `(minor)`. Then ticket op **comment**
+   **where** (`file:line` or function), **effect** (what happens, to whom), **why left open** (class, origin, or
+   owner acceptance) and **suggested fix and test**, tagged `(worth fixing)` or `(minor)`. Then ticket op **comment**
    `<ticket>`: `Open items (PR #<N>): <OPEN_ITEMS_TICKET> comment <id>`.
 5. No items → ticket op **comment** `<ticket>`: `Open items (PR #<N>): none`.
 

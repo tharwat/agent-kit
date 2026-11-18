@@ -31,8 +31,9 @@ export const TRANSITIONS = Object.freeze({
   done: [],
   needs_verify: ["done", "blocked"],
 });
-export const DISPOSITIONS = Object.freeze(["must-fix", "noted", "own ticket", "rejected", "already decided", "needs owner", "repeat"]);
-export const END_STATES = Object.freeze(["clean", "capped", "escalate"]);
+export const DISPOSITIONS = Object.freeze(["must-fix", "noted", "nit", "own ticket", "rejected", "already decided", "needs owner", "repeat"]);
+// post-op round rule 6 (kit 1.8.0): no `capped`; a ticket ends clean or goes to the owner.
+export const END_STATES = Object.freeze(["clean", "escalate"]);
 export const CHECKPOINT_KIND = "WIP checkpoint — blocked";
 export const STALE_LOCK_MS = 10 * 60_000;
 
@@ -112,15 +113,16 @@ function checkCodeReview(ticket) {
   if (!Number.isInteger(cr.rounds) || cr.rounds < 0) refuse(`${where}.rounds must be a whole number`);
   if (typeof cr.extra_round !== "boolean") refuse(`${where}.extra_round must be true or false`);
   if (cr.redesign != null && !text(cr.redesign)) refuse(`${where}.redesign must be "<trigger> -> <decision>" or null`);
-  // post-op round rule 3 and 10: three rounds, three more after one redesign, one more the owner grants.
+  // post-op round rules 3 and 10: three rounds, three more after one redesign, one more the owner grants.
+  // Reaching it escalates; it never ends the ticket.
   const cap = 3 + (cr.redesign ? 3 : 0) + (cr.extra_round ? 1 : 0);
   if (cr.rounds > cap) refuse(`${where}.rounds ${cr.rounds} is past the cap of ${cap} (post-op round rules 3, 6 and 10)`);
-  if (cr.end_state != null && !END_STATES.includes(cr.end_state)) refuse(`${where}.end_state must be clean, capped, escalate or null`);
+  if (cr.end_state != null && !END_STATES.includes(cr.end_state)) refuse(`${where}.end_state must be clean, escalate or null (there is no capped end state since kit 1.8.0)`);
   if (!Array.isArray(cr.dispositions)) refuse(`${where}.dispositions must be a list`);
   for (const d of cr.dispositions) {
     if (!isObject(d) || !Number.isInteger(d.round) || d.round < 1 || d.round > cr.rounds) refuse(`${where}: a disposition names a round that did not run`);
     if (!text(d.finding)) refuse(`${where}: a disposition has no finding text`);
-    if (![...CLASSES, "noted"].includes(d.class)) refuse(`${where}: class must be S1-S4 or noted`);
+    if (![...CLASSES, "noted", "nit"].includes(d.class)) refuse(`${where}: class must be S1-S4, noted or nit`);
     if (!DISPOSITIONS.includes(d.disposition)) refuse(`${where}: disposition "${d.disposition}" is not one of ${DISPOSITIONS.join(" | ")}`);
   }
 }

@@ -4,6 +4,66 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.8.0 — 2026-11-18 (ticket-trains 1.1.0, hardening 1.0.2)
+
+Quality first: write the first draft right, hold every fix to the same bar, and never end a ticket with known defects.
+A root-cause study of multi-round tickets found 67% of real defects in the first draft, 33% introduced by review
+fixes, and 41% of findings repeats of decided items. Rationale: `docs/workflow/history/review-loop.md` ("Quality
+first").
+
+- **`/triage` Step 4.8, plan self-check:**
+  - a state-homes table (one fact, one home; two copies only in one transaction or by a database trigger, with
+    the owner's OK);
+  - a contradiction check, contract rows against decisions;
+  - a lifecycle check for every state the ticket adds or changes;
+  - every safety default shown to the owner.
+
+  `check-record.py --kind triage` requires all of them.
+- **`/operate` dependency inventory:**
+  - `.claude/state/<ticket>/inventory.md` is written before the first production edit;
+  - Table 1a lists the readers and writers of every value changed, each with `file:line` and the search that found
+    it. Table 1b lists siblings and their guards. Helper contracts get one line each;
+  - every fix batch appends `## Fix batch <n>`;
+  - `check-record.py --kind operate` requires the inventory, plus an `Inventory:` line in the self-review record;
+  - the design step gains two rows. Hand-built language classifiers → a stored field, else the cheapest
+    classifier that passes the tests: a dedicated classification model, then a general model call (the one
+    `docs/agent/integrations.md` lists), acting only above a recorded probability threshold. One fact kept in two
+    places → one home.
+- **`/post-op` round rules:**
+  - **No `capped` end state.** Post-op ends `clean`, or `escalate`. The only passing `escalate` is the owner
+    accepting named defects. No fix ships unreviewed: with the round limit reached, a needed change escalates.
+  - **Origin decides for the ticket's own code.** Each finding is `first-draft`, `fix-introduced` or
+    `pre-existing`. A real defect in code the ticket wrote is fixed at any class. Only pre-existing below-bar
+    defects are `noted` and filed on the tracker. A new `nit` disposition (no wrong behaviour) is neither fixed nor
+    filed.
+  - **Spiral rule (round rule 10).** It fires on a second real finding in one area, and when round 3 still finds
+    the ticket's own defects. Before any edit, post-op writes a spiral assessment covering origins, the simplest
+    approach, state, a self-check, classification in code and a recommendation, and the owner decides.
+  - **New self-red-team probes:** the inventory audit and `Deliberate (decided R<n>-<k>)` markers.
+  - **Round records** number findings `R<n>-<k>` and carry an `Origins:` line, so a project can measure its first
+    drafts.
+- **`consensus-review` workflow:**
+  - reviewers now get the decided list, and verifiers vote on `origin`;
+  - `nit` is a class;
+  - the result adds `nits` and `origins`, `must_fix` includes the ticket's own below-bar defects, and `noted` holds
+    only pre-existing ones.
+- **`/ship`:**
+  - refuses a legacy `Result: capped` (re-run `/post-op`);
+  - files only pre-existing noted items and owner-accepted defects.
+- **`/peer-review`:** a defect introduced by the diff is must-fix at any class, and fixes need their inventory.
+- **ticket-trains 1.1.0:** `END_STATES` drops `capped`, and `nit` is accepted as a disposition and class.
+- **hardening 1.0.2:** follows the new end states. A must-fix left after the third snapshot escalates.
+
+**Upgrade touches:**
+- `CLAUDE.kit.md`;
+- `.claude/commands/{triage,operate,post-op,peer-review,ship}.md`;
+- `.claude/workflows/consensus-review.js`;
+- `.claude/hooks/check-record.py`;
+- the ticket-trains and hardening commands and scripts.
+
+A ticket in flight across the upgrade needs `inventory.md` and the triage Step 4.8 lines before its next record
+check, and a re-run of `/post-op` if its record says `capped`.
+
 ## 1.7.1 — 2026-11-13 (hardening 1.0.1)
 
 - **hardening pack: `block-push-before-review.py` closes the routes to main it missed.** While a hardening run hasn't

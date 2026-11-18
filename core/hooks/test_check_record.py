@@ -15,10 +15,21 @@ TICKET = "ABC-12"
 FP = "ab" * 32
 HEADER = ("| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | "
           "Independent vector | Discharge |")
+HOMES = ("| Fact | Its one home | Who writes it | Who reads it | Second home? |\n|---|---|---|---|---|\n"
+         "| order status | orders.status | api/orders.js:40 | jobs/ship.js:12 | none |\n")
+CHECKS = "Contradiction check: none found — 1 rows × 2 decisions read\nLifecycle check: order status — created on submit\n"
+INV_1A = ("| Value changed | How it changes | Writers (file:line) | Readers (file:line) | What each reader assumes | "
+          "Needs a change? | Search |\n|---|---|---|---|---|---|---|\n")
+INV_1B = "| New behaviour | Existing sibling (file:line) | Guards the sibling has | Copied? |\n|---|---|---|---|\n"
+INVENTORY = ("# Inventory: ABC-12\n\n## Plan\n\n### Table 1a: readers and writers\n" + INV_1A +
+             "| orders.status | adds 'held' | api/orders.js:40 | jobs/ship.js:12, ui/list.tsx:88 | open = shippable | yes |"
+             " `grep -rn \"status\" src` |\n\n### Table 1b: siblings\n" + INV_1B +
+             "| hold retry | jobs/retry.js:20 | budget, idempotency | yes |\n\n### Helper contracts\n- none\n")
+INVENTORY_PATH = ".claude/state/ABC-12/inventory.md"
 GOOD = {
-    "triage": "# Triage ABC-12\n\n%s\n|---|---|---|---|---|---|---|---|---|---|\n| C1 | S4 | x | y | z | a | b | c | d | |\n"
-              % HEADER,
-    "operate": "Self-review: ABC-12\nFingerprint: %s\nCovers: whole branch\n" % FP,
+    "triage": "# Triage ABC-12\n\n%s\n|---|---|---|---|---|---|---|---|---|---|\n| C1 | S4 | x | y | z | a | b | c | d | |\n\n%s\n%s"
+              % (HEADER, HOMES, CHECKS),
+    "operate": "Self-review: ABC-12\nFingerprint: %s\nCovers: whole branch\nInventory: Plan\n" % FP,
     "post-op": "# Post-op\n\nFingerprint: %s\nResult: clean\n" % FP,
     "handoff": "---\nbranch: feature/abc-12-x\n---\n# Handoff\n\n## Git state\nBranch: feature/abc-12-x. Ahead: 1.\n",
 }
@@ -38,6 +49,8 @@ class Case(unittest.TestCase):
                               env=env, cwd=self.project, timeout=30)
 
     def write(self, rel, text, age=0):
+        if rel == PATHS["operate"] and not os.path.exists(os.path.join(self.project, INVENTORY_PATH)):
+            self.write(INVENTORY_PATH, INVENTORY)  # /operate writes the inventory before its record
         path = os.path.join(self.project, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
@@ -105,10 +118,65 @@ class Kinds(Case):
 
     def test_post_op_docs_only_and_other_results(self):
         for text in ("Fingerprint: none (no reviewable change)\nResult: clean\n",
-                     "Fingerprint: %s\nResult: capped\n" % FP, "Fingerprint: %s\nResult: escalate\n" % FP):
+                     "Fingerprint: %s\nResult: escalate\n" % FP):
             with self.subTest(text=text[:30]):
                 self.write(PATHS["post-op"], text)
                 self.assertEqual(self.check("post-op").returncode, 0)
+
+    def test_post_op_capped_is_no_longer_an_end_state(self):
+        self.write(PATHS["post-op"], "Fingerprint: %s\nResult: capped\n" % FP)
+        r = self.check("post-op")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no `capped` end state", r.stdout)
+
+    def test_triage_needs_the_plan_self_check(self):
+        contract = GOOD["triage"].split("\n\n| Fact")[0] + "\n"
+        cases = {
+            "state-homes table": contract + CHECKS,
+            "Contradiction check": contract + HOMES + "Lifecycle check: none — no state added\n",
+            "Lifecycle check": contract + HOMES + "Contradiction check: none found\n",
+        }
+        for missing, text in cases.items():
+            with self.subTest(missing=missing):
+                self.write(PATHS["triage"], text)
+                r = self.check("triage")
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(missing, r.stdout)
+        self.write(PATHS["triage"], contract + "State homes: none — docs-only ticket\n" + CHECKS)
+        self.assertEqual(self.check("triage").returncode, 0)
+
+    def test_operate_needs_the_inventory(self):
+        self.write(PATHS["operate"], GOOD["operate"])
+        os.rename(os.path.join(self.project, INVENTORY_PATH), os.path.join(self.project, INVENTORY_PATH + ".moved"))
+        r = self.check("operate")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("inventory.md doesn't exist", r.stdout)
+
+    def test_operate_inventory_problems(self):
+        cases = {
+            "no `Inventory:": (GOOD["operate"].replace("Inventory: Plan\n", ""), INVENTORY),
+            "no `## Fix batch 1` section": (GOOD["operate"].replace("Plan", "Fix batch 1"), INVENTORY),
+            "has no Table 1a": (GOOD["operate"], INVENTORY.replace(INV_1A, "")),
+            "needs a file:line": (GOOD["operate"], INVENTORY.replace("jobs/ship.js:12, ui/list.tsx:88", "the jobs")),
+            "has no Search command": (GOOD["operate"], INVENTORY.replace(' `grep -rn \"status\" src` |', " |")),
+            "the sibling needs a file:line": (GOOD["operate"], INVENTORY.replace("jobs/retry.js:20", "the retry job")),
+            "has no Table 1b": (GOOD["operate"], INVENTORY.replace(INV_1B, "")),
+        }
+        for want, (record, inventory) in cases.items():
+            with self.subTest(want=want):
+                self.write(PATHS["operate"], record)
+                self.write(INVENTORY_PATH, inventory)
+                r = self.check("operate")
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn(want, r.stdout)
+
+    def test_operate_fix_batch_and_none_rows(self):
+        fix = ("\n## Fix batch 1\n\n" + INV_1A + "| none | — | none | none | — | no | `git diff --stat` |\n")
+        self.write(INVENTORY_PATH, INVENTORY + fix)
+        self.write(PATHS["operate"], GOOD["operate"] + "\nSelf-review: ABC-12\nFingerprint: %s\n"
+                   "Covers: fix batch since %s\nInventory: Fix batch 1\n" % ("cd" * 32, FP))
+        r = self.check("operate")
+        self.assertEqual(r.returncode, 0, r.stdout)
 
     def test_last_fingerprint_line_is_the_record(self):
         self.write(PATHS["operate"], GOOD["operate"] + "\nSelf-review: ABC-12\nFingerprint: <h>\n")
@@ -237,7 +305,7 @@ class ReviewRound2(Case):
 
     def test_post_op_closing_lines_are_the_record(self):
         self.write(PATHS["post-op"], "Quoted: \nFingerprint: %s\nResult: clean\n\nFingerprint: <output of node …>\n"
-                                     "Result: clean | capped | escalate\n" % FP)
+                                     "Result: clean | escalate\n" % FP)
         self.assertEqual(self.check("post-op").returncode, 1)
 
     def test_start_that_cannot_write_fails_open(self):
@@ -270,7 +338,7 @@ class ReviewRound3(Case):
         self.assertEqual(r.returncode, 1)
         self.assertIn("no new Self-review block", r.stdout)
         with open(os.path.join(self.project, PATHS["operate"]), "a", encoding="utf-8") as fh:
-            fh.write("Self-review: ABC-12\nFingerprint: %s\n" % ("cd" * 32))
+            fh.write("Self-review: ABC-12\nFingerprint: %s\nInventory: Plan\n" % ("cd" * 32))
         self.assertEqual(self.check("operate").returncode, 0)
 
     def test_restart_keeps_the_earlier_marker(self):

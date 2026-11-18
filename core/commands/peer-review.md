@@ -49,8 +49,8 @@ git status --short
 - Nothing ahead and a clean tree → stop: "Nothing to review."
 - If Node is unavailable, say so and stop. There is no hand-run fallback for the helper.
 - **Own gates first.** The last `Fingerprint:` in `.claude/state/<ticket>/post-op.md` must equal
-  `node .claude/scripts/kit-tools.mjs fingerprint --base origin/<MAIN_BRANCH>`, with `Result: clean` or
-  `Result: capped` (both are passing end states). Otherwise say so and stop: reviewing code whose own gates haven't
+  `node .claude/scripts/kit-tools.mjs fingerprint --base origin/<MAIN_BRANCH>`, with `Result: clean` (or an
+  answered `escalate`: post-op round rule 6). Otherwise say so and stop: reviewing code whose own gates haven't
   passed spends both engines on defects you'd find yourself.
 - **Docs-only diff** (the fingerprint refuses it as empty): say so and ask the owner whether to still run. Don't
   refuse.
@@ -118,12 +118,15 @@ docs. Then give it a status:
 | Status | Meaning |
 |---|---|
 | `VERIFIED` | Real, with `file:line` evidence; survived the prior-art gate. Labelled `[introduced by this diff]` or `[pre-existing]` |
-| `NOTED` | Verified, but below the bar (class `noted`) |
+| `NOTED` | Verified, `[pre-existing]` and below the bar (class `noted`) |
 | `REJECTED` | Disproved, with the evidence |
 | `ALREADY-RESOLVED` | Already guarded, or an earlier documented decision. Cite where |
 | `NEEDS-OWNER` | A product, safety-limit or destructive-operation decision that reading code can't settle |
 
-Give every verified finding a class: S1–S4 is must-fix, anything else is `noted` (post-op Step 1.5 round rule 2).
+Give every verified finding a class and an origin (post-op Step 1.5 round rule 2). S1–S4 is must-fix. A real
+defect `[introduced by this diff]` is must-fix at any class: give it class `S4` if no other class fits, and status
+`VERIFIED`. Only a `[pre-existing]` defect below the bar is `NOTED`. A finding with no wrong behaviour (style,
+naming, polish) is an `OBSERVATION`.
 Merge the same root cause across engines and mark it "both".
 
 ## Step 4: Combined table
@@ -182,7 +185,7 @@ file is missing.
 listing every `NOTED` finding with where, effect and suggested fix. `/ship` files it on `<OPEN_ITEMS_TICKET>`
 (post-op Step 1.5 round rule 11). Never a ticket per finding.
 
-**Must-fix (`VERIFIED`, S1–S4).** For each:
+**Must-fix (`VERIFIED`, S1–S4).** For each, first write its fix inventory (`/operate`, "Every fix batch"), then:
 1. Add a regression test on the exact faulty path that fails without the fix. Run it to prove that.
 2. Fix the root cause and every sibling with the same mechanism. A verified `CHANGED_PATH` finding becomes a new
    `C<n>` contract row first.
@@ -193,8 +196,9 @@ listing every `NOTED` finding with where, effect and suggested fix. `/ship` file
 with ticket op **comment**, then set `resolved: true`.
 
 **After fixes.** The fixes are new code: run `/operate` Phase 3 steps 1, 7 and 8 on the fix delta (new self-review
-record), then `/post-op`'s static gates, and a review round if the cap allows (post-op Step 1.5 round rules 5
-and 7). Same mechanism twice: follow the redesign rule (round rule 10). Then take a new
+record), then `/post-op`'s static gates and a review round (post-op Step 1.5 round rules 5 and 7). With the round
+limit reached, escalate instead: no fix ships unreviewed. A second finding in the same area: follow the spiral rule
+(round rule 10). Then take a new
 `node .claude/scripts/kit-tools.mjs fingerprint --base origin/<MAIN_BRANCH>`, write it to `fingerprint`, recompute
 `verdict`, and post a fresh `PEER_REVIEW:` comment. A fixed finding with a failing-without-fix regression test
 counts as resolved. Another peer-review pass is the owner's call, not a loop this command enters.

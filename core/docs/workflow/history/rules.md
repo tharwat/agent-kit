@@ -54,9 +54,11 @@ session, and no rule lives only here. If this file and a rule disagree, the rule
 - **`/operate` exists** because zero-context reviewers kept finding defects that were plainly visible in the
   author's own diff: a normalizer that diverged from its counterpart, a sibling screen left on the old pattern.
   Doing the work correctly the first time is cheaper than any review round.
-- **The review loop is capped.** An open-ended loop (fix everything, any fix makes another round due, the owner asked
-  every round) made tickets run many rounds. The severity bar plus a round cap ended that; only escalations reach the
-  owner.
+- **The review loop is bounded by quality, not by a count (1.8.0).** An open-ended loop (fix everything, any fix
+  makes another round due, the owner asked every round) made tickets run many rounds, so a cap was added. The cap
+  then let tickets end with known defects and unreviewed fixes, and filed their own bugs on the tracker. Now the
+  first draft and every fix must carry a written inventory, a second finding in one area stops patching for a
+  spiral assessment, and the round count escalates instead of ending the work. See `review-loop.md`.
 - **Noted findings go to one standing tracker**, one comment per ticket. Findings left as comments on a ticket that
   `/ship` then closed were never seen again. Exactly one step writes them, because several writers at different
   moments lost items.

@@ -36,7 +36,8 @@ queries need no gate. Elsewhere, cite gates by label (`G2`) only; edit them here
 A change to `<CRITICAL_SYSTEMS>` is agent-approved with stricter checks unless it hits a gate: (1) find every consumer; (2) record its need and risk on the ticket; (3) add tests, regressions included, keeping existing ones green; (4) verify before merge. A post-merge failure is fixed forward on a new ticket and alerts the owner. <!-- codex-restate -->
 
 Review severity: **S1** data integrity (loss, corruption, wrong writes, cross-tenant exposure), **S2** auth and
-security, **S3** `<CRITICAL_DOMAIN>`, **S4** the ticket's own behaviour. S1–S4 are must-fix; the rest is `noted` on
+security, **S3** `<CRITICAL_DOMAIN>`, **S4** the ticket's own behaviour. S1–S4 are must-fix, and so is every real
+defect in code the ticket wrote, whatever its class. Only pre-existing defects below the bar go to
 `<OPEN_ITEMS_TICKET>`.
 
 ## Git and workflow
@@ -49,10 +50,13 @@ security, **S3** `<CRITICAL_DOMAIN>`, **S4** the ticket's own behaviour. S1–S4
   "Generated with" line in commits, PRs or ticket comments.
 - **`/triage → /operate → /post-op → /peer-review (optional) → /ship`**, with `/handoff` → `/resume` to pause.
 - **`/triage`** writes the binding contract (a row per criterion, safety gate, failure mode and sibling path, with
-  severity, hostile case and counterfactual): the plan. Implement without waiting.
-- **`/operate`** turns each row into a test before production edits, then red-teams its own diff.
-- **`/post-op`** runs its gates, self-red-team and contract audit, then ≤ 3 review rounds (+3 after one redesign,
-  +1 if the owner grants). It ends `clean`, `capped` or `escalate`; it never commits.
+  severity, hostile case and counterfactual) and checks the plan (one fact, one home; contradictions; lifecycles).
+  Implement without waiting.
+- **`/operate`** writes the dependency inventory (every reader, writer and sibling of what changes) and turns each
+  row into a test before production edits, then red-teams its own diff. Every fix batch gets its own inventory.
+- **`/post-op`** runs its gates, self-red-team and contract audit, then review rounds until the code is clean. A
+  second finding in one area stops patching for a written spiral assessment the owner decides on. It ends `clean`
+  or `escalate`, never with known defects of its own or an unreviewed fix; it never commits.
 - **`/post-op` is never optional before a commit that touches source or `.claude/`.** Small, urgent, low-risk or well-tested is never a reason to skip it. <!-- codex-restate -->
 - **`/peer-review`**: the owner's call per ticket. After a pass, an unresolved verified finding stops `/ship`.
 - **`/verify`** runs on the feature branch, locally against real services, before merge.

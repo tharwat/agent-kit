@@ -1,6 +1,6 @@
 {
   "name": "hardening",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Deep-security mode: release-wide edge-case analysis, and per-ticket runs with required peer review and no merge before review.",
   "kind": "workflow",
   "requires": ["core"],
