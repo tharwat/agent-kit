@@ -4,6 +4,16 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.10.2 — 2026-11-18
+
+- **An existing project's `docs/agent/*.md` are filled during the install,** from the project's own commands, rules
+  and `CLAUDE.md`, before those are renamed `.pre-agent-kit`. A real install ended with blank templates, so the kit's
+  gates checked only the basics.
+- **The install report names every project file changed beyond the kit's own** (repointed tests, changed constants,
+  condensed docs), with why. Those are the lines in the PR the owner should read.
+
+**Upgrade touches:** nothing installed.
+
 ## 1.10.1 — 2026-11-18
 
 - **Starting an install over takes no git commands.** `preflight` reports an earlier, unfinished install attempt,

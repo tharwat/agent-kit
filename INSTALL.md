@@ -199,6 +199,11 @@ tests run there as they do in the checkout.
    only on failures **not** in this baseline.
 2. **Do the approved hand work in `<wt>`:** write the merged files, retire clashing hooks, and repoint or retire
    tests as the decisions say.
+   - **An existing project: fill `docs/agent/*.md` now, from the files being replaced.** The project's old
+     commands, rules and `CLAUDE.md` hold its specifics: source layout, sibling paths, verify steps, integrations,
+     PII fields, copy rules, the docs map. Copy each into the matching `docs/agent/` file before the old file is
+     renamed `.pre-agent-kit`. The kit's gates read those files, and blank ones make them check only the basics.
+     Leave a section blank only when the project has nothing for it, and say so in the report.
 3. **Then apply:**
 
 ```bash
@@ -268,10 +273,11 @@ Tell the owner:
 1. **Installed:** core plus the packs, the number of files, and the commands now available (`/triage`, `/operate`,
    `/post-op`, `/peer-review`, `/ship`, `/verify`, `/test`, …).
 2. **Skipped or renamed**, and why. List every `.pre-agent-kit` file the owner may remove after checking.
+   **Name every project file the install changed beyond the kit's own** (tests repointed, a constant changed,
+   docs condensed), each with one line on why. Those are the lines in the PR the owner should actually read.
 3. **Credential and setup tasks**, as a checklist. These are env var names, plus steps like "authorize the
    Atlassian MCP on first use". The notify pack's bot setup is in `docs/agent/notify-telegram.md`.
-4. **Project docs to fill in** under `docs/agent/` (source layout, docs map, verify map, integrations, copy rules,
-   PII, sibling paths). The commands read them, and empty ones make the gates check only the basics.
+4. **Project docs:** which `docs/agent/` files were filled, and from what. List any left blank, and why.
 5. **Next step:**
    1. Commit in `<wt>`, push `agent-kit/install` and open the PR (the page's approval covers this). Merge it **only
       on the owner's yes, and between tickets**: the preflight's work-in-flight list says what's open. Ticket branches
