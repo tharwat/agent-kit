@@ -304,21 +304,32 @@ class Kit:
 # ---------------------------------------------------------------------------
 # Answers
 # ---------------------------------------------------------------------------
-ANSWER_KEYS = {"facts", "packs", "options", "mcp_map", "resolutions", "claude_only", "notes"}
+ANSWER_KEYS = {"facts", "packs", "options", "mcp_map", "resolutions", "claude_only", "notes", "decisions",
+               "exceptions"}
 DRAFT_SOURCES = ("found", "default", "guess", "ask")
+DEFAULT_WORD_BUDGET = 3500
+DECISION_FIELDS = ("id", "guide", "topic", "kit_rule", "project_rule", "found", "recommendation", "why", "pro", "con")
+DECISION_CHOICES = ("kit", "project", "other")
+EXCEPTION_KEYS = ("permissions.deny",)  # kit safety settings a project may opt out of, each with the owner's yes
+DECISIONS_DOC = "docs/agent/install-decisions.md"
+GUIDE_PATH = os.path.join(HERE, "decision-guide.md")
 MCP_KEY_PREFIX = ".mcp.json#"   # resolutions key for one server: ".mcp.json#<server>"
 CLAUDE_ONLY_PATH = ".agents/claude-only.txt"
 CMD_NAME_RE = re.compile(r"^\.claude/commands/([^/]+)\.md$")
 
 
-def load_answers(path, lock):
-    base = {"facts": {}, "packs": [], "options": {}, "mcp_map": {}, "resolutions": {}, "claude_only": []}
+def load_answers(path, lock, pending_ok=False):
+    """The answers this run installs from: the lock's (on an upgrade), then the file's. `pending_ok` (the review
+    page) lets facts and decisions still waiting for the owner through; apply and upgrade refuse them."""
+    base = {"facts": {}, "packs": [], "options": {}, "mcp_map": {}, "resolutions": {}, "claude_only": [],
+            "decisions": [], "exceptions": {}}
     if lock:
         prev = lock.get("answers", {})
-        for k in ("facts", "options", "mcp_map"):
+        for k in ("facts", "options", "mcp_map", "exceptions"):
             base[k].update(prev.get(k, {}))
         base["packs"] = list(prev.get("packs", []))
         base["claude_only"] = list(prev.get("claude_only", []))
+        base["decisions"] = list(prev.get("decisions", []))
     if path:
         data = load_json(path, "answers")
         if not isinstance(data, dict):
@@ -330,11 +341,22 @@ def load_answers(path, lock):
             if k in data:
                 if not isinstance(data[k], dict):
                     raise KitError(f"answers: {k} must be an object")
-                base[k].update(unwrap_facts(data[k]) if k == "facts" else data[k])
+                base[k].update(unwrap_facts(data[k], pending_ok) if k == "facts" else data[k])
         if "packs" in data:
             if not isinstance(data["packs"], list) or not all(isinstance(p, str) for p in data["packs"]):
                 raise KitError("answers: packs must be a list of pack names")
             base["packs"] = list(data["packs"])
+        if "decisions" in data:
+            if not isinstance(data["decisions"], list):
+                raise KitError("answers: decisions must be a list")
+            by_id = {d.get("id"): d for d in base["decisions"] if isinstance(d, dict)}
+            for d in data["decisions"]:
+                by_id[d.get("id") if isinstance(d, dict) else None] = d
+            base["decisions"] = list(by_id.values())
+        if "exceptions" in data:
+            if not isinstance(data["exceptions"], dict):
+                raise KitError("answers: exceptions must be an object")
+            base["exceptions"].update(data["exceptions"])
         if "claude_only" in data:
             co = data["claude_only"]
             if not isinstance(co, list) or not all(isinstance(c, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", c)
@@ -349,13 +371,75 @@ def load_answers(path, lock):
     for k, v in base["mcp_map"].items():
         if not isinstance(v, str) or not v:
             raise KitError(f"answers: mcp_map.{k} must be the name of an existing server")
+    check_decisions(base["decisions"], pending_ok)
+    check_exceptions(base["exceptions"])
+    wb = base["options"].get("word_budget")
+    if wb is not None:
+        if not isinstance(wb, int) or isinstance(wb, bool) or wb < 1:
+            raise KitError("answers: options.word_budget must be a positive whole number")
+        if wb > DEFAULT_WORD_BUDGET and not str(base["options"].get("word_budget_reason") or "").strip():
+            raise KitError(f"answers: options.word_budget {wb} is over the kit's {DEFAULT_WORD_BUDGET}: add "
+                           "options.word_budget_reason (why this project needs more always-loaded words)")
     base["packs"] = [p for p in dict.fromkeys(base["packs"]) if p != "core"]
     return base
 
 
-def unwrap_facts(facts):
+def guide_ids():
+    """The ids of the decision guide's entries (`### <id>: <topic>` headings in installer/decision-guide.md)."""
+    try:
+        with open(GUIDE_PATH, encoding="utf-8") as fh:
+            return set(re.findall(r"^### ([a-z0-9-]+):", fh.read(), re.M))
+    except OSError:
+        return set()
+
+
+def check_decisions(decisions, pending_ok=False):
+    """Every clash between the project's rules and the kit carries the advice a first-time owner needs: what was
+    found, a recommendation, why, a pro and a con. A half-advised decision always refuses; an unanswered one refuses
+    apply and upgrade (pending_ok lets the review page show it)."""
+    ids, known, pending = set(), guide_ids(), []
+    for d in decisions:
+        if not isinstance(d, dict):
+            raise KitError("answers: each decision is an object")
+        did = d.get("id")
+        empty = [k for k in DECISION_FIELDS if not str(d.get(k) or "").strip()]
+        if empty:
+            raise KitError(f"answers: decision {did or '?'} is missing {', '.join(empty)} (a recommendation needs "
+                           "what was found, why, a pro and a con)")
+        if did in ids:
+            raise KitError(f"answers: two decisions have the id {did}")
+        ids.add(did)
+        if d["guide"] != "other" and known and d["guide"] not in known:
+            raise KitError(f"answers: decision {did}: guide {d['guide']!r} is not an entry in "
+                           "installer/decision-guide.md (use its id, or \"other\")")
+        if d["recommendation"] not in DECISION_CHOICES:
+            raise KitError(f"answers: decision {did}: recommendation must be one of {', '.join(DECISION_CHOICES)}")
+        ans = d.get("answer")
+        if ans in (None, ""):
+            pending.append(did)
+        elif ans not in DECISION_CHOICES:
+            raise KitError(f"answers: decision {did}: answer must be one of {', '.join(DECISION_CHOICES)}")
+        elif ans == "other" and not str(d.get("answer_detail") or "").strip():
+            raise KitError(f"answers: decision {did}: answer \"other\" needs answer_detail (what was decided)")
+    if pending and not pending_ok:
+        raise KitError("answers: still to answer: decision(s) " + ", ".join(pending))
+
+
+def check_exceptions(exceptions):
+    for key, items in exceptions.items():
+        if key not in EXCEPTION_KEYS:
+            raise KitError(f"answers: exceptions.{key} is not supported (only {', '.join(EXCEPTION_KEYS)})")
+        if not isinstance(items, list):
+            raise KitError(f"answers: exceptions.{key} must be a list")
+        for e in items:
+            if not isinstance(e, dict) or not all(str(e.get(k) or "").strip() for k in ("entry", "reason", "approved")):
+                raise KitError(f"answers: each exceptions.{key} item needs entry, reason and approved (where and "
+                               "when the owner said yes: removing a kit safety setting is gate G7)")
+
+
+def unwrap_facts(facts, pending_ok=False):
     """Facts from a draft (`{value, source, evidence}`) or plain values. A fact still marked `ask` with no value
-    refuses: the owner hasn't answered it yet."""
+    refuses: the owner hasn't answered it yet (pending_ok: left out, so the plan lists it as missing)."""
     out, still = {}, []
     for name, v in facts.items():
         if isinstance(v, dict):
@@ -367,7 +451,7 @@ def unwrap_facts(facts):
                 continue
             v = v["value"]
         out[name] = v
-    if still:
+    if still and not pending_ok:
         raise KitError("answers: still to answer (source `ask`, no value): " + ", ".join(sorted(still)))
     return out
 
@@ -661,6 +745,8 @@ class Plan:
         self.units = []
         self.auto_packs = []   # packs added by a fact (the ticket pack named by TICKET_SYSTEM), not by answers.packs
         self.facts = {}
+        self.answers = {}
+        self.exceptions = set()   # installed permission names the project opted out of (answers.exceptions)
 
     @property
     def unresolved(self):
@@ -796,7 +882,7 @@ def owner_task_applies(task, values):
     return values.get(when.get("fact")) == fact_value(when.get("equals"))
 
 
-def build_plan(kit, target, answers_path, upgrade=False, local_from=None):
+def build_plan(kit, target, answers_path, upgrade=False, local_from=None, pending_ok=False):
     target = os.path.abspath(target)
     if not os.path.isdir(target):
         raise KitError(f"target {target} is not a directory")
@@ -807,7 +893,9 @@ def build_plan(kit, target, answers_path, upgrade=False, local_from=None):
         raise KitError(f"upgrade needs {LOCK_PATH}; run apply for a first install")
     plan.lock = lock
     plan.mode = "upgrade" if lock else "install"
-    answers = load_answers(answers_path, lock)
+    answers = load_answers(answers_path, lock, pending_ok)
+    plan.answers = answers
+    plan.exceptions = {e["entry"] for e in answers["exceptions"].get("permissions.deny", [])}
 
     # Units: core + chosen packs, checked against requires/conflicts.
     packs = answers["packs"]
@@ -998,6 +1086,10 @@ def build_plan(kit, target, answers_path, upgrade=False, local_from=None):
     produced.add(".mcp.json")
     plan.rows.append(plan_gitignore(kit, target, plan, units))
     produced.add(".gitignore")
+    doc = plan_decisions_doc(target, answers)
+    if doc is not None:
+        plan.rows.append(doc)
+        produced.add(DECISIONS_DOC)
 
     # Orphans: in the lock, no longer shipped.
     for dest, e in sorted(lock_files.items()):
@@ -1406,6 +1498,11 @@ def plan_settings(kit, target, units, spec, rendered, plan, values=None, names=N
                         plan.errors.append(f"{rel}: permissions.{k} is not a list")
                         continue
                     for item in v:
+                        if k == "deny" and item in plan.exceptions:
+                            note = f"deny: {item} ({u}) left out: the project's exception (answers.exceptions)"
+                            if note not in plan.settings.setdefault("exceptions", []):
+                                plan.settings["exceptions"].append(note)
+                            continue
                         if item not in lst:
                             lst.append(item)
                             plan.settings["permissions"].append(f"{k}: {item} ({u})")
@@ -1831,6 +1928,49 @@ def plan_gitignore(kit, target, plan, units=("core",)):
     return r
 
 
+def render_decisions_doc(answers):
+    """docs/agent/install-decisions.md: what the owner decided at install, so later sessions and upgrades don't ask
+    again. Written by the installer from answers.json; edit the answers, not this file."""
+    decisions = sorted(answers.get("decisions") or [], key=lambda d: str(d.get("id")))
+    exceptions = answers.get("exceptions") or {}
+    wb = (answers.get("options") or {}).get("word_budget")
+    if not decisions and not exceptions and wb is None:
+        return None
+    word = {"kit": "the kit's rule", "project": "the project's rule", "other": "something else"}
+    out = [COPYRIGHT_HTML, "# Decided at install", "",
+           "Written by the agent-kit installer from the answers the owner approved. Agents follow these where the "
+           "project's rules and the kit's differ. To change one, change the answers and re-run the install.", ""]
+    for d in decisions:
+        chose = d.get("answer") or "(not answered yet)"
+        out += [f"## {d['id']}: {d['topic']}", "",
+                f"- **Decided:** {word.get(chose, chose)}" + (f": {d['answer_detail']}" if d.get("answer_detail")
+                                                               else ""),
+                f"- **The kit's rule:** {d['kit_rule']}", f"- **The project's rule:** {d['project_rule']}",
+                f"- **Why:** {d['why']}", ""]
+    for e in exceptions.get("permissions.deny", []):
+        out += [f"## Exception: `{e['entry']}` is not blocked", "", f"- **Why:** {e['reason']}",
+                f"- **Owner's yes:** {e['approved']} (gate G7)", ""]
+    if wb is not None:
+        reason = (answers.get("options") or {}).get("word_budget_reason") or "the kit default"
+        out += [f"## Word budget: {wb} always-loaded words", "", f"- **Why:** {reason}", ""]
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def plan_decisions_doc(target, answers):
+    text = render_decisions_doc(answers)
+    if text is None:
+        return None
+    data = text.encode("utf-8")
+    path = tpath(target, DECISIONS_DOC)
+    lock = {"src": "(answers decisions)", "unit": "core", "project_owned": False, "merge": "generated",
+            "status": "installed", "sha256_as_installed": sha256(data)}
+    if os.path.isfile(path) and read_bytes(path) == data:
+        return Row("core", "(answers decisions)", DECISIONS_DOC, "unchanged", "the decisions are already recorded",
+                   lock=lock)
+    return Row("core", "(answers decisions)", DECISIONS_DOC, "merge" if os.path.isfile(path) else "pull",
+               "the owner's install decisions, written from answers.json", content=data, lock=lock)
+
+
 def build_lock(kit, plan, answers):
     files = {}
     if plan.lock:
@@ -1850,6 +1990,10 @@ def build_lock(kit, plan, answers):
                 "mcp_map": {k: answers["mcp_map"][k] for k in sorted(answers["mcp_map"])}}
     if answers["claude_only"]:
         recorded["claude_only"] = sorted(answers["claude_only"])
+    if answers.get("decisions"):
+        recorded["decisions"] = sorted(answers["decisions"], key=lambda d: str(d.get("id")))
+    if answers.get("exceptions"):
+        recorded["exceptions"] = answers["exceptions"]
     return {
         "lock_format": LOCK_FORMAT,
         "kit": {"name": kit.manifest.get("name", "agent-kit"), "version": kit.version, "commit": kit.commit},
@@ -2563,6 +2707,9 @@ def verify(kit, target):
         if not os.path.exists(path):
             if e.get("status") == "kept-theirs" and e.get("sha256_as_installed") is None:
                 continue
+            if git_out(target, "check-ignore", "-q", dest) is not None:
+                notes.append(f"{dest}: local-only (gitignored), so it lives in the checkout, not here (fine)")
+                continue
             if e.get("project_owned"):
                 notes.append(f"{dest}: project-owned and removed by the project (fine)")
                 continue
@@ -2744,6 +2891,36 @@ def ticket_prefix_evidence(target, main_branch):
     return prefix, bp, ev
 
 
+SYNTHETIC_RE = re.compile(r"\b((?:is_)?synthetic)\b\s+(?:boolean|bool)\b", re.I)
+
+
+def synthetic_marker(root):
+    """The column the project marks test rows with, from its SQL (migrations, schema): (name, [file:line])."""
+    hits = {}
+    for dirpath, dirs, files in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_NAMES and d not in ("node_modules", ".git")
+                         and not d.startswith("."))
+        if rel_dir.count(os.sep) >= 4:
+            dirs[:] = []
+        for f in files:
+            if not f.endswith(".sql"):
+                continue
+            try:
+                with open(os.path.join(dirpath, f), encoding="utf-8", errors="replace") as fh:
+                    text = fh.read(DOC_SCAN_MAX)
+            except OSError:
+                continue
+            for i, line in enumerate(text.split("\n"), 1):
+                for m in SYNTHETIC_RE.finditer(line):
+                    hits.setdefault(m.group(1).lower(), []).append(posix(os.path.relpath(os.path.join(dirpath, f),
+                                                                                            root)) + f":{i}")
+    if not hits:
+        return None, []
+    name = max(hits, key=lambda k: (len(hits[k]), k))
+    return name, hits[name]
+
+
 def draft(kit, target):
     """Answers the installer can find in the project, each `{value, source, evidence}`.
 
@@ -2781,6 +2958,9 @@ def draft(kit, target):
         put("PROJECT_NAME", repo, "guess", f"the origin repository name ({repo}); use the name people call it")
     for name, value in sc["suggested_facts"].items():
         put(name, value, "found", "read from the project (package scripts, config files, git)")
+    marker, where = synthetic_marker(wt)
+    if marker:
+        put("SYNTHETIC_MARKER", marker, "found", f"the test-data column in the schema: {', '.join(where[:3])}")
     # Open-items ticket and Jira site, from the project's own docs.
     hits, hosts = {}, {}
     for rel, i, line in doc_lines(wt):
@@ -2849,7 +3029,13 @@ def draft(kit, target):
     existing = mcp_server_names(mcp_path)
     ticket_pack = found.get("TICKET_SYSTEM", {}).get("value") or "jira"
     units = ["core"] + packs + ([ticket_pack] if ticket_pack in kit.units else [])
-    mcp_map, prefixes = {}, {}
+    other_prefixes = {}
+    for n in existing if isinstance(existing, list) else []:
+        m = re.match(r"^([a-z0-9]+_)", n)
+        if m:
+            other_prefixes[m.group(1)] = other_prefixes.get(m.group(1), 0) + 1
+    prefix_value = max(other_prefixes, key=lambda k: (other_prefixes[k], k)) if other_prefixes else ""
+    mcp_map = {}
     notes["local_only"] = {".mcp.json": "absent" if existing is None else ("gitignored" if sc["mcp_json_gitignored"]
                                                                             else "tracked"),
                            "env_files": env_files(target),
@@ -2860,19 +3046,12 @@ def draft(kit, target):
             if not isinstance(existing, list):
                 continue
             hit, how = match_mcp(kit_name, existing)
-            if hit and hit != kit_name:
-                mcp_map[kit_name] = hit
-                if hit.endswith(kit_name):
-                    prefixes[hit[: -len(kit_name)]] = prefixes.get(hit[: -len(kit_name)], 0) + 1
+            if hit and hit not in (kit_name, prefix_value + kit_name):
+                mcp_map[kit_name] = hit  # a name the prefix alone wouldn't give
             notes.setdefault("mcp", {})[kit_name] = {"maps_to": hit, "how": how}
-    other_prefixes = {}
-    for n in existing if isinstance(existing, list) else []:
-        m = re.match(r"^([a-z0-9]+_)", n)
-        if m:
-            other_prefixes[m.group(1)] = other_prefixes.get(m.group(1), 0) + 1
-    if other_prefixes:
-        p = max(other_prefixes, key=lambda k: (other_prefixes[k], k))
-        put("MCP_PREFIX", p, "found", f"{other_prefixes[p]} of the project's MCP servers start with {p}")
+    if prefix_value:
+        put("MCP_PREFIX", prefix_value, "found", f"{other_prefixes[prefix_value]} of the project's MCP servers start "
+            f"with {prefix_value}")
     elif isinstance(existing, list):
         put("MCP_PREFIX", "none", "guess", "the project's MCP servers have no shared prefix")
     # Every other fact: the kit default, else asked. Judgment facts get a pointer to read the project first.
@@ -3009,11 +3188,28 @@ def preflight_markdown(pf):
     return out
 
 
+def link_env_files(top, wt):
+    """Link the checkout's gitignored env files into the install worktree (never overwrite, never read them), so the
+    project's tests run there the way they run in the checkout."""
+    linked = []
+    for f in env_files(top):
+        dst = os.path.join(wt, f)
+        if not os.path.lexists(dst):
+            try:
+                os.symlink(os.path.join(top, f), dst)
+                linked.append(f)
+            except OSError:
+                pass
+    return linked
+
+
 def install_worktree(target, main_branch, worktree_dir=None):
-    """The install worktree on INSTALL_BRANCH, made from origin/<main_branch> (reused when it exists)."""
+    """The install worktree on INSTALL_BRANCH, made from origin/<main_branch> (reused when it exists). The checkout's
+    env files are linked in, so tests run there as they do in the checkout."""
     top = main_checkout(os.path.abspath(target))
     for w in worktrees(top):
         if w["branch"] == INSTALL_BRANCH:
+            link_env_files(top, w["path"])
             return w["path"]
     if worktree_dir and worktree_dir != "none" and os.path.isdir(os.path.join(top, worktree_dir)):
         path = os.path.join(top, worktree_dir, "agent-kit-install")
@@ -3030,6 +3226,7 @@ def install_worktree(target, main_branch, worktree_dir=None):
     rc, _o, err = git_run(top, *args)
     if rc:
         raise KitError(f"git {' '.join(args)} failed: {err}")
+    link_env_files(top, os.path.realpath(path))
     return os.path.realpath(path)
 
 
@@ -3043,10 +3240,55 @@ def answer_fact(answers_path, name, default=None):
     return (v.get("value") if isinstance(v, dict) else v) or default
 
 
+GLOSSARY = [
+    "**Pack:** an optional part of the kit (a stack, a workflow, an extra).",
+    "**Gate (G1–G7):** an action that always waits for the owner's yes (merging to main, production data, "
+    "destructive schema steps, weakening a safety check).",
+    "**Worktree:** a second working folder of the same repo on its own branch. The install is built in one, so "
+    "your folder is never written.",
+    "**MCP server:** a tool connection Claude uses (Jira, the database). The kit uses yours by name.",
+]
+
+
+def needs_you_markdown(answers, plan):
+    """The top of the page: every decision and fact still waiting for the owner, each with the advice."""
+    decisions = answers.get("decisions") or []
+    pending = [d for d in decisions if isinstance(d, dict) and not d.get("answer")]
+    asks = sorted(n for n, v in (answers.get("facts") or {}).items() if isinstance(v, dict) and
+                  v.get("source") == "ask" and v.get("value") in (None, "", []))
+    packs_q = (answers.get("notes") or {}).get("packs_to_ask") or []
+    out = ["## Needs you", ""]
+    if not pending and not asks and not packs_q and not plan.unresolved and not plan.mcp_unresolved:
+        return out + ["Nothing. Every answer below came from your project or the kit, with its source. Read it, "
+                      "then approve.", ""] + ["**Words used here:**"] + [f"- {g}" for g in GLOSSARY]
+    out.append("Reply with the codes, for example `D1 project, D2 kit`, or `accept` to take every recommendation "
+               "below. Anything you don't mention keeps its recommendation.")
+    word = {"kit": "the kit's rule", "project": "your rule", "other": "something else"}
+    for d in pending:
+        out += ["", f"**{d['id']}. {md_cell(d['topic'])}.** Recommended: **{word.get(d['recommendation'])}**. "
+                f"{md_cell(d['why'])}",
+                f"- The kit: {md_cell(d['kit_rule'])}", f"- Yours: {md_cell(d['project_rule'])}",
+                f"- Found in your project: {md_cell(d['found'])}",
+                f"- Pro: {md_cell(d['pro'])}", f"- Con: {md_cell(d['con'])}"]
+    for n in asks:
+        v = answers["facts"][n]
+        out += ["", f"**{n}.** {md_cell(v.get('ask') or '')} {md_cell(v.get('evidence') or '')}".rstrip()]
+    for q in packs_q:
+        line = f"**Pack `{q['pack']}`.** {md_cell(q['ask'])}"
+        if q.get("already"):
+            line += f" **Already:** {md_cell(q['already'])}"
+        out += ["", line]
+    if plan.unresolved or plan.mcp_unresolved:
+        out += ["", "**Files that clash and have no proposal yet:** " +
+                "; ".join(f"`{dst}`: {o}" for dst, o in plan.resolutions_template().items())]
+    return out + ["", "**Words used here:**"] + [f"- {g}" for g in GLOSSARY]
+
+
 def review_markdown(kit, top, wt, answers, pf, plan):
     out = ["# agent-kit install review", "",
            f"Project: `{top}`. The install is built in `{wt}` on branch `{INSTALL_BRANCH}`. Your checkout and its "
            "other worktrees are not touched. Nothing is written until you approve this page.", ""]
+    out += needs_you_markdown(answers, plan) + [""]
     out += preflight_markdown(pf)
     facts = answers.get("facts", {})
     order = {"ask": 0, "guess": 1, "found": 2, "default": 3}
@@ -3092,6 +3334,13 @@ def review_markdown(kit, top, wt, answers, pf, plan):
         out += ["", "**Decide each:** " + "; ".join(f"`{d}`: {o}" for d, o in plan.resolutions_template().items())]
     added = [r for r in plan.rows if r.action == "pull"]
     out += ["", "## D. What gets added", "", f"{len(added)} new file(s) across {', '.join(plan.units)}."]
+    for e in (answers.get("exceptions") or {}).get("permissions.deny", []):
+        out.append(f"- **Your exception:** `{e['entry']}` is not blocked. {md_cell(e['reason'])} (owner's yes: "
+                   f"{md_cell(e['approved'])}; gate G7). It stays out on every re-apply and upgrade.")
+    wb = (answers.get("options") or {}).get("word_budget")
+    if wb:
+        out.append(f"- **Word budget:** {wb} always-loaded words. "
+                   f"{md_cell((answers.get('options') or {}).get('word_budget_reason') or '')}")
     if plan.settings.get("hooks"):
         out.append("Hooks: " + "; ".join(md_cell(str(h)) for h in plan.settings["hooks"][:20]))
     if plan.errors:
@@ -3130,9 +3379,9 @@ def review(kit, target, answers_path=None, out_path=None):
                    "mcp_map": dict(lock.get("answers", {}).get("mcp_map", {}))}
     pf = preflight(kit, top, answers)
     try:
-        plan = build_plan(kit, wt, answers_path, upgrade=bool(lock), local_from=top)
+        plan = build_plan(kit, wt, answers_path, upgrade=bool(lock), local_from=top, pending_ok=True)
     except KitError as exc:
-        if "still to answer" not in str(exc) and "--answers is required" not in str(exc):
+        if "--answers is required" not in str(exc):
             raise
         plan = Plan()
         plan.errors.append(str(exc))

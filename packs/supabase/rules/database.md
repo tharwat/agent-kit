@@ -53,8 +53,11 @@ its objects are missing (an empty apply), stop and report it. Repairing the ledg
 
 - Starts with the `-- Purpose:`, `-- Risk:`, `-- Backout:` and `-- Validation:` header (`/guard`). Validation
   queries are read-only.
-- Is additive. A rename, a type change or a removal is phased: add → backfill → move every read and write → remove
-  in a later migration. The final removal, `DROP`, and any data deletion are G5. Record the owner's yes in
+- Is additive by default. A rename, a type change or a removal is **one migration** only when nothing live would
+  break mid-change: every reader and writer deploys with it, it has a real backout, and a snapshot is taken of
+  anything lost (`/guard` Step 4). When something live would break (an app version in users' hands, a separately
+  deployed reader), it is **phased**: add → backfill → move every read and write → remove in a later migration.
+  The removal, `DROP`, and any data deletion are G5. Record the owner's yes, or the standing yes it falls under, in
   `-- Purpose:`.
 - A test that pins a live constraint or enum definition verbatim (for example a `pg_get_constraintdef` string) is
   updated in the same diff as the migration that changes it. `/verify` re-reads the live definition and compares.

@@ -62,6 +62,7 @@ reference them by path.
 | `docs/agent/sibling-paths.md` | Known pairs of code paths that must change together |
 | `docs/agent/defect-classes.md` | Defect classes this project ships. Seeded with the kit's generic list |
 | `docs/agent/lessons.md` | Lessons learned, appended by `/post-op`. Commands read the relevant section before work |
+| `docs/agent/install-decisions.md` | The owner's install decisions, exceptions and word budget. **Written by the installer** from `answers.json` on every apply and upgrade; change the answers, not the file |
 | `docs/agent/secret-files.md` | Extra secret-file globs the secret guard hook blocks, one per bullet. Seeded with the kit defaults, which the hook always enforces |
 
 ## 4. Branch model (owner, 2026-11-07)

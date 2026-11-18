@@ -472,6 +472,15 @@ class WordBudgetTests(Base):
         self.write("CLAUDE.md", self.words(3498))
         self.assertPasses()
 
+    def test_a_recorded_project_budget_is_the_default(self):
+        self.write("CLAUDE.md", self.words(3999))
+        self.assertFails("over the 3500-word budget")
+        self.write(".claude/agent-kit.lock.json", json.dumps(
+            {"answers": {"options": {"word_budget": 4100, "word_budget_reason": "safety rules stay loaded"}}}))
+        out = self.assertPasses()
+        self.assertIn("/ 4100", out)
+        self.assertFails("over the 20-word budget", "--word-budget", "20")  # an explicit flag still wins
+
     def test_kit_file_and_unscoped_rules_count_scoped_rules_do_not(self):
         self.write("CLAUDE.md", self.words(5))
         self.write("CLAUDE.kit.md", self.words(7))
