@@ -2891,6 +2891,93 @@ def ticket_prefix_evidence(target, main_branch):
     return prefix, bp, ev
 
 
+SECRET_NAME_RE = re.compile(r"(oauth|token|credential|secret|service[-_]?account|client_secret|private[-_]?key)", re.I)
+SECRET_JSON_KEYS = {"private_key", "private_key_id", "refresh_token", "access_token", "client_secret", "api_key",
+                    "apiKey", "password", "token"}
+GUARD_DEFAULT_GLOBS = (".env", ".env.*", "*.pem", "*.key", "*.p8", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*",
+                       "id_ecdsa*", "*.env", ".envrc", ".netrc", ".git-credentials")
+
+
+AUTH_SCHEME_RE = re.compile(r"^(?:Bearer|Basic|Token|Bot)\s+", re.I)
+
+
+def looks_literal(value):
+    """A config string that holds a credential itself, not a ${ENV} reference (judged in-process, never shown). An
+    auth scheme word (`Bearer <token>`) is set aside first."""
+    if not isinstance(value, str) or "${" in value:
+        return False
+    value = AUTH_SCHEME_RE.sub("", value.strip())
+    return len(value) >= 20 and " " not in value and not value.startswith(("http://", "https://", "/", "./", "~"))
+
+
+def url_credential_params(url):
+    """Query parameter names in a server URL that carry a credential (`?access_token=…`), unless the value is ${ENV}."""
+    if not isinstance(url, str) or "?" not in url:
+        return []
+    out = []
+    for pair in url.split("?", 1)[1].split("&"):
+        name, _, value = pair.partition("=")
+        if SECRET_NAME_RE.search(name) or name.lower() in ("key", "apikey", "api_key", "pat", "auth"):
+            if value and "${" not in value:
+                out.append(name)
+    return out
+
+
+def credential_files(root):
+    """Gitignored local files that hold credentials but aren't on the secret guard's built-in list: names and the
+    reason only, never a value. JSON is judged by its key names; .mcp.json by whether a server's env or headers
+    hold a literal value instead of a ${ENV} reference."""
+    out = []
+    for dirpath, dirs, files in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_NAMES and d not in ("node_modules", ".git", "worktrees")
+                         and not (rel_dir == ".claude" and d == "state"))
+        if rel_dir.count(os.sep) >= 2:
+            dirs[:] = []
+        for f in sorted(files):
+            rel = posix(os.path.normpath(os.path.join(rel_dir, f)))
+            if any(fnmatch.fnmatchcase(f, g) for g in GUARD_DEFAULT_GLOBS):
+                continue  # already blocked by the guard
+            if git_out(root, "check-ignore", "-q", rel) is None:
+                continue  # tracked or not ignored: the leak scan covers committed files
+            path = os.path.join(root, rel)
+            if f == ".mcp.json":
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        servers = (json.load(fh) or {}).get("mcpServers") or {}
+                except (OSError, ValueError, AttributeError):
+                    continue
+                held = sorted(n for n, conf in servers.items() if isinstance(conf, dict) and (
+                    any(looks_literal(v) for part in ("env", "headers") for v in (conf.get(part) or {}).values())
+                    or url_credential_params(conf.get("url"))))
+                if held:
+                    out.append({"file": rel, "why": "literal credentials (not ${ENV} references) in server(s): " +
+                                ", ".join(held)})
+                continue
+            if f.endswith(".json"):
+                keys = set()
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        data = json.load(fh)
+                    stack = [data]
+                    while stack:
+                        node = stack.pop()
+                        if isinstance(node, dict):
+                            keys |= set(node)
+                            stack.extend(node.values())
+                        elif isinstance(node, list):
+                            stack.extend(node)
+                except (OSError, ValueError, RecursionError):
+                    pass
+                hits = sorted(keys & SECRET_JSON_KEYS)
+                if hits:
+                    out.append({"file": rel, "why": "credential keys: " + ", ".join(hits)})
+                    continue
+            if SECRET_NAME_RE.search(f) and not f.endswith((".md", ".example", ".sample", ".template")):
+                out.append({"file": rel, "why": "a credential-like name"})
+    return out
+
+
 SYNTHETIC_RE = re.compile(r"\b((?:is_)?synthetic)\b\s+(?:boolean|bool)\b", re.I)
 
 
@@ -2986,7 +3073,8 @@ def draft(kit, target, fresh=False):
         put("JIRA_SITE", max(hosts, key=lambda h: len(hosts[h])), "guess",
             "several Jira hosts in the docs: " + ", ".join(sorted(hosts)))
     # Packs: the scan's matches, the ticket pack, and worktrees when the checkout has any.
-    notes = {"packs": {}, "packs_to_ask": [], "local_only": {}, "install_worktree": wt,
+    creds = credential_files(target)
+    notes = {"packs": {}, "packs_to_ask": [], "local_only": {}, "install_worktree": wt, "credential_files": creds,
              "read_from": f"origin/{main_branch} (in {wt}); local-only files from {target}"}
     if here and here != main_branch:
         notes["checkout_branch"] = (f"your checkout is on {here}; the install reads origin/{main_branch}, so that "
@@ -3155,6 +3243,10 @@ def preflight(kit, target, answers=None):
     envs = env_files(target)
     if envs:
         add("env files", True, ", ".join(envs) + " (names only; never read)", blocker=False)
+    creds = credential_files(target)
+    if creds:
+        add("credential files the guard doesn't block", True, "; ".join(f"{c['file']} ({c['why']})" for c in creds) +
+            ". Propose the guide's secret-files decision", blocker=False)
     # MCP servers the chosen packs need: present (exactly, by prefix or through mcp_map)?
     ans = answers or draft(kit, target)
     facts = unwrap_facts({k: v for k, v in ans.get("facts", {}).items()

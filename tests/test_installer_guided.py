@@ -251,6 +251,33 @@ class Guided(TempDirs, unittest.TestCase):
         self.assertFalse(os.path.isfile(os.path.join(old, agent_kit.LOCK_PATH)))  # the new attempt starts clean
         self.assertEqual(git(old, "rev-parse", "--abbrev-ref", "HEAD"), agent_kit.INSTALL_BRANCH)
 
+    def test_unguarded_credential_files_are_listed_by_name_never_by_value(self):
+        literal = "lit" + "eralvalue" * 4  # a fake credential, built so no scanner mistakes it for a real one
+        write(os.path.join(self.top, ".gitignore"), ".mcp.json\n.env\n.claude/worktrees/\n.gdrive-token.json\n"
+              "sa-key.json\n.gdrive-oauth-client.json\n")
+        write(os.path.join(self.top, ".gdrive-token.json"), json.dumps({"refresh_token": literal}))
+        write(os.path.join(self.top, "sa-key.json"), json.dumps({"type": "service_account", "private_key": literal}))
+        write(os.path.join(self.top, ".gdrive-oauth-client.json"), "not json at all")
+        servers = json.loads(read(os.path.join(self.top, ".mcp.json")))
+        servers["mcpServers"]["proj_supabase"]["headers"] = {"Authorization": "Bearer " + literal}
+        servers["mcpServers"]["proj_cal"] = {"type": "http", "url": "https://example.invalid/mcp?access_token=" + literal}
+        write(os.path.join(self.top, ".claude", "state", "feature-abc-9-oauth-token.upstream"), "origin/main\n")
+        servers["mcpServers"]["proj_x_jira"]["headers"] = {"Authorization": "Bearer ${JIRA_TOKEN}"}
+        write(os.path.join(self.top, ".mcp.json"), json.dumps(servers))
+        path, d = self.draft()
+        found = {c["file"]: c["why"] for c in d["notes"]["credential_files"]}
+        self.assertIn("refresh_token", found[".gdrive-token.json"])
+        self.assertIn("private_key", found["sa-key.json"])
+        self.assertIn("credential-like name", found[".gdrive-oauth-client.json"])
+        self.assertIn("proj_supabase", found[".mcp.json"])  # "Bearer <token>"
+        self.assertIn("proj_cal", found[".mcp.json"])       # ?access_token=<token>
+        self.assertFalse(any(f.startswith(".claude/state/") for f in found))  # the kit's own state, not secrets
+        self.assertNotIn("proj_x_jira", found[".mcp.json"])  # an ${ENV} reference holds no secret
+        self.assertNotIn(".env", found)                       # already on the guard's built-in list
+        rc, out, _e = run(["preflight", "--target", self.top, "--answers", path])
+        self.assertIn("credential files the guard doesn't block", out)
+        self.assertNotIn(literal, out + read(path))
+
 class Decisions(TempDirs, unittest.TestCase):
     """Every clash carries its advice; the owner's answers, exceptions and budget are kept and written down."""
 

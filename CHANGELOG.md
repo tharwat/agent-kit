@@ -12,6 +12,15 @@ installed version before an upgrade.
 - **The install report names every project file changed beyond the kit's own** (repointed tests, changed constants,
   condensed docs), with why. Those are the lines in the PR the owner should read.
 
+- **Unguarded credential files are found during the install.**
+  - `preflight` and `draft` list gitignored files that hold credentials but aren't on the secret guard's built-in
+    list. The checks: JSON key names (`private_key`, `refresh_token`, `client_secret`, …), credential-like file
+    names, and `.mcp.json` servers holding a literal token in `env`, in `headers` (including `Bearer <token>`) or in
+    a URL query, instead of a `${ENV}` reference.
+  - Names and reasons only; no value is ever shown.
+  - A new guide entry, `secret-files`, recommends adding them to `docs/agent/secret-files.md`, plus a ticket to move
+    the `.mcp.json` values into environment variables.
+  - On a real project it found a service-account key that a manual review had missed.
 - **Tickets the install replaces are closed by the agent,** with a comment linking the install PR. After the merge,
   the agent moves the checkout to the main branch if it was parked on a replaced branch.
 

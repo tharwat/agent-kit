@@ -211,3 +211,18 @@ upgrades follow them without asking again.
   with the owner's yes) and carry over what it did.
 - **Pro:** one set of guards that agree. **Con:** an owner who relied on the old hook's exact behavior must check
   the kit's.
+
+### secret-files: Local credential files the secret guard doesn't know
+
+- **Kit:** the secret guard blocks agents from opening `.env` files, private keys and a few known credential files.
+  A project adds its own to `docs/agent/secret-files.md`.
+- **Protects against:** a live token printed into a conversation, a transcript or a log by one file read.
+- **Check:** `preflight` lists gitignored files that hold credentials but aren't on the guard's list. It judges by
+  JSON key names (`private_key`, `refresh_token`, `client_secret`, …), by credential-like names (OAuth, token,
+  service account), and, for `.mcp.json`, by a server holding a literal value instead of a `${ENV}` reference. It
+  never shows a value.
+- **Recommend:** `kit`. Add every listed file to `docs/agent/secret-files.md`, `.mcp.json` included when it holds
+  literal credentials. Then propose a follow-up ticket that moves those values to environment variables
+  (`"Authorization": "Bearer ${RENDER_API_KEY}"`), so `.mcp.json` holds none.
+- **Pro:** no session can leak those tokens. Scripts that read the files in their own process keep working. **Con:**
+  agents can't open the file to inspect it. They read server names through the installer, or ask the owner.
