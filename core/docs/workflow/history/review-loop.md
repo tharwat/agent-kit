@@ -129,7 +129,7 @@ agent) found:
 What changed, and why:
 - **Triage plan self-check** (state homes, contradiction check, lifecycle check, safety defaults) addresses defects
   that start before code.
-- **The dependency inventory** (`inventory.md`, checked by `check-record.py`) addresses the missed reader, writer
+- **The dependency inventory** (`inventory.json`, checked by `check-record.py`) addresses the missed reader, writer
   and sibling, the largest root cause. It has to exist before the first production edit, and every fix batch adds
   its own.
 - **The spiral rule fires at the second finding in one area**, not after must-fix findings in two rounds. Round 3
@@ -145,6 +145,15 @@ What changed, and why:
   order is by cost: a dedicated classification model (one that returns probabilities over fixed choices) costs a
   small fraction of a general model, and a general model costs less than hand-written checks that every round
   extends.
+
+- **Fill-in forms, not formatted notes (1.8.1).** The first records were Markdown tables that the checker parsed.
+  The same note can be written in many layouts (bold labels, bullets, different header wording), and the checker
+  had to guess which ones counted. A sibling implementation of the same idea found eight checker bugs in two review
+  rounds, each one a complete note refused as "missing". As JSON, each box is either filled or not, so there is
+  nothing to guess. `--show` prints the readable copy for the ticket, so the JSON stays the one home.
+- **A targeted fix at a spiral stop is still reviewed (1.8.1).** An owner answer of "targeted fix" at round 3 left
+  the fix's review round past the limit, so the next step escalated again. The answer now counts as the
+  owner-granted round.
 
 How to tell it worked: every round record carries an `Origins:` line. Over the next tickets, compare with the
 study's baseline (about 13 first-draft and 6 fix-introduced defects per ticket, 41% not-a-defect findings, about

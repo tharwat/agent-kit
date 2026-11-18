@@ -222,14 +222,43 @@ post-work `/peer-review` stays optional.
 ## Step 4.8: Plan self-check (mandatory)
 
 Some defects start before any code: the code faithfully follows a plan that stores one fact twice, contradicts a
-decision, or never settled a state's lifecycle. Every review round then finds one more symptom. Write all four parts
-below into `triage.md`. A docs- or rules-only ticket writes each as `none — <reason>`.
+decision, or never settled a state's lifecycle. Every review round then finds one more symptom.
 
-**A. State homes: one fact, one home.** For every piece of state the ticket stores or depends on:
+**Write all four parts as a fill-in form, `.claude/state/<ticket>/plan-check.json`.** The record check only asks
+whether each box is filled, never how a note is formatted, so a complete note is never refused for its layout. Write
+exactly these keys:
 
-| Fact | Its one home | Who writes it | Who reads it | Second home? |
-|---|---|---|---|---|
-| what is true (a status, a mode, a verdict, a count) | the one table, column, record or store that holds it | `file:line` or the new writer | `file:line` of every reader | `none`, or the copy and how it stays in step |
+```json
+{
+  "ticket": "<ticket>",
+  "state_homes": [
+    { "fact": "what is true (a status, a mode, a verdict, a count)",
+      "home": "the one table, column, record or store that holds it",
+      "writers": ["path:line", "new: <path> for a writer not written yet"],
+      "readers": ["path:line of every reader"],
+      "second_home": null }
+  ],
+  "state_homes_none": null,
+  "contradiction_check": { "rows_read": 0, "decisions_read": 0,
+    "conflicts": [ { "conflict": "C<n> vs <decision>", "resolved_by": "owner | default", "resolution": "…" } ] },
+  "lifecycles": [
+    { "state": "…", "created": "…", "changed": "…", "removed": "…", "restored": "…", "edited_in_state": "…",
+      "name_reuse": "…", "safety_flags": "…", "what_a_person_sees": "…" }
+  ],
+  "lifecycles_none": null,
+  "safety_defaults": [ { "default": "…", "owner_answer": "…" } ]
+}
+```
+
+- `writers` and `readers` are `path:line` entries, or `["none"]`.
+- `second_home` is `null`, or `{ "where", "kept_in_step_by": "transaction | trigger", "owner_ok": "<where the
+  owner's OK is recorded>" }`.
+- An empty list needs its `_none` box filled with the reason (a docs- or rules-only ticket: `"no state"`).
+  `conflicts` and `safety_defaults` may be `[]`.
+- The readable copy is printed by `python3 .claude/hooks/check-record.py --show plan-check --ticket <ticket>`. Use it
+  in the output and the ticket comment. Never maintain a second hand-written copy.
+
+**A. State homes: one fact, one home.** List every piece of state the ticket stores or depends on.
 
 - **The same fact in two places** (a copy, a cache, a mirrored column, a status duplicated into another record, two
   rows that must agree): collapse it to one home, or derive it at the read. Keeping two copies in step by a side
@@ -242,17 +271,16 @@ below into `triage.md`. A docs- or rules-only ticket writes each as `none — <r
 
 **B. Contradiction check.** Read every contract row against every decision (ticket comments, epic constraints, owner
 answers) and against the ticket text. List each conflict, and resolve it with the owner or an explicit recorded
-default. Record `Contradiction check: <conflicts found and how each was resolved | none found — <n> rows × <n>
-decisions read>`.
+default. Record the counts read and every conflict in `contradiction_check`.
 
 **C. Lifecycle check.** For every state the ticket adds or changes, answer: how it is created, changed, removed and
 restored; what editing a record in that state does; whether its name or key can be reused; how it interacts with
-each safety flag; and what a person sees. Each unanswered question goes to the owner, one at a time. Record
-`Lifecycle check: <state> — <answers>` (or `none — no state added or changed`).
+each safety flag; and what a person sees. Each unanswered question goes to the owner, one at a time. Record one
+`lifecycles` entry per state.
 
 **D. Safety defaults.** An engineering default that touches S1–S3 or a user-facing send ("any verdict → hand to a
-human", "on error, skip") is shown to the owner as a choice. It is never applied silently. Record each one under the
-lifecycle check with the owner's answer.
+human", "on error, skip") is shown to the owner as a choice. It is never applied silently. Record each one in
+`safety_defaults` with the owner's answer.
 
 ---
 
@@ -286,9 +314,8 @@ TICKET ANALYSIS: <ticket> — <title>
   - Module placement: <chosen module and why, or n/a>
   - Files this approach touches: <list>
 🧪 Test approach: existing patterns at <path>; new tests <yes/no + what>
-🏠 State homes: <the Step 4.8 table> · second homes: <none | each, with its transaction/trigger and owner OK>
-🧷 Contradiction check: <conflicts and resolutions | none found>
-♻️ Lifecycle check: <each state: created / changed / removed / restored / edited / name reused / safety flags / what a person sees>
+🏠 Plan self-check: <the output of check-record.py --show plan-check: state homes, contradiction check,
+   lifecycles, safety defaults>
 🧾 Acceptance-and-proof contract: <the Step 4.6 table>
   Threat model / out of scope: <one line>
 🧨 Pre-code vectors: <the Step 4.7 table, or: skipped — no executable behaviour>
@@ -308,8 +335,8 @@ TICKET ANALYSIS: <ticket> — <title>
 - [ ] Every contract row has an ID `C<digits>`, a class, a hostile case, a proof plan and a counterfactual, plus the
       threat-model line
 - [ ] Ran `/peer-review test-contract` (executable work) and folded in its vectors with provenance
-- [ ] Wrote the state-homes table (one fact, one home), the contradiction check and the lifecycle check; showed the
-      owner every safety default
+- [ ] Wrote `plan-check.json`: state homes (one fact, one home), the contradiction check and the lifecycles; showed
+      the owner every safety default
 - [ ] Completed the Step 6 hand-off
 
 ---
@@ -324,11 +351,10 @@ state a status:
    `Pre-code vectors: <ticket>`). For each linked ticket triage decided something for, ticket op **comment** on it
    with that constraint.
 2. **Exact copy.** Write `.claude/state/<ticket>/triage.md` (gitignored) with the final design decisions, every
-   contract row and every vector **verbatim**, the Step 4.8 state-homes table, `Contradiction check:` and
-   `Lifecycle check:` lines, plus the comment ids. A tracker's renderer can drop characters, so
-   this file, not the comment, is what `/operate` reads.
+   contract row and every vector **verbatim**, plus the comment ids. A tracker's renderer can drop characters, so
+   this file, not the comment, is what `/operate` reads. `plan-check.json` (Step 4.8) sits beside it.
 3. **Record check.** Run `python3 .claude/hooks/check-record.py --kind triage --ticket <ticket>`. Fix
-   `.claude/state/<ticket>/triage.md` and re-run until it exits 0.
+   `triage.md` or `plan-check.json` as it says and re-run until it exits 0.
 
 End the report with `Context: ready to /clear`. Never ask the owner whether clearing is safe.
 
