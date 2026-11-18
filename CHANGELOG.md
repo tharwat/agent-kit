@@ -4,6 +4,15 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.10.1 — 2026-11-18
+
+- **Starting an install over takes no git commands.** `preflight` reports an earlier, unfinished install attempt,
+  and the agent asks one question: continue it, or start fresh. `draft --fresh` parks the old install worktree and
+  its branch under the old kit version (renamed, never deleted), then starts clean. Before this, a "fresh" run
+  silently continued the old attempt.
+
+**Upgrade touches:** nothing installed.
+
 ## 1.10.0 — 2026-11-18 (supabase 1.0.1)
 
 **An install a first-time owner can do alone.** In a real install, a second session had to explain every clash

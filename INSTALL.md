@@ -57,6 +57,16 @@ It only reads. It reports:
 - local-only files: `.mcp.json` and whether git ignores it, `settings.local.json` hooks, `.env*` names;
 - the MCP server each chosen pack needs (present, mapped, or added by the kit).
 
+**An earlier install attempt** (preflight lists one when an `agent-kit/install` worktree exists): ask the owner one
+question, before anything else.
+- **Continue it.** Pro: keeps its work. Con: it was built with that kit version and those answers.
+- **Start fresh.** Pro: a clean run with the current kit's review page. Con: its hand work is redone, though it can
+  be reused once the new page is approved.
+
+For a fresh start, run `draft` with `--fresh`. It parks the old worktree and branch under the old kit version
+(renamed, never deleted). Don't read the parked folder before the owner approves the new page; in Step 4, reuse its
+hand work where it matches what they decided.
+
 Then do its **agent checks**: one read call through each MCP server it names (for Jira, fetch any issue). A server
 that isn't authorized is a blocker. **BLOCKED:** send the owner every blocker with its fix, in one message, and
 stop.
@@ -211,15 +221,6 @@ anything.
 **A new kit version while the install is unpushed?** Upgrade the install worktree before pushing: clone the kit at
 the new tag, then `upgrade --target <project> --worktree`. Then re-run Step 5 against the same baseline. The PR then
 carries the latest kit, and the project's first upgrade after the merge starts clean.
-
-**Starting over without losing work.** To run the install again from the beginning (say, to see a newer kit's
-review page), park the old attempt instead of deleting it. Close any session working in it first, then:
-```bash
-git -C <project> worktree move <wt> <wt>-<old kit version>
-git -C <project> branch -m agent-kit/install agent-kit/install-<old kit version>
-```
-Then start at Step 0. Don't read the parked folder before the owner approves the new page. In Step 4, reuse its hand
-work wherever it matches what the owner decided. The owner can remove it afterwards with `git worktree remove`.
 
 **No hand edits to kit-managed files after `apply`.** Re-running apply or upgrade restores them. A change the
 owner wants goes through the answers: `resolutions`, `exceptions`, facts or decisions. The owner's decisions are
