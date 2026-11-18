@@ -117,7 +117,7 @@ breaks in every case nobody listed. If the fact is known when something is writt
 | matching text or patterns to recover what a record is | a typed field written when the record is created |
 | the same rule computed in the API and in each client | one stored value, or one function, that all of them read |
 | a special-case branch for each new shape | one data shape with no special cases |
-| word lists, keyword or pattern checks, or hand-built heuristics that judge language or content | a model classification call with a fixed output schema (the cheapest option that passes the tests), or a field stored when the record is written. Hand-built classifiers grow by one check per review round |
+| word lists, keyword or pattern checks, or hand-built heuristics that judge language or content | a stored field, if the fact is known when the record is written. Otherwise, the cheapest classifier that passes the tests: first a dedicated classification model (it returns probabilities over fixed choices, and is far cheaper than a general model), then a general model call with a fixed output schema. Use the one `docs/agent/integrations.md` lists; adding a new service follows `<DEPENDENCY_POLICY>`. Act on a probability only above a recorded threshold, and fail closed below it. Hand-built classifiers grow by one check per review round |
 | one fact kept in two places, kept in step by a follow-up write or a "remember to also update" | one home, with the other read derived from it; an unavoidable copy changes in the same transaction or by a database trigger (`triage.md` state homes) |
 
 - A new nullable column, or one with a default, is the lower-risk path (the additive schema rule in

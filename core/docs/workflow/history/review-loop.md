@@ -141,8 +141,10 @@ What changed, and why:
 - **Origin over severity for the ticket's own code.** Below-bar defects in code the ticket wrote went to the tracker
   and were never fixed. Only pre-existing defects are filed now; nits are not filed at all.
 - **Hand-built classifiers.** Word lists and pattern checks that judge language grew by one check per round. The
-  design step and the spiral assessment now ask whether a model classification call, or a stored field, replaces
-  them.
+  design step and the spiral assessment now ask whether a stored field or a classifier replaces them. The owner's
+  order is by cost: a dedicated classification model (one that returns probabilities over fixed choices) costs a
+  small fraction of a general model, and a general model costs less than hand-written checks that every round
+  extends.
 
 How to tell it worked: every round record carries an `Origins:` line. Over the next tickets, compare with the
 study's baseline (about 13 first-draft and 6 fix-introduced defects per ticket, 41% not-a-defect findings, about

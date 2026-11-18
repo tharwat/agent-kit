@@ -350,9 +350,9 @@ This section is the one definition. Other commands cite it as "round rule N".
        data and partial failures. For each earlier fix that touched shared logic, list what depends on it. Report
        the checks actually run, what they showed, and what still needs verifying.
     5. **Classification in code.** Is code using word lists, keyword or pattern checks, or hand-built heuristics to
-       judge language or content? Those grow with every round. Name the alternative: a model classification call
-       with a fixed output schema (the cheapest option that passes the tests), or a field stored when the record
-       is written.
+       judge language or content? Those grow with every round. Name the alternative (`/operate` Phase 1 step 6): a
+       stored field, a dedicated classification model, or a general model call with a fixed output schema,
+       whichever is cheapest and passes the tests.
     6. **Recommendation.** **Targeted fix**, **simplify <part>** or **redesign <flow>**. Say why, what would change,
        which test would prove the root cause is fixed without breaking existing behaviour, what evidence would
        close the review, and what would justify another round. A redesign note says what is stored, who writes

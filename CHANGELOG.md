@@ -25,8 +25,10 @@ first").
     it. Table 1b lists siblings and their guards. Helper contracts get one line each;
   - every fix batch appends `## Fix batch <n>`;
   - `check-record.py --kind operate` requires the inventory, plus an `Inventory:` line in the self-review record;
-  - the design step gains two rows: hand-built language classifiers → a model classification call or a stored
-    field, and one fact kept in two places → one home.
+  - the design step gains two rows. Hand-built language classifiers → a stored field, else the cheapest
+    classifier that passes the tests: a dedicated classification model, then a general model call (the one
+    `docs/agent/integrations.md` lists), acting only above a recorded probability threshold. One fact kept in two
+    places → one home.
 - **`/post-op` round rules:**
   - **No `capped` end state.** Post-op ends `clean`, or `escalate`. The only passing `escalate` is the owner
     accepting named defects. No fix ships unreviewed: with the round limit reached, a needed change escalates.
