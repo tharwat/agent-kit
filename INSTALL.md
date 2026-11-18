@@ -286,8 +286,13 @@ Tell the owner:
    2. After the merge, every lane picks the kit up from `<MAIN_BRANCH>`. Worktrees sync on their next prompt (with
       the worktrees pack), and the checkout needs `git pull`. `<wt>` can then be removed by the owner with
       `git worktree remove <wt>`.
-   3. Create the open-items ticket if the page said so.
-   4. Try `/triage <ticket>` on a real ticket.
+   3. Create the open-items ticket if the page said so. **Close any ticket the install replaces** (an in-flight
+      ticket that was changing the project's own workflow), with ticket op **comment** linking the install PR, then
+      ticket op **close**. Never leave it open for the owner. Any paused branch it had stays as it is.
+   4. After the merge, switch the checkout to `<MAIN_BRANCH>` and pull, if it's on a branch the install replaced.
+      Untracked files stay as they are.
+   5. Try `/triage <ticket>` on a real ticket. For an existing project, filling any `docs/agent/` file left blank
+      makes a good first one.
 
 ## answers.json
 

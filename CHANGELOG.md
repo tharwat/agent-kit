@@ -12,6 +12,9 @@ installed version before an upgrade.
 - **The install report names every project file changed beyond the kit's own** (repointed tests, changed constants,
   condensed docs), with why. Those are the lines in the PR the owner should read.
 
+- **Tickets the install replaces are closed by the agent,** with a comment linking the install PR. After the merge,
+  the agent moves the checkout to the main branch if it was parked on a replaced branch.
+
 **Upgrade touches:** nothing installed.
 
 ## 1.10.1 — 2026-11-18
