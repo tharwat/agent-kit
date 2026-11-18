@@ -251,6 +251,34 @@ class Guided(TempDirs, unittest.TestCase):
         self.assertFalse(os.path.isfile(os.path.join(old, agent_kit.LOCK_PATH)))  # the new attempt starts clean
         self.assertEqual(git(old, "rev-parse", "--abbrev-ref", "HEAD"), agent_kit.INSTALL_BRANCH)
 
+    def test_a_merged_install_is_parked_and_a_lane_in_the_way_is_stepped_around(self):
+        """An upgrade starts from main, not from the finished install's branch; a lane already sitting at the install
+        path is left alone and the install goes next to it."""
+        squatter = os.path.join(self.top, ".claude", "worktrees", "agent-kit-install")
+        git(self.top, "worktree", "add", "-q", squatter, "-b", "feature/abc-14-docs")
+        write(os.path.join(squatter, "wip.md"), "a lane's uncommitted work\n")
+        _p, d = self.draft()
+        first = d["notes"]["install_worktree"]
+        self.assertEqual(first, squatter + "-2")
+        rc, out, err = run(["apply", "--target", self.top, "--answers", self.filled(d), "--worktree"])
+        self.assertEqual(rc, 0, out + err)
+        git(first, "add", "-A")
+        git(first, "commit", "-q", "-m", "ABC-15: install agent-kit")
+        git(first, "push", "-q", "origin", agent_kit.INSTALL_BRANCH + ":main")  # the install PR merged
+        git(self.top, "fetch", "-q", "origin")
+        pf = agent_kit.preflight(agent_kit.Kit(KIT), self.top, d)
+        item = next(i for i in pf["items"] if i["check"] == "finished install worktree")
+        self.assertIn("parks it", item["detail"])
+        self.assertFalse(any(i["check"] == "earlier install attempt" for i in pf["items"]))
+        _p, d2 = self.draft()  # no --fresh needed
+        new = d2["notes"]["install_worktree"]
+        self.assertEqual(git(new, "rev-parse", "HEAD"), git(self.top, "rev-parse", "origin/main"))
+        self.assertEqual(git(new, "rev-parse", "--abbrev-ref", "HEAD"), agent_kit.INSTALL_BRANCH)
+        version = agent_kit.Kit(KIT).version
+        self.assertTrue(os.path.isdir(f"{first}-{version}"))  # parked, never deleted
+        self.assertEqual(read(os.path.join(squatter, "wip.md")), "a lane's uncommitted work\n")
+        self.assertEqual(git(squatter, "rev-parse", "--abbrev-ref", "HEAD"), "feature/abc-14-docs")
+
     def test_unguarded_credential_files_are_listed_by_name_never_by_value(self):
         literal = "lit" + "eralvalue" * 4  # a fake credential, built so no scanner mistakes it for a real one
         write(os.path.join(self.top, ".gitignore"), ".mcp.json\n.env\n.claude/worktrees/\n.gdrive-token.json\n"

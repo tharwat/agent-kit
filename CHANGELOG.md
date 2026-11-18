@@ -4,6 +4,18 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.10.3 — 2026-11-18
+
+- **An upgrade starts from main, not from the finished install's branch.** A merged `agent-kit/install` worktree
+  used to look like an unfinished attempt, so the upgrade would have continued on it. Now `preflight` reports it as
+  finished, and `draft` parks it (renamed, never deleted) with no question. Finished means: nothing uncommitted, and
+  the branch's commits are on main, or its lock is main's lock (a squash merge).
+- **A lane at the install path is stepped around.** When another worktree already sits at
+  `<WORKTREE_DIR>/agent-kit-install`, the install uses `agent-kit-install-2` instead of stopping. A real upgrade found
+  a ticket's uncommitted work in that folder.
+
+**Upgrade touches:** nothing installed.
+
 ## 1.10.2 — 2026-11-18
 
 - **An existing project's `docs/agent/*.md` are filled during the install,** from the project's own commands, rules

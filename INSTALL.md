@@ -67,6 +67,11 @@ For a fresh start, run `draft` with `--fresh`. It parks the old worktree and bra
 (renamed, never deleted). Don't read the parked folder before the owner approves the new page; in Step 4, reuse its
 hand work where it matches what they decided.
 
+**A finished install worktree** (preflight lists one when the `agent-kit/install` branch already landed on main):
+no question. The next `draft` parks it the same way and starts from main, so an upgrade never builds on the old
+branch. Other worktrees are never touched: when a lane already sits at the install path, the install goes next to it
+(`agent-kit-install-2`). Never move or commit a lane's work to make room.
+
 Then do its **agent checks**: one read call through each MCP server it names (for Jira, fetch any issue). A server
 that isn't authorized is a blocker. **BLOCKED:** send the owner every blocker with its fix, in one message, and
 stop.
