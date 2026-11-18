@@ -162,8 +162,9 @@ Classify the diff (`git diff origin/<MAIN_BRANCH>...HEAD --name-only`):
 
 - **No runtime surface** (docs, comments, tests only, config with no behaviour change) → record
   `Validation: ⏭️ skipped — no runtime surface`.
-- **Behaviour change** → run `/verify <ticket>` (pre-merge half). Only `✅ VERIFIED` passes. `⚠️ PARTIAL` or
-  `❌ FAILS` → don't merge. Notify (Step 6, failure), report, stop. A fix is a new cycle.
+- **Behaviour change** → run `/verify <ticket>` (pre-merge half). `✅ VERIFIED` passes. `🕒 DEFERRED` (the map
+  says the surface has no safe local check) passes to G3, which names it, and `/verify`'s after-merge check runs
+  in Step 4.1. `⚠️ PARTIAL` or `❌ FAILS` → don't merge. Notify (Step 6, failure), report, stop. A fix is a new cycle.
 
 Packs may add checks here: see the section for this command in each installed `.claude/packs/*.md`.
 
@@ -175,6 +176,9 @@ Packs may add checks here: see the section for this command in each installed `.
 > <result>.
 > - **Yes, merge now.** Pro: the verified change ships. Con: it goes to production as soon as it deploys.
 > - **No, hold it.** Pro: time to look first. Con: the ticket stays open and the branch can drift.
+
+With `🕒 DEFERRED`, the question says so plainly: "Verify: deferred. It can't be checked safely before merge; after
+merge I check <log line + query>."
 
 No yes → leave the PR open, report `Merged: — held for owner`, stop. When the ticket-trains pack is installed and this
 run is inside `/ticket-train-run`, invoking the run is the yes for that train's queue only.
@@ -205,7 +209,8 @@ Either way, confirm it landed: `gh pr view <N> --json state,mergedAt` must show 
 ### 4.1 Deploy and logs
 
 Run `/verify <ticket>`'s post-merge half: confirm the deploy is live and the change's log lines appear. Skip it
-only when Step 2 recorded no runtime surface.
+only when Step 2 recorded no runtime surface. `🕒 DEFERRED` → this is the change's only check: run the map row's
+after-merge check, and report what it showed.
 
 - A build failure means `<MAIN_BRANCH>` is broken. Say so at once and loudly, notify, and don't start other work.
 - Any other post-merge failure: the merge stands. Fix forward on a new ticket (ticket op **create**), comment its

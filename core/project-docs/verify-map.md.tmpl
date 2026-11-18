@@ -3,22 +3,35 @@
 
 How `/verify`, `/test` and `/ship` check each surface. Delete each example row once you add real ones.
 
+## Where a local run lands
+
+Fill this first. Example only: `.env` points at the one production database and the live provider accounts, so a
+local run is a production run.
+
+When a local run reaches production, a local check is allowed only from the safe list below. Every other surface is
+checked **after merge**, from the logs and a read-only query, never by running it locally.
+
+## Safe to run locally
+
+An action goes on this list only when its code path is read and nothing on it reaches the outside world: no database
+write (except rows carrying the synthetic marker), no external call, no message, email or alert sent, no token
+refreshed, rotated or saved, no job started, enqueued or drained. Follow every call: dynamic imports, queue
+handlers, and what a job does when it finds real work waiting. A flag named `--dry-run` is a claim, not a fact, and
+it covers only the entry point it was read in. A job with no dry-run flag is not on this list.
+
+| Action | What it shows | Checked side-effect free (file:line) |
+|---|---|---|
+| `scripts/send-reminders --dry-run` | Example only: the reminders it would send | Example only: `scripts/send-reminders.mjs:40` returns before the send and the DB update |
+
 ## Changed path → how it is verified
 
-| Changed path | How to verify | Evidence to capture |
-|---|---|---|
-| `server/routes/invoices/**` | Run the dev server, call the route with a real session | Example only: response body + log line |
+`Local check` names a row of the safe list, or `none`. `none` means `/verify` gives `DEFERRED`, and the
+after-merge check is the proof.
 
-## Dry-run entry points
-
-A flag named `--dry-run` is a claim, not a fact. Before listing an entry point here, read its code path with the flag
-set, and record what it still does: database writes, external calls, token refreshes or rotations, emails or
-messages, files written. If it does any of those, it is not a dry run: list it under the irreversible side effects
-below instead.
-
-| Entry point | Dry-run flag | What it prints | Checked side-effect free (file:line) |
+| Changed path | Local check | After-merge check | Evidence to capture |
 |---|---|---|---|
-| `scripts/send-reminders` | `--dry-run` | Example only: the reminders it would send | Example only: `scripts/send-reminders.mjs:40` returns before the send and the DB update |
+| `server/routes/invoices/**` | Example only: dev server, call the route with a test session | Example only: the route's log line | Example only: response body + log line |
+| `worker/jobs/**` | Example only: none | Example only: the job's next run in the logs, then a read-only count query | Example only: log line + query result |
 
 ## Irreversible side effects (never run as a test)
 

@@ -207,8 +207,14 @@ tests run there as they do in the checkout.
    - **A command written down as safe must be proven safe.** A dry-run flag or a "run it locally" instruction in
      `verify-map.md` or `source-layout.md` is a claim until you read its code path. Check for database writes,
      external calls, token refreshes or rotations, messages sent, and scheduled jobs started. Record the
-     `file:line` that shows it. A real install listed a `--dry-run` that could rotate a shared production token,
-     and "run the worker locally", which would have started every production job against the live database.
+     `file:line` that shows it. Follow dynamic imports, queue handlers and what a job does when real work is
+     waiting. A real install listed a `--dry-run` that could rotate a shared production token, and "run the worker
+     locally", which would have started every production job against the live database.
+   - **When a local run reaches production** (the local `.env` points at the live database and provider accounts),
+     write `verify-map.md` as a short safe list, not a recipe per area. Only actions proven side-effect free go on
+     it. Every other row says `Local check: none` and names its after-merge check: a log line and a read-only query.
+     `/verify` then reports `🕒 DEFERRED` for those surfaces. Patching recipe after recipe doesn't converge: each fix
+     uncovers the next path to production.
 3. **Then apply:**
 
 ```bash
