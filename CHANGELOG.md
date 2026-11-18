@@ -27,8 +27,10 @@ ships with the kit, and the gaps are closed.
 - **`exceptions`.** A project's opt-out of a kit deny rule (the migration tool under a standing yes) is recorded
   with its reason and the owner's yes (G7), and stays out on every apply and upgrade. Before this, it came back on
   every re-apply.
-- **Word budget.** `options.word_budget` with a required `word_budget_reason` raises a project's limit. The
-  installed link check reads it from the lock.
+- **Word budget.** The guide gives the order: drop repeats of kit rules, move area rules into folder-scoped
+  files, condense process notes (each rule kept as a line, its story moved to `docs/`), and only then raise the
+  limit. Raising it is `options.word_budget` with a required `word_budget_reason`, never an edit to the CI workflow.
+  The installed link check reads it from the lock.
 - **Install worktree.**
   - The checkout's env files are linked in, so the tests run as they do in the checkout.
   - `INSTALL.md` adds a baseline test run before apply, so only new failures count as the install's doing.

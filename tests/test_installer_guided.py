@@ -308,6 +308,10 @@ class Decisions(TempDirs, unittest.TestCase):
         text = read(agent_kit.GUIDE_PATH)
         entries = text.split("\n### ")[1:]
         self.assertGreaterEqual(len(entries), 12)
+        budget = next(e for e in entries if e.startswith("word-budget:"))
+        for step in ("Drop the repeats", "Move area rules", "Condense process notes", "Only if it's still over",
+                     "editing the CI workflow"):
+            self.assertIn(step, budget)
         for e in entries:
             with self.subTest(entry=e.split(":", 1)[0]):
                 self.assertIn("**Kit:**", e)

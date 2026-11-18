@@ -112,8 +112,10 @@ Then do the judgment, writing your answers into the same file:
 6. **Exceptions to a kit safety setting** (for example, leaving the migration tool unblocked under a standing yes)
    go in `exceptions`, each with its reason and the owner's yes. Never by editing a file after `apply`: the next
    apply or upgrade would put the setting back.
-7. **Over the word budget** after the moves in Step 3: follow the guide's `word-budget` entry. Keep the safety core,
-   and propose `options.word_budget` with `word_budget_reason`.
+7. **Over the word budget:** follow the guide's `word-budget` entry in order. Drop the repeats of kit rules, move
+   area rules to folder-scoped files, and condense process notes (rule kept, story moved to `docs/`). Raise
+   `options.word_budget`, with `word_budget_reason`, only if the safety core still doesn't fit. Never edit the CI
+   workflow to raise it.
 8. **Requirements to flag on the page:**
    - `/ship` needs an `origin` on GitHub with `gh` logged in. Without one, the owner merges PRs by hand.
    - The kit assumes **one main branch plus feature branches**. If the scan lists `extra_long_lived_branches`

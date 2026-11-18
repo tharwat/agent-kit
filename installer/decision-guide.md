@@ -104,13 +104,30 @@ upgrades follow them without asking again.
 
 ### word-budget: Always-loaded instructions over the budget
 
-- **Kit:** 3,500 always-loaded words: `CLAUDE.md`, `CLAUDE.kit.md`, and rules without `paths:`.
-- **Protects against:** a context window crowded before work starts, and instructions too long to follow.
-- **Do first:** move area rules into `.claude/rules/project-<area>.md` with `paths:`, and history into `docs/`.
-- **Recommend, if it's still over:** keep a short always-loaded core with the rules that must never be missed (the
-  safety and money rules), and raise the project's budget: `options.word_budget` plus `word_budget_reason`. Never cut
-  a safety rule to hit the number.
-- **Pro:** every session still sees the critical rules. **Con:** a few hundred more words in every session.
+- **Kit:** 3,500 always-loaded words: `CLAUDE.md`, `CLAUDE.kit.md`, and rules without `paths:`. The installed link
+  check (CI and `verify`) fails above it.
+- **Protects against:** a context window crowded before work starts, and instructions too long to be followed.
+- **Check:** the word count of each always-loaded file and of each `CLAUDE.md` section (`verify` prints the totals).
+  Sort every section into one of four kinds:
+  - **safety or money rules**, the ones that must never be missed;
+  - **area rules**, needed only when working in one folder;
+  - **process notes with their stories:** incidents, reasons, examples, "why we do this";
+  - **repeats of a kit rule.** The kit already loads its rule, for example no destructive commands, or verify
+    before done.
+- **Recommend, in this order, and stop as soon as it fits:**
+  1. **Drop the repeats** of kit rules. The kit's version is loaded anyway.
+  2. **Move area rules** into `.claude/rules/project-<area>.md` with `paths:` for their folders.
+  3. **Condense process notes:** keep each rule as one line, with a one-line why. Move the stories and full
+     reasons to a history doc in `docs/`, and leave a pointer. Nothing is deleted; it stops loading in every
+     session.
+  4. **Only if it's still over:** keep a short always-loaded core with the safety and money rules, and raise the
+     project's budget through the answers: `options.word_budget` plus `word_budget_reason`.
+- **Never:**
+  - cut, or folder-scope, a safety or money rule to hit the number (a planning session that opens no files would
+    miss it);
+  - raise the budget by editing the CI workflow or a kit file. An upgrade puts it back, and it hides the reason.
+- **Pro:** every session loads less, and still sees every critical rule. **Con:** a condensed section's stories
+  live only in `docs/`, one click away, not in every session.
 
 ### workflow-text-tests: Project tests that pin the old workflow's text
 
