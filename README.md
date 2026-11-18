@@ -18,11 +18,27 @@ project, asks only what it can't work out itself, shows you a plan, and writes n
 
 ## Install
 
-Open Claude Code (or Codex) **in your real project folder**, not a fresh clone, and paste:
+The same one line installs into a new project or an existing one. Open Claude Code (or Codex) in the project's
+folder and paste:
 
 > Read https://github.com/tharwat/agent-kit/blob/main/INSTALL.md and follow it for this project.
 
-You do three things: start it, approve **one review page**, and say when to merge the PR. The agent:
+**A new project** (an empty folder, or code that isn't in git or on GitHub yet):
+- The kit needs a git repo with a GitHub `origin` and a pushed `main`, because reviews and the install compare
+  against `origin/main`. If those are missing, the agent offers to set them up (`git init`, a first commit, a
+  private GitHub repo) and asks you first.
+- With no code yet, it asks what you'll build (language, framework, database, hosting) and proposes the packs from
+  that.
+
+**An existing project** (already in git, maybe with its own workflow, `CLAUDE.md`, hooks or MCP servers):
+- Start it in your **real project folder**, not a fresh clone. A clone is missing your local-only files
+  (`.mcp.json`, `.env*`, `settings.local.json`), which the install reads.
+- It's safe while you have work in progress. It lists your uncommitted changes, other worktrees and unmerged
+  branches, and never touches them. Merge the install PR between tickets.
+- Your own commands, rules and hooks show up on the review page, each with what will happen to it: kept, merged,
+  or replaced (the original is kept as `.pre-agent-kit`).
+
+Either way, you do three things: start it, approve **one review page**, and say when to merge the PR. The agent:
 
 1. **Checks for blockers first** (git, tools, MCP servers, work in flight) and reports them all at once, each with
    its fix.

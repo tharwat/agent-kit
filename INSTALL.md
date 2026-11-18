@@ -57,7 +57,16 @@ It only reads. It reports:
 
 Then do its **agent checks**: one read call through each MCP server it names (for Jira, fetch any issue). A server
 that isn't authorized is a blocker. **BLOCKED:** send the owner every blocker with its fix, in one message, and
-stop. **If the lock file exists, this is an upgrade: go to "Upgrading" at the end.**
+stop.
+
+**A new project** (the only blockers are no git repository, no `origin`, or no pushed main branch): offer to set it
+up, as one question with a pro and a con. With the owner's yes:
+1. `git init`, plus a `.gitignore` for the stack;
+2. a first commit of what is there;
+3. `gh repo create <name> --private --source . --push`, which creates the GitHub repo and pushes `main`. Creating a
+   repo is outward-facing: never do it without that yes.
+
+Then run `preflight` again. **If the lock file exists, this is an upgrade: go to "Upgrading" at the end.**
 
 ## Step 2: Draft the answers
 
