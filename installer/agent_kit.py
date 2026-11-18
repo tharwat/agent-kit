@@ -8,7 +8,8 @@ asking the owner, choosing conflict resolutions) and records it in answers.json.
 This script turns the kit plus those answers into files, the same way every time:
 
   preflight --target DIR [--answers FILE]      every blocker before the first question (read-only)
-  draft    --target DIR --out FILE              answers found in the project, each with its source (read-only)
+  draft    --target DIR --out FILE              answers found in the project, each with its source; reads origin/<main>
+                                                in the install worktree (it creates it), local-only files from DIR
   review   --target DIR --answers FILE [--out FILE]
                                                 the one page the owner approves: blockers, answers, plan, after-merge
                                                 steps (creates the install worktree; writes no project file)
@@ -2744,10 +2745,23 @@ def ticket_prefix_evidence(target, main_branch):
 
 
 def draft(kit, target):
-    """Answers the installer can find in the project, each `{value, source, evidence}`. Read-only."""
+    """Answers the installer can find in the project, each `{value, source, evidence}`.
+
+    Tracked files (package scripts, docs, CLAUDE.md, settings.json) are read from origin/<main> in the install
+    worktree, which this creates. Local-only files (.mcp.json, .env*, settings.local.json) and the lanes are read from
+    the checkout. So the branch the checkout is on, and its uncommitted changes, never change the answers."""
     target = main_checkout(os.path.abspath(target))
-    sc = scan(kit, target)
+    ref = git_out(target, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+    lanes_all = [w for w in worktrees(target)[1:] if w["branch"] != INSTALL_BRANCH]
+    lane_parents = {os.path.dirname(w["path"]) for w in lanes_all}
+    lane_dir = posix(os.path.relpath(next(iter(lane_parents)), target)) if len(lane_parents) == 1 else None
+    try:
+        wt = install_worktree(target, ref.rsplit("/", 1)[-1] if ref else "main", lane_dir)
+    except KitError as exc:
+        raise KitError(f"{exc}. Run preflight first: it lists what the install needs")
+    sc = scan(kit, wt)
     main_branch = sc["git"]["default_branch"] or "main"
+    here = git_out(target, "symbolic-ref", "--quiet", "--short", "HEAD")
     found = {}
 
     def put(name, value, source, evidence):
@@ -2769,7 +2783,7 @@ def draft(kit, target):
         put(name, value, "found", "read from the project (package scripts, config files, git)")
     # Open-items ticket and Jira site, from the project's own docs.
     hits, hosts = {}, {}
-    for rel, i, line in doc_lines(target):
+    for rel, i, line in doc_lines(wt):
         if OPEN_ITEMS_RE.search(line):
             for m in KEY_RE.finditer(line):
                 if prefix and m.group(1) != prefix:
@@ -2784,7 +2798,7 @@ def draft(kit, target):
         key = max(hits, key=lambda k: len(hits[k]))
         put("OPEN_ITEMS_TICKET", key, "guess", "several keys on open-items lines: " +
             "; ".join(f"{k} ({', '.join(v[:2])})" for k, v in sorted(hits.items())))
-    open_files = [f for f in doc_files(target) if OPEN_ITEMS_RE.search(os.path.basename(f))]
+    open_files = [f for f in doc_files(wt) if OPEN_ITEMS_RE.search(os.path.basename(f))]
     if len(hosts) == 1:
         host, where = next(iter(hosts.items()))
         put("JIRA_SITE", host, "found", f"in {', '.join(where[:3])}")
@@ -2792,26 +2806,28 @@ def draft(kit, target):
         put("JIRA_SITE", max(hosts, key=lambda h: len(hosts[h])), "guess",
             "several Jira hosts in the docs: " + ", ".join(sorted(hosts)))
     # Packs: the scan's matches, the ticket pack, and worktrees when the checkout has any.
-    notes = {"packs": {}, "packs_to_ask": [], "local_only": {}}
+    notes = {"packs": {}, "packs_to_ask": [], "local_only": {}, "install_worktree": wt,
+             "read_from": f"origin/{main_branch} (in {wt}); local-only files from {target}"}
+    if here and here != main_branch:
+        notes["checkout_branch"] = (f"your checkout is on {here}; the install reads origin/{main_branch}, so that "
+                                    "branch's changes are not part of it")
     packs = [p["name"] for p in sc["packs"] if p["matched"] and p["kind"] != "ticket"]
     for p in sc["packs"]:
         if p["matched"] and p["kind"] != "ticket":
             notes["packs"][p["name"]] = {"source": "found", "evidence": "; ".join(p["signals"])}
-    wts = worktrees(target)
-    if len(wts) > 1:
+    if lanes_all:
         packs.append("worktrees")
-        parents = {os.path.dirname(w["path"]) for w in wts[1:]}
-        lanes = ", ".join(f"{os.path.relpath(w['path'], target)} ({w['branch'] or 'detached'})" for w in wts[1:])
+        lanes = ", ".join(f"{os.path.relpath(w['path'], target)} ({w['branch'] or 'detached'})" for w in lanes_all)
         notes["packs"]["worktrees"] = {"source": "found", "evidence": f"git worktree list: {lanes}"}
-        if len(parents) == 1:
-            put("WORKTREE_DIR", posix(os.path.relpath(parents.pop(), target)), "found",
-                "the folder the existing worktrees live in")
+        if lane_dir:
+            put("WORKTREE_DIR", lane_dir, "found", "the folder the existing worktrees live in")
         envs = env_files(target)
         put("WORKTREE_ENV_FILES", envs or "none", "found" if envs else "default",
             ("gitignored env files in the checkout: " + ", ".join(envs)) if envs else "no gitignored .env files")
-    settings = claude_settings(target)
+    settings = [x for x in claude_settings(wt) if x[0] == ".claude/settings.json"] + \
+        [x for x in claude_settings(target) if x[0] == ".claude/settings.local.json"]
     have_status = [rel for rel, d in settings if "statusLine" in d]
-    have_notify = os.path.exists(os.path.join(target, ".claude", "scripts", "notify")) or any(
+    have_notify = os.path.exists(os.path.join(wt, ".claude", "scripts", "notify")) or any(
         "Notification" in (d.get("hooks") or {}) for _rel, d in settings)
     for p in sc["packs"]:
         if p["matched"] or p["kind"] == "ticket" or p["name"] in packs or not p.get("ask"):
@@ -2910,6 +2926,10 @@ def preflight(kit, target, answers=None):
     has_main = git_out(target, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{main_branch}") is not None
     add("origin main branch", has_main, f"origin/{main_branch}",
         f"push the main branch at least once (git push -u origin {main_branch}), then git fetch origin")
+    here = git_out(target, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if here and here != main_branch:
+        add("checkout branch", True, f"your checkout is on {here}: fine. The install reads origin/{main_branch}, so "
+            "that branch's changes don't go into it", blocker=False)
     dirty = git_out(target, "status", "--porcelain") or ""
     add("checkout changes", True, (f"{len(dirty.splitlines())} uncommitted change(s) in the checkout: left untouched"
                                    if dirty else "clean"), blocker=False)
@@ -3175,6 +3195,9 @@ def main(argv=None):
             asks = sorted(n for n, v in d["facts"].items() if v["source"] == "ask")
             guesses = sorted(n for n, v in d["facts"].items() if v["source"] == "guess")
             print(f"draft written: {out}")
+            print(f"read from: {d['notes']['read_from']}")
+            if d["notes"].get("checkout_branch"):
+                print(d["notes"]["checkout_branch"])
             print(f"found {sum(v['source'] == 'found' for v in d['facts'].values())}, "
                   f"default {sum(v['source'] == 'default' for v in d['facts'].values())}, "
                   f"guess {len(guesses)}, ask {len(asks)}")
