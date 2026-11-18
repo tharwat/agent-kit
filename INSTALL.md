@@ -38,7 +38,9 @@ otherwise a new temp dir:
 git clone --depth 1 --branch main https://github.com/tharwat/agent-kit "<scratch>/agent-kit"
 ```
 
-`--branch main` installs the latest kit. Use a tag (`--branch v1.9.0`) when the owner names a version. From here on,
+`--branch main` installs the latest kit. Use a tag (`--branch v1.9.0`) when the owner names a version. **If that
+tag doesn't exist** (`git ls-remote --tags https://github.com/tharwat/agent-kit` lists the real ones), say so and
+stop. It may not be released yet. Never install a different version in its place without the owner's yes. From here on,
 `<kit>` means that clone, and `<project>` means the project's real checkout (`git rev-parse --show-toplevel`).
 Started inside one of the project's worktrees? The installer finds the main checkout itself.
 
