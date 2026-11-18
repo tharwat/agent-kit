@@ -206,6 +206,10 @@ server the kit must add is written to the **checkout's** `.mcp.json`, because th
 only when the page listed it. `apply` refuses if a conflict is unresolved, or if a fact or decision is still open. It never deletes
 anything.
 
+**A new kit version while the install is unpushed?** Upgrade the install worktree before pushing: clone the kit at
+the new tag, then `upgrade --target <project> --worktree`. Then re-run Step 5 against the same baseline. The PR then
+carries the latest kit, and the project's first upgrade after the merge starts clean.
+
 **No hand edits to kit-managed files after `apply`.** Re-running apply or upgrade restores them. A change the
 owner wants goes through the answers: `resolutions`, `exceptions`, facts or decisions. The owner's decisions are
 written to `docs/agent/install-decisions.md`, so later sessions follow them.

@@ -114,6 +114,8 @@ upgrades follow them without asking again.
   check (CI and `verify`) fails above it.
 - **Protects against:** a context window crowded before work starts, and instructions too long to be followed.
 - **Check:** the word count of each always-loaded file and of each `CLAUDE.md` section (`verify` prints the totals).
+  The kit's own share is about 2,200: `CLAUDE.kit.md`, the Project facts block in `CLAUDE.md`, and its unscoped
+  rules. That leaves a project roughly 1,300 words of its own always-loaded text.
   Sort every section into one of four kinds:
   - **safety or money rules**, the ones that must never be missed;
   - **area rules**, needed only when working in one folder;
@@ -145,6 +147,11 @@ upgrades follow them without asking again.
 - **Recommend:** point project-rule guards at where the rule lives now (`project-*.md`, `CLAUDE.md`). Retire the
   tests of the old wording by renaming them `.pre-agent-kit`: that is G7, needs the owner's yes, and has the reason
   "the kit replaced that text".
+- **Watch for:** a test that matches by substring can collide with a kit file's name. For example, a check for
+  "worktrees" also matches the kit's `.claude/packs/worktrees.md`. Anchor it to the real path (`.claude/worktrees/`)
+  instead of loosening it.
+- **Done when:** the suite's failures match the baseline from before the install exactly, with none added and none
+  hidden.
 - **Pro:** every real guard keeps working, and the suite returns to its baseline. **Con:** the project no longer
   tests the command text itself; the kit's tests do.
 
