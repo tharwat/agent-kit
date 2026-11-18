@@ -69,6 +69,12 @@ Collect `answers.json` (format below). Ask only what the scan didn't settle, one
 1. **Packs.** Propose the ones the scan matched, each with one line on what it adds. Then ask each pack's
    `detect.ask` question (worktrees, ticket trains, hardening, notify-telegram, extras). The ticket pack isn't
    asked for: it follows the `TICKET_SYSTEM` fact (v1 supports `jira`), and a ticket system is required.
+   - **One pack per choice.** Every pack is independent: never put two packs in one option (such as "hardening plus
+     statusline"), even when a question tool limits the number of options. Ask in more than one question instead,
+     or let the owner pick several from a multi-select list where each option is one pack.
+   - **Say what is already there.** When the scan finds the project already has what a pack adds (a status line, a
+     notify script, a worktree manager), say so in that pack's option. Then give what choosing it would do: keep
+     theirs, add alongside it, or take over.
 2. **Core facts** from `core/pack.json` `facts`, in its order. Each has an `ask` and maybe a `default`. Offer the
    default, or the value the scan suggests (`suggested_facts`, e.g. `TEST_COMMANDS` from `package.json` scripts,
    `MAIN_BRANCH` from git), and let the owner confirm or change it. If a required fact has no default and the
