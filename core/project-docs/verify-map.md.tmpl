@@ -11,9 +11,14 @@ How `/verify`, `/test` and `/ship` check each surface. Delete each example row o
 
 ## Dry-run entry points
 
-| Entry point | Dry-run flag | What it prints |
-|---|---|---|
-| `scripts/send-reminders` | `--dry-run` | Example only: the reminders it would send |
+A flag named `--dry-run` is a claim, not a fact. Before listing an entry point here, read its code path with the flag
+set, and record what it still does: database writes, external calls, token refreshes or rotations, emails or
+messages, files written. If it does any of those, it is not a dry run: list it under the irreversible side effects
+below instead.
+
+| Entry point | Dry-run flag | What it prints | Checked side-effect free (file:line) |
+|---|---|---|---|
+| `scripts/send-reminders` | `--dry-run` | Example only: the reminders it would send | Example only: `scripts/send-reminders.mjs:40` returns before the send and the DB update |
 
 ## Irreversible side effects (never run as a test)
 

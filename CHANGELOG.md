@@ -24,6 +24,13 @@ installed version before an upgrade.
 - **A "none" default the project contradicts becomes a guess.** When a fact defaults to `none` but the project's
   tracked files name it (`ENV_GROUPS` → `RENDER_ENV_GROUP_ID` in a script), `draft` marks it `guess`, with where,
   instead of accepting the default. A real install had recorded `none` for a Render env group that existed.
+- **The credential scan also reads config files:** TOML, YAML and INI (`.codex/config.toml`), plus env-style key
+  names with literal values in any JSON (`"GOOGLE_API_KEY": …`). For a Claude settings file, it recommends moving
+  the key into the environment rather than blocking the file.
+- **"Dry-run" is a claim, not a fact.** `verify-map.md` gets a "checked side-effect free (file:line)" column, and
+  `INSTALL.md` requires reading a command's code path before writing it down as safe. A real fill listed a
+  `--dry-run` that could rotate a shared production token, and "run the worker locally", which would have started
+  production jobs.
 - **Secret-file globs:** the template and the guide warn that `*` also matches across `/`, and recommend an exact
   path for a single file.
 - **Tickets the install replaces are closed by the agent,** with a comment linking the install PR. After the merge,

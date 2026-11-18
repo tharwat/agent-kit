@@ -204,6 +204,11 @@ tests run there as they do in the checkout.
      PII fields, copy rules, the docs map. Copy each into the matching `docs/agent/` file before the old file is
      renamed `.pre-agent-kit`. The kit's gates read those files, and blank ones make them check only the basics.
      Leave a section blank only when the project has nothing for it, and say so in the report.
+   - **A command written down as safe must be proven safe.** A dry-run flag or a "run it locally" instruction in
+     `verify-map.md` or `source-layout.md` is a claim until you read its code path. Check for database writes,
+     external calls, token refreshes or rotations, messages sent, and scheduled jobs started. Record the
+     `file:line` that shows it. A real install listed a `--dry-run` that could rotate a shared production token,
+     and "run the worker locally", which would have started every production job against the live database.
 3. **Then apply:**
 
 ```bash

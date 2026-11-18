@@ -258,6 +258,11 @@ class Guided(TempDirs, unittest.TestCase):
         write(os.path.join(self.top, ".gdrive-token.json"), json.dumps({"refresh_token": literal}))
         write(os.path.join(self.top, "sa-key.json"), json.dumps({"type": "service_account", "private_key": literal}))
         write(os.path.join(self.top, ".gdrive-oauth-client.json"), "not json at all")
+        write(os.path.join(self.top, ".codex", "config.toml"), '[mcp.env]\nN8N_API_KEY = "' + literal + '"\nmodel = "x"\n')
+        write(os.path.join(self.top, ".claude", "settings.local.json"),
+              json.dumps({"env": {"GOOGLE_API_KEY": literal, "LOG_LEVEL": "debug"}}))
+        write(os.path.join(self.top, ".gitignore"), read(os.path.join(self.top, ".gitignore")) +
+              ".codex/\n.claude/settings.local.json\n")
         servers = json.loads(read(os.path.join(self.top, ".mcp.json")))
         servers["mcpServers"]["proj_supabase"]["headers"] = {"Authorization": "Bearer " + literal}
         servers["mcpServers"]["proj_cal"] = {"type": "http", "url": "https://example.invalid/mcp?access_token=" + literal}
@@ -274,6 +279,10 @@ class Guided(TempDirs, unittest.TestCase):
         self.assertFalse(any(f.startswith(".claude/state/") for f in found))  # the kit's own state, not secrets
         self.assertNotIn("proj_x_jira", found[".mcp.json"])  # an ${ENV} reference holds no secret
         self.assertNotIn(".env", found)                       # already on the guard's built-in list
+        self.assertIn("N8N_API_KEY", found[".codex/config.toml"])                     # TOML config
+        self.assertIn("GOOGLE_API_KEY", found[".claude/settings.local.json"])         # an env-style key name
+        self.assertIn("move the value into the environment", found[".claude/settings.local.json"])
+        self.assertNotIn("LOG_LEVEL", found[".claude/settings.local.json"])
         rc, out, _e = run(["preflight", "--target", self.top, "--answers", path])
         self.assertIn("credential files the guard doesn't block", out)
         self.assertNotIn(literal, out + read(path))

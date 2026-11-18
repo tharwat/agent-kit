@@ -2894,6 +2894,9 @@ def ticket_prefix_evidence(target, main_branch):
 SECRET_NAME_RE = re.compile(r"(oauth|token|credential|secret|service[-_]?account|client_secret|private[-_]?key)", re.I)
 SECRET_JSON_KEYS = {"private_key", "private_key_id", "refresh_token", "access_token", "client_secret", "api_key",
                     "apiKey", "password", "token"}
+SECRET_KEY_NAME_RE = re.compile(r"(api[_-]?key|secret|token|password|passwd|private[_-]?key|credential|auth)", re.I)
+CONFIG_SUFFIXES = (".toml", ".yaml", ".yml", ".ini", ".cfg", ".conf")
+CONFIG_LINE_RE = re.compile(r"""^\s*["']?([A-Za-z0-9_.-]+)["']?\s*[=:]\s*["']?([^"'\s#]+)""")
 GUARD_DEFAULT_GLOBS = (".env", ".env.*", "*.pem", "*.key", "*.p8", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*",
                        "id_ecdsa*", "*.env", ".envrc", ".netrc", ".git-credentials")
 
@@ -2955,7 +2958,7 @@ def credential_files(root):
                                 ", ".join(held)})
                 continue
             if f.endswith(".json"):
-                keys = set()
+                keys, literal_keys = set(), set()
                 try:
                     with open(path, encoding="utf-8") as fh:
                         data = json.load(fh)
@@ -2964,14 +2967,34 @@ def credential_files(root):
                         node = stack.pop()
                         if isinstance(node, dict):
                             keys |= set(node)
+                            for k, v in node.items():
+                                if SECRET_KEY_NAME_RE.search(str(k)) and looks_literal(v):
+                                    literal_keys.add(str(k))  # e.g. "GOOGLE_API_KEY": "<literal>" in an env block
                             stack.extend(node.values())
                         elif isinstance(node, list):
                             stack.extend(node)
                 except (OSError, ValueError, RecursionError):
                     pass
-                hits = sorted(keys & SECRET_JSON_KEYS)
+                hits = sorted((keys & SECRET_JSON_KEYS) | literal_keys)
                 if hits:
-                    out.append({"file": rel, "why": "credential keys: " + ", ".join(hits)})
+                    why = "credential keys: " + ", ".join(hits)
+                    if rel in (".claude/settings.local.json", ".claude/settings.json"):
+                        why += (" (a Claude settings file: blocking it stops agents editing settings; move the value "
+                                "into the environment instead)")
+                    out.append({"file": rel, "why": why})
+                    continue
+            if f.endswith(CONFIG_SUFFIXES):
+                hits = []
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fh:
+                        for line in fh.read(DOC_SCAN_MAX).split("\n"):
+                            m = CONFIG_LINE_RE.match(line)
+                            if m and SECRET_KEY_NAME_RE.search(m.group(1)) and looks_literal(m.group(2)):
+                                hits.append(m.group(1))
+                except OSError:
+                    pass
+                if hits:
+                    out.append({"file": rel, "why": "credential keys: " + ", ".join(sorted(set(hits)))})
                     continue
             if SECRET_NAME_RE.search(f) and not f.endswith((".md", ".example", ".sample", ".template")):
                 out.append({"file": rel, "why": "a credential-like name"})
