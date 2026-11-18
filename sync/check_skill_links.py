@@ -481,15 +481,26 @@ def skill_hashes(path):
 
 
 # ---------------------------------------------------------------------------
+def recorded_word_budget():
+    """The project's own budget, recorded with its reason at install (answers.options.word_budget in the lock)."""
+    try:
+        with open(os.path.join(".claude", "agent-kit.lock.json"), encoding="utf-8") as f:
+            v = json.load(f).get("answers", {}).get("options", {}).get("word_budget")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
 def parse_args(argv):
     p = argparse.ArgumentParser(description="Check that Claude commands and Codex skills stay linked, not copied.")
     p.add_argument("--require-restated", action="store_true",
                    help="fail when AGENTS.md has no restated block, or an empty one")
-    p.add_argument("--word-budget", type=int, default=DEFAULT_WORD_BUDGET, metavar="N",
-                   help=f"max words always loaded into a Claude session (default {DEFAULT_WORD_BUDGET})")
+    p.add_argument("--word-budget", type=int, default=None, metavar="N",
+                   help=f"max words always loaded into a Claude session (default: the project's recorded "
+                        f"options.word_budget in .claude/agent-kit.lock.json, else {DEFAULT_WORD_BUDGET})")
     p.add_argument("--repo", metavar="PATH", help="repository root (default: the git top level of the cwd)")
     args = p.parse_args(argv)
-    if args.word_budget < 1:
+    if args.word_budget is not None and args.word_budget < 1:
         p.error("--word-budget must be a positive integer")
     return args
 
@@ -510,6 +521,8 @@ def main(argv):
             print("❌ not inside a git work tree — run this from within the repository, or pass --repo")
             return 1
         os.chdir(r.stdout.strip())
+    if args.word_budget is None:
+        args.word_budget = recorded_word_budget() or DEFAULT_WORD_BUDGET
     require_restated = args.require_restated
     errors, warnings = [], []
     cache = {}

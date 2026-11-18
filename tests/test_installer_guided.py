@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import unittest
 
-from kit_testlib import KIT, TempDirs, agent_kit, read, run, snapshot, write
+from kit_testlib import KIT, TempDirs, agent_kit, full_answers, read, run, snapshot, write, write_answers
 
 GIT_ID = ["-c", "user.name=Kit Test", "-c", "user.email=kit@example.invalid", "-c", "commit.gpgsign=false",
           "-c", "init.defaultBranch=main"]
@@ -29,6 +29,8 @@ class Guided(TempDirs, unittest.TestCase):
         write(os.path.join(self.top, ".gitignore"), ".mcp.json\n.env\n.claude/worktrees/\n")
         write(os.path.join(self.top, "docs", "open.md"), "# Notes\n\nOpen items live on ABC-1.\nSee ABC-7 too.\n")
         write(os.path.join(self.top, "CLAUDE.md"), "# Proj\n\nJira: acme.atlassian.net\n")
+        write(os.path.join(self.top, "supabase", "migrations", "001_rows.sql"),
+              "create table t (\n  id uuid primary key,\n  synthetic boolean not null default false\n);\n")
         git(self.top, "add", "-A")
         git(self.top, "commit", "-q", "-m", "ABC-3: first")
         git(self.top, "remote", "add", "origin", self.origin)
@@ -39,7 +41,7 @@ class Guided(TempDirs, unittest.TestCase):
             "-b", "feature/abc-13-other")
         write(os.path.join(self.top, ".mcp.json"),
               json.dumps({"mcpServers": {"proj_x_jira": {"type": "http", "url": "https://example.invalid/mcp"},
-                                         "proj_db": {"type": "http", "url": "https://example.invalid/db"}}}))
+                                         "proj_supabase": {"type": "http", "url": "https://example.invalid/db"}}}))
         write(os.path.join(self.top, ".env"), "SECRET=never-read\n")
         self.lane = os.path.join(self.top, ".claude", "worktrees", "lane-b")
 
@@ -205,6 +207,117 @@ class Guided(TempDirs, unittest.TestCase):
         rc, out, err = run(["review", "--target", self.top])
         self.assertIn("## F. What changed in the kit since", out)
         self.assertNotIn("Errors (the install refuses", out)
+
+    def test_draft_reads_the_synthetic_marker_from_the_schema(self):
+        _p, d = self.draft()
+        f = d["facts"]["SYNTHETIC_MARKER"]
+        self.assertEqual((f["value"], f["source"]), ("synthetic", "found"))
+        self.assertIn("supabase/migrations/001_rows.sql:3", f["evidence"])
+
+    def test_the_install_worktree_gets_the_env_files_and_verify_skips_local_only_files(self):
+        _p, d = self.draft()
+        answers = self.filled(d)
+        rc, out, err = run(["apply", "--target", self.top, "--answers", answers, "--worktree"])
+        self.assertEqual(rc, 0, out + err)
+        wt = d["notes"]["install_worktree"]
+        env = os.path.join(wt, ".env")
+        self.assertTrue(os.path.islink(env))
+        self.assertEqual(os.path.realpath(env), os.path.realpath(os.path.join(self.top, ".env")))
+        rc, out, err = run(["verify", "--target", wt])
+        self.assertNotIn("PROBLEM: .mcp.json", out)
+        self.assertIn(".mcp.json: local-only", out)
+
+
+class Decisions(TempDirs, unittest.TestCase):
+    """Every clash carries its advice; the owner's answers, exceptions and budget are kept and written down."""
+
+    def setUp(self):
+        self.target = self.tmp()
+        self.decision = {"id": "D1", "guide": "schema-changes", "topic": "Removing a database column",
+                         "kit_rule": "phased when something live would break", "project_rule": "one migration with "
+                         "a backout and a snapshot (CLAUDE.md)", "found": "every consumer deploys from this repo",
+                         "recommendation": "project", "why": "nothing deploys separately", "pro": "no follow-up "
+                         "migrations", "con": "a missed separate reader breaks"}
+
+    def answers(self, **extra):
+        return write_answers(self.tmp(), full_answers(KIT, **extra))
+
+    def test_a_half_advised_decision_refuses(self):
+        for missing in ("found", "why", "pro", "con", "recommendation"):
+            with self.subTest(missing=missing):
+                d = dict(self.decision)
+                d.pop(missing)
+                rc, out, err = run(["plan", "--target", self.target, "--answers", self.answers(decisions=[d])])
+                self.assertEqual(rc, 2)
+                self.assertIn(f"decision D1 is missing {missing}", err)
+        bad = dict(self.decision, guide="no-such-entry")
+        rc, _o, err = run(["plan", "--target", self.target, "--answers", self.answers(decisions=[bad])])
+        self.assertIn("is not an entry in installer/decision-guide.md", err)
+
+    def test_an_unanswered_decision_refuses_apply(self):
+        rc, _o, err = run(["apply", "--target", self.target, "--answers", self.answers(decisions=[self.decision])])
+        self.assertEqual(rc, 2)
+        self.assertIn("still to answer: decision(s) D1", err)
+
+    def test_answered_decisions_are_written_down_and_kept_in_the_lock(self):
+        d = dict(self.decision, answer="project")
+        rc, out, err = run(["apply", "--target", self.target, "--answers", self.answers(decisions=[d])])
+        self.assertEqual(rc, 0, out + err)
+        doc = read(os.path.join(self.target, agent_kit.DECISIONS_DOC))
+        self.assertIn("## D1: Removing a database column", doc)
+        self.assertIn("**Decided:** the project's rule", doc)
+        lock = json.loads(read(os.path.join(self.target, agent_kit.LOCK_PATH)))
+        self.assertEqual(lock["answers"]["decisions"][0]["answer"], "project")
+        rc, out, err = run(["upgrade", "--target", self.target])  # no answers: the lock's decisions carry over
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("## D1", read(os.path.join(self.target, agent_kit.DECISIONS_DOC)))
+
+    def test_a_safety_exception_stays_out_on_every_apply_and_upgrade(self):
+        rc, out, err = run(["apply", "--target", self.target, "--answers", self.answers(packs=["supabase"])])
+        self.assertEqual(rc, 0, out + err)
+        settings = json.loads(read(os.path.join(self.target, ".claude", "settings.json")))
+        entry = next(x for x in settings["permissions"]["deny"] if x.endswith("__apply_migration"))
+        other = self.tmp()
+        exc = {"permissions.deny": [{"entry": entry, "reason": "standing yes for migrations; backout and snapshot "
+                                     "rule", "approved": "owner, install review 2026-11-18"}]}
+        for cmd in (["apply"], ["apply"], ["upgrade"]):
+            ans = self.answers(packs=["supabase"], exceptions=exc) if cmd == ["apply"] else None
+            rc, out, err = run(cmd + ["--target", other] + (["--answers", ans] if ans else []))
+            self.assertEqual(rc, 0, out + err)
+            settings = json.loads(read(os.path.join(other, ".claude", "settings.json")))
+            self.assertNotIn(entry, settings["permissions"]["deny"])
+        self.assertIn(f"Exception: `{entry}` is not blocked", read(os.path.join(other, agent_kit.DECISIONS_DOC)))
+        no_yes = {"permissions.deny": [{"entry": entry, "reason": "x"}]}
+        rc, _o, err = run(["plan", "--target", self.tmp(), "--answers", self.answers(packs=["supabase"],
+                                                                                    exceptions=no_yes)])
+        self.assertIn("needs entry, reason and approved", err)
+
+    def test_a_raised_word_budget_needs_its_reason(self):
+        a = full_answers(KIT)
+        a["options"]["word_budget"] = 4100
+        rc, _o, err = run(["plan", "--target", self.target, "--answers", write_answers(self.tmp(), a)])
+        self.assertIn("add options.word_budget_reason", err)
+        a["options"]["word_budget_reason"] = "the safety rules stay loaded in every session"
+        rc, out, err = run(["apply", "--target", self.target, "--answers", write_answers(self.tmp(), a)])
+        self.assertEqual(rc, 0, out + err)
+        lock = json.loads(read(os.path.join(self.target, agent_kit.LOCK_PATH)))
+        self.assertEqual(lock["answers"]["options"]["word_budget"], 4100)
+        self.assertIn("## Word budget: 4100", read(os.path.join(self.target, agent_kit.DECISIONS_DOC)))
+
+    def test_every_guide_entry_has_the_parts_a_first_time_owner_needs(self):
+        text = read(agent_kit.GUIDE_PATH)
+        entries = text.split("\n### ")[1:]
+        self.assertGreaterEqual(len(entries), 12)
+        budget = next(e for e in entries if e.startswith("word-budget:"))
+        for step in ("Drop the repeats", "Move area rules", "Condense process notes", "Only if it's still over",
+                     "editing the CI workflow", "search the project's tests"):
+            self.assertIn(step, budget)
+        for e in entries:
+            with self.subTest(entry=e.split(":", 1)[0]):
+                self.assertIn("**Kit:**", e)
+                self.assertIn("**Recommend", e)
+                self.assertIn("**Pro", e)
+                self.assertIn("Con:**", e)
 
 if __name__ == "__main__":
     unittest.main()

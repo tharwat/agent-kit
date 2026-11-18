@@ -37,6 +37,19 @@ folder and paste:
   branches, and never touches them. Merge the install PR between tickets.
 - Your own commands, rules and hooks show up on the review page, each with what will happen to it: kept, merged,
   or replaced (the original is kept as `.pre-agent-kit`).
+- **Where your rules and the kit's differ,** each difference is a decision with a recommendation, why, a pro and a
+  con, based on what was found in your project. Examples: schema changes, refactoring, standing owner approvals,
+  review rounds. Reply with codes, or `accept`. Your answers are written to `docs/agent/install-decisions.md`, so
+  later sessions and upgrades don't ask again.
+- **What to expect:**
+  - Replaced files and old Codex wrappers are kept as `*.pre-agent-kit`. Remove them once you're happy.
+  - If your project has tests that check its old workflow files' text, they fail once those files are replaced.
+    The agent points guards for your own rules at their new place, and offers to retire tests of the old wording.
+  - A long `CLAUDE.md` is moved into folder-scoped rules to fit the always-loaded budget. Your safety rules stay
+    always loaded, and the budget is raised, with a recorded reason, if they need the room.
+  - Your tests run before and after the install, in the install folder. Only new failures are the install's doing.
+  - An exception you approve to a kit safety setting (say, migrations without a prompt) is recorded once and kept
+    on every upgrade.
 
 Either way, you do three things: start it, approve **one review page**, and say when to merge the PR. The agent:
 

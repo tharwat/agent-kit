@@ -38,7 +38,9 @@ otherwise a new temp dir:
 git clone --depth 1 --branch main https://github.com/tharwat/agent-kit "<scratch>/agent-kit"
 ```
 
-`--branch main` installs the latest kit. Use a tag (`--branch v1.9.0`) when the owner names a version. From here on,
+`--branch main` installs the latest kit. Use a tag (`--branch v1.9.0`) when the owner names a version. **If that
+tag doesn't exist** (`git ls-remote --tags https://github.com/tharwat/agent-kit` lists the real ones), say so and
+stop. It may not be released yet. Never install a different version in its place without the owner's yes. From here on,
 `<kit>` means that clone, and `<project>` means the project's real checkout (`git rev-parse --show-toplevel`).
 Started inside one of the project's worktrees? The installer finds the main checkout itself.
 
@@ -99,7 +101,24 @@ Then do the judgment, writing your answers into the same file:
    notify-telegram, statusline. Record it in `packs` and say why in `notes`.
 4. **Empty project** (no code yet): propose the stack packs from the ticket or the owner's stated plan, marked
    `guess`.
-5. **Requirements to flag on the page:**
+5. **Decisions: every clash between the project's rules and the kit.** Read `<kit>/installer/decision-guide.md`.
+   For each clash (the contradiction checklist below, plus anything else you find), add a `decisions` entry. It
+   holds:
+   - what you **found** in the project;
+   - a **recommendation** and **why**, tied to what you found;
+   - a **pro** and a **con**.
+
+   The owner may be installing for the first time, with no one to explain what a kit rule protects against. The
+   decision is where that explanation goes. The installer refuses a decision missing any part. Leave `answer`
+   empty for the owner.
+6. **Exceptions to a kit safety setting** (for example, leaving the migration tool unblocked under a standing yes)
+   go in `exceptions`, each with its reason and the owner's yes. Never by editing a file after `apply`: the next
+   apply or upgrade would put the setting back.
+7. **Over the word budget:** follow the guide's `word-budget` entry in order. Drop the repeats of kit rules, move
+   area rules to folder-scoped files, and condense process notes (rule kept, story moved to `docs/`). Raise
+   `options.word_budget`, with `word_budget_reason`, only if the safety core still doesn't fit. Never edit the CI
+   workflow to raise it.
+8. **Requirements to flag on the page:**
    - `/ship` needs an `origin` on GitHub with `gh` logged in. Without one, the owner merges PRs by hand.
    - The kit assumes **one main branch plus feature branches**. If the scan lists `extra_long_lived_branches`
      (`qa`, `develop`), say so: the owner adapts the commands for those.
@@ -122,9 +141,16 @@ when set), plans the install there, and writes one page:
 - **D. What gets added.**
 - **E. After the merge.**
 
-Show the owner the whole page. They reply in plain words ("critical domain should say…", "keep my ship.md").
-Update the answers, re-render, and ask only the `ask` items they left open, one at a time. **Wait for one explicit
-approval of the page.** Silence, or "looks interesting", is not approval.
+Show the owner the whole page. It opens with **Needs you**:
+- every open decision, with its recommendation, why, a pro and a con;
+- every fact still `ask`;
+- every pack to choose;
+- a short glossary.
+
+The owner replies with codes (`D1 project, D2 kit`), or `accept` to take every recommendation they've read, or in
+plain words ("critical domain should say…"). Record each answer in its decision's `answer`, re-render, and ask only
+what is still open, one at a time. **Wait for one explicit approval of the page.** Silence, or "looks
+interesting", is not approval.
 
 ### Proposing resolutions
 
@@ -155,8 +181,15 @@ Put each clash on the review page with your proposal, and record the owner's ans
 
 ## Step 4: Install, in the install worktree
 
-`<wt>` is the install worktree that `review` printed. Do the approved hand work **in `<wt>`**: write the merged
-files, and retire clashing hooks. Then:
+`<wt>` is the install worktree that `review` printed. Its env files are linked from the checkout, so the project's
+tests run there as they do in the checkout.
+
+1. **Baseline first.** In `<wt>`, before any install change, install the project's dependencies (its lockfile
+   command, such as `npm ci`) and run every `TEST_COMMANDS` line. Record each failing test. The install is judged
+   only on failures **not** in this baseline.
+2. **Do the approved hand work in `<wt>`:** write the merged files, retire clashing hooks, and repoint or retire
+   tests as the decisions say.
+3. **Then apply:**
 
 ```bash
 python3 <kit>/installer/agent_kit.py apply --target <project> --answers <scratch>/answers.json --worktree
@@ -172,8 +205,16 @@ python3 <kit>/installer/agent_kit.py apply --target <project> --answers <scratch
 
 The one exception is a local-only `.mcp.json` (gitignored). Servers mapped through `mcp_map` need no change. A
 server the kit must add is written to the **checkout's** `.mcp.json`, because that is the only copy that exists, and
-only when the page listed it. `apply` refuses if a conflict is unresolved or a fact is still `ask`. It never
-deletes anything.
+only when the page listed it. `apply` refuses if a conflict is unresolved, or if a fact or decision is still open. It never deletes
+anything.
+
+**A new kit version while the install is unpushed?** Upgrade the install worktree before pushing: clone the kit at
+the new tag, then `upgrade --target <project> --worktree`. Then re-run Step 5 against the same baseline. The PR then
+carries the latest kit, and the project's first upgrade after the merge starts clean.
+
+**No hand edits to kit-managed files after `apply`.** Re-running apply or upgrade restores them. A change the
+owner wants goes through the answers: `resolutions`, `exceptions`, facts or decisions. The owner's decisions are
+written to `docs/agent/install-decisions.md`, so later sessions follow them.
 
 **Third-party skills** (extras): `apply` doesn't fetch them. For each `third_party` entry of a chosen pack, clone
 its `source` at its `ref` into scratch, then:
@@ -194,8 +235,12 @@ python3 <kit>/installer/agent_kit.py verify --target <wt>
 This checks for unfilled placeholders, leaked source-project facts, missing lock files and the Claude↔Codex links
 (`check_skill_links.py --require-restated`).
 
-**Then, in `<wt>`, install the project's dependencies (its lockfile command, such as `npm ci`) and run each command
-in the printed `TEST_COMMANDS`, exactly as written,** so the project's own tests show nothing broke. Always do this, even when verify passed. Report what you ran and what it printed. Never claim a
+**Then run each command in the printed `TEST_COMMANDS` in `<wt>`, exactly as written, and compare with the
+Step 4 baseline.** Report:
+- **new failures**: the install's doing, each fixed or put to the owner;
+- **baseline failures**: there before the install; list them and leave them alone.
+
+Never report the total as the install's result. Always do this, even when verify passed. Report what you ran and what it printed. Never claim a
 check passed without its output.
 
 **If it fails because of the project's own text**, never edit that text without the owner. Show the owner what
@@ -255,6 +300,13 @@ Tell the owner:
   the install.
 - **`notes`** holds the draft's evidence (packs found, packs to ask about, local-only files). The installer ignores
   it.
+- **`decisions`:** a list of `{id, guide, topic, kit_rule, project_rule, found, recommendation, why, pro, con,
+  answer, answer_detail}` (see `installer/decision-guide.md`). They are kept in the lock and written to
+  `docs/agent/install-decisions.md`.
+- **`exceptions`:** `{"permissions.deny": [{"entry", "reason", "approved"}]}`. These are kit deny rules the project
+  opted out of with the owner's yes (gate G7). They are kept in the lock and never re-added by apply or upgrade.
+- **`options.word_budget`** (with **`options.word_budget_reason`** when above 3,500): the project's always-loaded
+  word limit. The installed link check reads it from the lock.
 - **`resolutions`** map an installed path to `keep-theirs`, `take-kit` or `kit-renamed`. An MCP server conflict is
   keyed `".mcp.json#<server>"` and takes `keep-theirs` or `take-kit`. Resolutions are never stored in the lock.
 - **Upgrades:** once the lock exists, `--answers` is optional. The lock's answers are the base, and a file you pass

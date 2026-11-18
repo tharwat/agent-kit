@@ -4,6 +4,52 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.10.0 — 2026-11-18 (supabase 1.0.1)
+
+**An install a first-time owner can do alone.** In a real install, a second session had to explain every clash
+between the project's rules and the kit, and the owner still had to work around four installer gaps. The advice now
+ships with the kit, and the gaps are closed.
+
+- **Decision guide** (`installer/decision-guide.md`). For every common clash it gives:
+  - the kit's rule in plain words, and what it protects against;
+  - when the project's way is just as safe;
+  - what to check, a default recommendation, and its pro and con.
+
+  The entries: schema changes, how migrations are applied, refactoring, triage → operate, standing owner yeses,
+  commit attribution, the word budget, tests that pin old workflow text, review rounds, branch model, merge rights,
+  dependencies, MCP write tools, destructive commands and existing hooks.
+- **`decisions` in `answers.json`.** Each clash is recorded with what was found, a recommendation, why, a pro and a
+  con.
+  - The installer refuses one missing any part, and apply refuses while one is unanswered.
+  - The review page opens with **Needs you**: each decision with its advice, open facts, packs to choose, and a
+    glossary. The owner replies with codes or `accept`.
+  - Answers are kept in the lock and written to `docs/agent/install-decisions.md`.
+- **`exceptions`.** A project's opt-out of a kit deny rule (the migration tool under a standing yes) is recorded
+  with its reason and the owner's yes (G7), and stays out on every apply and upgrade. Before this, it came back on
+  every re-apply.
+- **Word budget.** The guide gives the order: drop repeats of kit rules, move area rules into folder-scoped
+  files, condense process notes (each rule kept as a line, its story moved to `docs/`), and only then raise the
+  limit. Raising it is `options.word_budget` with a required `word_budget_reason`, never an edit to the CI workflow.
+  The installed link check reads it from the lock.
+- **Install worktree.**
+  - The checkout's env files are linked in, so the tests run as they do in the checkout.
+  - `INSTALL.md` adds a baseline test run before apply, so only new failures count as the install's doing.
+- **`verify`** no longer reports a local-only (gitignored) file as missing in the install worktree.
+- **`draft`** reads the synthetic-row marker from the schema, and maps only the MCP servers whose names the project
+  prefix doesn't already give.
+- **One schema rule everywhere.**
+  - `CLAUDE.kit.md`, `AGENTS.md` and the Supabase pack's `database.md` now match `/guard`: a removal or reshape is
+    one migration when nothing live breaks mid-change (backout, snapshot, every consumer moved), and phased
+    otherwise.
+  - The destructive step is G5, and a standing yes it falls under is recorded in `-- Purpose:`.
+- **No hand edits after `apply`:** changes go through the answers. The README's existing-project section gets a
+  "what to expect" list.
+
+**Upgrade touches:**
+- `CLAUDE.kit.md` (one tagged line) and `AGENTS.md`;
+- `.claude/rules/database.md` (the Supabase pack);
+- `.github/scripts/check_skill_links.py`.
+
 ## 1.9.2 — 2026-11-18
 
 - **The branch the checkout is on no longer matters.** `draft` creates the install worktree (`agent-kit/install`,

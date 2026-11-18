@@ -1,6 +1,6 @@
 {
   "name": "supabase",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Supabase (Postgres) on one production database: RLS and grant rules, guard overlay, post-merge migration apply with a live privilege assertion, and a CI grant checker.",
   "kind": "stack",
   "requires": ["core"],
