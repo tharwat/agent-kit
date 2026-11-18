@@ -15,20 +15,56 @@ TICKET = "ABC-12"
 FP = "ab" * 32
 HEADER = ("| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | "
           "Independent vector | Discharge |")
-HOMES = ("| Fact | Its one home | Who writes it | Who reads it | Second home? |\n|---|---|---|---|---|\n"
-         "| order status | orders.status | api/orders.js:40 | jobs/ship.js:12 | none |\n")
-CHECKS = "Contradiction check: none found — 1 rows × 2 decisions read\nLifecycle check: order status — created on submit\n"
-INV_1A = ("| Value changed | How it changes | Writers (file:line) | Readers (file:line) | What each reader assumes | "
-          "Needs a change? | Search |\n|---|---|---|---|---|---|---|\n")
-INV_1B = "| New behaviour | Existing sibling (file:line) | Guards the sibling has | Copied? |\n|---|---|---|---|\n"
-INVENTORY = ("# Inventory: ABC-12\n\n## Plan\n\n### Table 1a: readers and writers\n" + INV_1A +
-             "| orders.status | adds 'held' | api/orders.js:40 | jobs/ship.js:12, ui/list.tsx:88 | open = shippable | yes |"
-             " `grep -rn \"status\" src` |\n\n### Table 1b: siblings\n" + INV_1B +
-             "| hold retry | jobs/retry.js:20 | budget, idempotency | yes |\n\n### Helper contracts\n- none\n")
-INVENTORY_PATH = ".claude/state/ABC-12/inventory.md"
+PLAN_CHECK = {
+    "ticket": "ABC-12",
+    "state_homes": [{"fact": "order status", "home": "orders.status", "writers": ["api/orders.js:40"],
+                     "readers": ["jobs/ship.js:12", "ui/list.tsx:88-90"], "second_home": None}],
+    "state_homes_none": None,
+    "contradiction_check": {"rows_read": 1, "decisions_read": 2, "conflicts": []},
+    "lifecycles": [{"state": "held", "created": "on hold", "changed": "release", "removed": "never",
+                    "restored": "n/a", "edited_in_state": "blocked", "name_reuse": "n/a",
+                    "safety_flags": "none apply", "what_a_person_sees": "a Held badge"}],
+    "lifecycles_none": None,
+    "safety_defaults": [],
+}
+INVENTORY = {
+    "ticket": "ABC-12",
+    "sections": [{
+        "name": "Plan",
+        "values": [{"value": "orders.status", "change": "adds 'held'", "writers": ["api/orders.js:40"],
+                    "readers": ["jobs/ship.js:12", "ui/list.tsx:88"], "reader_assumes": "open = shippable",
+                    "needs_change": {"answer": "yes"}, "search": "grep -rn \"status\" src"}],
+        "siblings": [{"behaviour": "hold retry", "sibling": "jobs/retry.js:20", "guards": ["budget", "idempotency"],
+                      "copied": {"answer": "yes"}}],
+        "helpers": [{"helper": "loadOrder", "where": "lib/orders.js:5", "short_circuits": "null on missing id",
+                     "errors": "throws DbError", "success": "a row"}],
+    }],
+}
+PLAN_CHECK_PATH = ".claude/state/ABC-12/plan-check.json"
+INVENTORY_PATH = ".claude/state/ABC-12/inventory.json"
+
+
+def dumps(obj):
+    return json.dumps(obj, indent=2)
+
+
+def variant(base, path, value):
+    """A deep copy of base with the item at path (keys and list indexes) replaced; value None-sentinel deletes."""
+    out = json.loads(json.dumps(base))
+    node = out
+    for key in path[:-1]:
+        node = node[key]
+    if value is DELETE:
+        del node[path[-1]]
+    else:
+        node[path[-1]] = value
+    return out
+
+
+DELETE = object()
 GOOD = {
-    "triage": "# Triage ABC-12\n\n%s\n|---|---|---|---|---|---|---|---|---|---|\n| C1 | S4 | x | y | z | a | b | c | d | |\n\n%s\n%s"
-              % (HEADER, HOMES, CHECKS),
+    "triage": "# Triage ABC-12\n\n%s\n|---|---|---|---|---|---|---|---|---|---|\n| C1 | S4 | x | y | z | a | b | c | d | |\n"
+              % HEADER,
     "operate": "Self-review: ABC-12\nFingerprint: %s\nCovers: whole branch\nInventory: Plan\n" % FP,
     "post-op": "# Post-op\n\nFingerprint: %s\nResult: clean\n" % FP,
     "handoff": "---\nbranch: feature/abc-12-x\n---\n# Handoff\n\n## Git state\nBranch: feature/abc-12-x. Ahead: 1.\n",
@@ -50,7 +86,9 @@ class Case(unittest.TestCase):
 
     def write(self, rel, text, age=0):
         if rel == PATHS["operate"] and not os.path.exists(os.path.join(self.project, INVENTORY_PATH)):
-            self.write(INVENTORY_PATH, INVENTORY)  # /operate writes the inventory before its record
+            self.write(INVENTORY_PATH, dumps(INVENTORY))  # /operate writes the inventory before its record
+        if rel == PATHS["triage"] and not os.path.exists(os.path.join(self.project, PLAN_CHECK_PATH)):
+            self.write(PLAN_CHECK_PATH, dumps(PLAN_CHECK))  # triage Step 4.8 writes it with the contract
         path = os.path.join(self.project, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
@@ -129,54 +167,102 @@ class Kinds(Case):
         self.assertEqual(r.returncode, 1)
         self.assertIn("no `capped` end state", r.stdout)
 
-    def test_triage_needs_the_plan_self_check(self):
-        contract = GOOD["triage"].split("\n\n| Fact")[0] + "\n"
+    def test_triage_needs_the_plan_check(self):
+        self.write(PATHS["triage"], GOOD["triage"])
+        os.rename(os.path.join(self.project, PLAN_CHECK_PATH), os.path.join(self.project, PLAN_CHECK_PATH + ".moved"))
+        r = self.check("triage")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("plan-check.json doesn't exist", r.stdout)
+
+    def test_plan_check_boxes(self):
         cases = {
-            "state-homes table": contract + CHECKS,
-            "Contradiction check": contract + HOMES + "Lifecycle check: none — no state added\n",
-            "Lifecycle check": contract + HOMES + "Contradiction check: none found\n",
+            "`state_homes` is empty": variant(PLAN_CHECK, ["state_homes"], []),
+            "`home` is empty": variant(PLAN_CHECK, ["state_homes", 0, "home"], " "),
+            "`readers` needs path:line": variant(PLAN_CHECK, ["state_homes", 0, "readers"], ["the jobs"]),
+            "`second_home` needs": variant(PLAN_CHECK, ["state_homes", 0, "second_home"],
+                                           {"where": "cache", "kept_in_step_by": "a hook", "owner_ok": "x"}),
+            "no `contradiction_check`": variant(PLAN_CHECK, ["contradiction_check"], DELETE),
+            "`rows_read` must be a whole number": variant(PLAN_CHECK, ["contradiction_check", "rows_read"], "1"),
+            "resolved_by": variant(PLAN_CHECK, ["contradiction_check", "conflicts"], [{"conflict": "C2 vs D4"}]),
+            "empty `removed`": variant(PLAN_CHECK, ["lifecycles", 0, "removed"], ""),
+            "`lifecycles` is empty": variant(PLAN_CHECK, ["lifecycles"], []),
+            "owner_answer": variant(PLAN_CHECK, ["safety_defaults"], [{"default": "on error, skip"}]),
         }
-        for missing, text in cases.items():
-            with self.subTest(missing=missing):
-                self.write(PATHS["triage"], text)
+        for want, data in cases.items():
+            with self.subTest(want=want):
+                self.write(PLAN_CHECK_PATH, dumps(data))
+                self.write(PATHS["triage"], GOOD["triage"])
                 r = self.check("triage")
-                self.assertEqual(r.returncode, 1)
-                self.assertIn(missing, r.stdout)
-        self.write(PATHS["triage"], contract + "State homes: none — docs-only ticket\n" + CHECKS)
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn(want, r.stdout)
+        self.write(PLAN_CHECK_PATH, "{ not json")
+        self.assertIn("isn't valid JSON", self.check("triage").stdout)
+
+    def test_plan_check_none_boxes_and_new_writers(self):
+        data = variant(variant(PLAN_CHECK, ["state_homes"], []), ["state_homes_none"], "docs-only ticket")
+        data = variant(variant(data, ["lifecycles"], []), ["lifecycles_none"], "no state added")
+        self.write(PLAN_CHECK_PATH, dumps(data))
+        self.write(PATHS["triage"], GOOD["triage"])
         self.assertEqual(self.check("triage").returncode, 0)
+        data = variant(PLAN_CHECK, ["state_homes", 0, "writers"], ["new: api/hold.js"])
+        data = variant(data, ["state_homes", 0, "second_home"],
+                       {"where": "search index", "kept_in_step_by": "trigger", "owner_ok": "comment 812"})
+        self.write(PLAN_CHECK_PATH, dumps(data))
+        self.assertEqual(self.check("triage").returncode, 0, self.check("triage").stdout)
 
     def test_operate_needs_the_inventory(self):
         self.write(PATHS["operate"], GOOD["operate"])
         os.rename(os.path.join(self.project, INVENTORY_PATH), os.path.join(self.project, INVENTORY_PATH + ".moved"))
         r = self.check("operate")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("inventory.md doesn't exist", r.stdout)
+        self.assertIn("inventory.json doesn't exist", r.stdout)
 
-    def test_operate_inventory_problems(self):
+    def test_operate_inventory_boxes(self):
+        v = ["sections", 0, "values", 0]
+        b = ["sections", 0, "siblings", 0]
         cases = {
             "no `Inventory:": (GOOD["operate"].replace("Inventory: Plan\n", ""), INVENTORY),
-            "no `## Fix batch 1` section": (GOOD["operate"].replace("Plan", "Fix batch 1"), INVENTORY),
-            "has no Table 1a": (GOOD["operate"], INVENTORY.replace(INV_1A, "")),
-            "needs a file:line": (GOOD["operate"], INVENTORY.replace("jobs/ship.js:12, ui/list.tsx:88", "the jobs")),
-            "has no Search command": (GOOD["operate"], INVENTORY.replace(' `grep -rn \"status\" src` |', " |")),
-            "the sibling needs a file:line": (GOOD["operate"], INVENTORY.replace("jobs/retry.js:20", "the retry job")),
-            "has no Table 1b": (GOOD["operate"], INVENTORY.replace(INV_1B, "")),
+            "no section named `Fix batch 1`": (GOOD["operate"].replace("Plan", "Fix batch 1"), INVENTORY),
+            "`values` is empty": (GOOD["operate"], variant(INVENTORY, v[:-1], [])),
+            "`readers` needs path:line": (GOOD["operate"], variant(INVENTORY, v + ["readers"], ["the jobs"])),
+            "`search` is empty": (GOOD["operate"], variant(INVENTORY, v + ["search"], "")),
+            "`needs_change`": (GOOD["operate"], variant(INVENTORY, v + ["needs_change"], {"answer": "no"})),
+            "`sibling` needs a path:line": (GOOD["operate"], variant(INVENTORY, b + ["sibling"], "the retry job")),
+            "`guards` lists": (GOOD["operate"], variant(INVENTORY, b + ["guards"], [])),
+            "`copied`": (GOOD["operate"], variant(INVENTORY, b + ["copied"], {"answer": "not applicable"})),
+            "`siblings` is empty": (GOOD["operate"], variant(INVENTORY, b[:-1], [])),
+            "helpers[1]": (GOOD["operate"], variant(INVENTORY, ["sections", 0, "helpers", 0, "where"], "lib")),
         }
         for want, (record, inventory) in cases.items():
             with self.subTest(want=want):
+                self.write(INVENTORY_PATH, dumps(inventory))
                 self.write(PATHS["operate"], record)
-                self.write(INVENTORY_PATH, inventory)
                 r = self.check("operate")
                 self.assertEqual(r.returncode, 1, r.stdout)
                 self.assertIn(want, r.stdout)
 
-    def test_operate_fix_batch_and_none_rows(self):
-        fix = ("\n## Fix batch 1\n\n" + INV_1A + "| none | — | none | none | — | no | `git diff --stat` |\n")
-        self.write(INVENTORY_PATH, INVENTORY + fix)
+    def test_operate_fix_batch_and_none_boxes(self):
+        data = json.loads(dumps(INVENTORY))
+        data["sections"].append({"name": "Fix batch 1", "values": [], "values_none_search": "git diff --stat"})
+        self.write(INVENTORY_PATH, dumps(data))
         self.write(PATHS["operate"], GOOD["operate"] + "\nSelf-review: ABC-12\nFingerprint: %s\n"
                    "Covers: fix batch since %s\nInventory: Fix batch 1\n" % ("cd" * 32, FP))
         r = self.check("operate")
         self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_show_renders_the_readable_copy(self):
+        self.write(PLAN_CHECK_PATH, dumps(PLAN_CHECK))
+        self.write(INVENTORY_PATH, dumps(INVENTORY))
+        r = self.run_cli("--show", "plan-check", "--ticket", TICKET)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("| order status | orders.status | api/orders.js:40 |", r.stdout)
+        self.assertIn("No conflicts found.", r.stdout)
+        r = self.run_cli("--show", "inventory", "--ticket", TICKET)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("### Plan", r.stdout)
+        self.assertIn("| hold retry | jobs/retry.js:20 | budget, idempotency | yes |", r.stdout)
+        self.write(INVENTORY_PATH, "[")
+        self.assertEqual(self.run_cli("--show", "inventory", "--ticket", TICKET).returncode, 1)
 
     def test_last_fingerprint_line_is_the_record(self):
         self.write(PATHS["operate"], GOOD["operate"] + "\nSelf-review: ABC-12\nFingerprint: <h>\n")
@@ -288,6 +374,7 @@ class OtherTickets(Case):
 class ReviewRound2(Case):
     def test_lower_case_record_dir(self):
         self.write(".claude/state/abc-12/triage.md", GOOD["triage"])
+        self.write(".claude/state/abc-12/plan-check.json", dumps(PLAN_CHECK))  # found in the same lower-case dir
         self.assertEqual(self.run_cli("--kind", "triage", "--ticket", "abc-12").returncode, 0)
 
     def test_marker_without_a_time_still_nudges_once(self):

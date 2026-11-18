@@ -72,15 +72,16 @@ and record what each probe covered, so a skip is visible.
   `docs/agent/defect-classes.md`, as a checklist, not from memory.
 - **Multi-writer and race.** Trace every writer/reader pair the diff touches, and each interleaving: read-then-write
   windows, mid-flight events, webhook replays, concurrent submissions. Name the ones accepted as bounded, and why.
-- **Inventory audit.** Open `.claude/state/<ticket>/inventory.md` (`/operate` Phase 1 step 2) and the state-homes
-  table in `triage.md`, and walk the final diff against them:
-  - every value the diff changes has a Table 1a row, and its readers and writers were re-walked against this diff;
-  - every new behaviour has a Table 1b row, with every guard its sibling has, copied or not applicable with a
+- **Inventory audit.** Open `.claude/state/<ticket>/inventory.json` (`/operate` Phase 1 step 2) and `state_homes`
+  in `plan-check.json` (triage Step 4.8), and walk the final diff against them:
+  - every value the diff changes has a `values` entry, and its readers and writers were re-walked against this
+    diff;
+  - every new behaviour has a `siblings` entry, with every guard its sibling has, copied or not applicable with a
     reason;
-  - every fix batch has its `## Fix batch <n>` section;
+  - every fix batch has its `Fix batch <n>` section;
   - every stored state matches its one home.
 
-  A missing or stale row fails the self-red-team. The work goes back to `/operate` Phase 1 step 2 for that row,
+  A missing or stale entry fails the self-red-team. The work goes back to `/operate` Phase 1 step 2 for that row,
   never on to review.
 - **Deliberate markers.** Every `Deliberate (decided R<n>-<k>)` comment in the diff names an id in
   `.claude/state/<ticket>/review-rounds.md`, and the code under it still matches the recorded reason.
@@ -211,7 +212,7 @@ origin/<MAIN_BRANCH>` with the last `Fingerprint:` line in `.claude/state/<ticke
   no owner question, in this order: the redesign triggers first (round rule 10); the fix inventory (`/operate`,
   "Every fix batch"); a regression test that fails without the fix; the root-cause and sibling repair; `/operate`
   Phase 3 steps 1, 7 and 8 on the fix delta; gates 1–8 again. A fix that changes a state transition must match the
-  lifecycle in `triage.md`. A path the plan doesn't have is a scope change, so it is `needs owner`.
+  `lifecycles` in `plan-check.json`. A path the plan doesn't have is a scope change, so it is `needs owner`.
 - **`noted`**: real, **pre-existing** and below the bar. Don't fix it. Record it with where, effect and suggested fix
   (round rule 8). The closing step files it on the tracker (round rule 11).
 - **`nit`**: no wrong behaviour (style, naming, refactor, test polish, wording, unmeasured performance). Not fixed,
@@ -344,7 +345,7 @@ This section is the one definition. Other commands cite it as "round rule N".
     3. **State.** Is the same state inferred again and again from scattered fields, logs or side effects? Would an
        explicit status in an existing record or a durable store be simpler? List the valid states, who may change
        each, and what happens on retries, failures and concurrent updates. If the state can be derived reliably
-       from an existing source, say why that is simpler. Check the state-homes table in `triage.md`: one fact, one
+       from an existing source, say why that is simpler. Check `state_homes` in `plan-check.json`: one fact, one
        home.
     4. **Self-check.** Read the full diff line by line, and trace the affected paths end to end, including existing
        data and partial failures. For each earlier fix that touched shared logic, list what depends on it. Report
@@ -361,11 +362,13 @@ This section is the one definition. Other commands cite it as "round rule N".
     **The owner decides** (round rule 6 escalation, options from the recommendation, each with a pro and a con).
     Make no edit until the answer is recorded.
     - **Redesign:** implement it with `/operate` from Phase 1 step 2 (a fresh inventory) through Phase 3, starting
-      from the state-homes table, **replacing** the patched code. Run the Critical Systems checks in
+      from `state_homes` in `plan-check.json` (rewritten for the new design), **replacing** the patched code. Run the Critical Systems checks in
       `CLAUDE.kit.md` where they apply. This starts a new count of up to three rounds, and its round 1 reviews the
       whole branch. At most **once per ticket**: a trigger after it escalates again with a fresh assessment, and
       without the redesign option.
-    - **Targeted fix** or **simplify:** carry on with the fix steps, then the next round.
+    - **Targeted fix** or **simplify:** carry on with the fix steps, then the next round. If that round would pass
+      the limit (round rule 3), the answer is the owner-granted round (`extra_round: true`), so the fix is still
+      reviewed. With that round already used, offer only redesign, re-scope or ship with named defects.
 
     Record `redesign: <trigger> → <decision>`. While an assessment or a redesign is in progress, the loop has no end
     state.

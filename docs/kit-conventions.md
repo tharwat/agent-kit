@@ -141,9 +141,10 @@ A post-merge failure is fixed forward on a new ticket and alerts the owner.
 
   | File | Holds |
   |---|---|
-  | `triage.md` | Contract copy and hand-off, plus the plan self-check: the state-homes table and the `Contradiction check:` and `Lifecycle check:` lines |
-  | `inventory.md` | The dependency inventory: `## Plan` (Table 1a readers and writers, Table 1b siblings, helper contracts), then one `## Fix batch <n>` per fix batch |
-  | `self-review.md` | Contains `Fingerprint: <h>` and `Inventory: <inventory.md heading>` |
+  | `triage.md` | Contract copy and hand-off |
+  | `plan-check.json` | Triage Step 4.8 as a fill-in form: `state_homes`, `contradiction_check`, `lifecycles`, `safety_defaults`. `check-record.py --show plan-check` prints the readable copy |
+  | `inventory.json` | The dependency inventory as a fill-in form: section `Plan` (`values` readers and writers, `siblings`, `helpers`), then one `Fix batch <n>` section per fix batch. `check-record.py --show inventory` prints the readable copy |
+  | `self-review.md` | Contains `Fingerprint: <h>` and `Inventory: <inventory.json section>` |
   | `review-rounds.md` | One block per round (findings `R<n>-<k>` with class, origin and disposition; an `Origins:` line), plus any spiral assessment |
   | `post-op.md` | Contains `Fingerprint: <h>` and `Result: clean\|escalate` (`capped` was removed in 1.8.0). `clean` with a `⏭️ Skipped — Codex` review row means the gates passed and the review round was skipped |
   | `self-review.diff`, `round-<n>.diff` | The saved diffs the fingerprints were taken from |

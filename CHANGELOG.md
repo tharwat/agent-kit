@@ -4,6 +4,26 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.8.1 — 2026-11-18
+
+- **The two new records are fill-in JSON forms, not formatted notes.**
+  - `.claude/state/<ticket>/plan-check.json` replaces the state-homes table and the `Contradiction check:` /
+    `Lifecycle check:` lines in `triage.md`;
+  - `.claude/state/<ticket>/inventory.json` replaces `inventory.md`;
+  - `check-record.py` checks that each box is filled and never guesses at layout, so a complete note is never
+    refused for how it was written;
+  - `check-record.py --show plan-check|inventory --ticket <T>` prints the readable Markdown copy for the ticket
+    comment. The JSON file is the one home.
+- **A "targeted fix" answer at a spiral assessment** that would push the next round past the limit now counts as
+  the owner-granted round, so the fix is still reviewed and post-op doesn't escalate a second time.
+
+**Upgrade touches:**
+- `.claude/hooks/check-record.py`;
+- `.claude/commands/{triage,operate,post-op}.md`.
+
+A ticket in flight under 1.8.0 rewrites its `inventory.md` and Step 4.8 lines as the two JSON files before its next
+record check.
+
 ## 1.8.0 — 2026-11-18 (ticket-trains 1.1.0, hardening 1.0.2)
 
 Quality first: write the first draft right, hold every fix to the same bar, and never end a ticket with known defects.
