@@ -2921,7 +2921,7 @@ def synthetic_marker(root):
     return name, hits[name]
 
 
-def draft(kit, target):
+def draft(kit, target, fresh=False):
     """Answers the installer can find in the project, each `{value, source, evidence}`.
 
     Tracked files (package scripts, docs, CLAUDE.md, settings.json) are read from origin/<main> in the install
@@ -2933,7 +2933,7 @@ def draft(kit, target):
     lane_parents = {os.path.dirname(w["path"]) for w in lanes_all}
     lane_dir = posix(os.path.relpath(next(iter(lane_parents)), target)) if len(lane_parents) == 1 else None
     try:
-        wt = install_worktree(target, ref.rsplit("/", 1)[-1] if ref else "main", lane_dir)
+        wt = install_worktree(target, ref.rsplit("/", 1)[-1] if ref else "main", lane_dir, fresh=fresh)
     except KitError as exc:
         raise KitError(f"{exc}. Run preflight first: it lists what the install needs")
     sc = scan(kit, wt)
@@ -3112,8 +3112,16 @@ def preflight(kit, target, answers=None):
     dirty = git_out(target, "status", "--porcelain") or ""
     add("checkout changes", True, (f"{len(dirty.splitlines())} uncommitted change(s) in the checkout: left untouched"
                                    if dirty else "clean"), blocker=False)
+    attempt = earlier_attempt(target)
+    if attempt:
+        add("earlier install attempt", True, f"{attempt['path']} (kit {attempt['kit_version'] or 'not applied yet'}, "
+            f"{attempt['changed']} uncommitted change(s)). Ask the owner: continue it (keeps its work, but it was "
+            "built with that kit and those answers) or start fresh (draft --fresh parks it, renamed, never "
+            "deleted; its hand work can be reused after the new page is approved)", blocker=False)
     wts = worktrees(target)
     for w in wts[1:]:
+        if w["branch"] == INSTALL_BRANCH:
+            continue
         add("worktree lane", True, f"{w['path']} on {w['branch'] or 'detached HEAD'}: left untouched", blocker=False)
     ahead = []
     for b in (git_out(target, "for-each-ref", "--format=%(refname:short)", "refs/heads") or "").splitlines():
@@ -3203,14 +3211,45 @@ def link_env_files(top, wt):
     return linked
 
 
-def install_worktree(target, main_branch, worktree_dir=None):
-    """The install worktree on INSTALL_BRANCH, made from origin/<main_branch> (reused when it exists). The checkout's
-    env files are linked in, so tests run there as they do in the checkout."""
-    top = main_checkout(os.path.abspath(target))
+def earlier_attempt(top):
+    """An install worktree left by an earlier run: {path, kit_version, changed} or None."""
     for w in worktrees(top):
         if w["branch"] == INSTALL_BRANCH:
-            link_env_files(top, w["path"])
-            return w["path"]
+            lock = read_lock(w["path"]) if os.path.isfile(tpath(w["path"], LOCK_PATH)) else None
+            changed = len((git_out(w["path"], "status", "--porcelain") or "").splitlines())
+            return {"path": w["path"], "kit_version": (lock or {}).get("kit", {}).get("version"), "changed": changed}
+    return None
+
+
+def park_attempt(top, attempt):
+    """Rename an earlier install worktree and its branch aside (never deleted), so a fresh run can start."""
+    tag = attempt.get("kit_version") or "earlier"
+    suffix, n = tag, 1
+    while os.path.exists(f"{attempt['path']}-{suffix}") or \
+            git_out(top, "rev-parse", "--verify", "--quiet", f"refs/heads/{INSTALL_BRANCH}-{suffix}") is not None:
+        n += 1
+        suffix = f"{tag}-{n}"
+    new_path = f"{attempt['path']}-{suffix}"
+    for args in (["worktree", "move", attempt["path"], new_path], ["branch", "-m", INSTALL_BRANCH,
+                                                                   f"{INSTALL_BRANCH}-{suffix}"]):
+        rc, _o, err = git_run(top, *args)
+        if rc:
+            raise KitError(f"git {' '.join(args)} failed: {err}. Close any session working in {attempt['path']} "
+                           "and run again")
+    return new_path, f"{INSTALL_BRANCH}-{suffix}"
+
+
+def install_worktree(target, main_branch, worktree_dir=None, fresh=False):
+    """The install worktree on INSTALL_BRANCH, made from origin/<main_branch>. An earlier attempt is continued, or,
+    with `fresh`, parked aside first (renamed, never deleted). The checkout's env files are linked in, so tests run
+    there as they do in the checkout."""
+    top = main_checkout(os.path.abspath(target))
+    attempt = earlier_attempt(top)
+    if attempt and fresh:
+        park_attempt(top, attempt)
+    elif attempt:
+        link_env_files(top, attempt["path"])
+        return attempt["path"]
     if worktree_dir and worktree_dir != "none" and os.path.isdir(os.path.join(top, worktree_dir)):
         path = os.path.join(top, worktree_dir, "agent-kit-install")
     else:
@@ -3414,6 +3453,8 @@ def main(argv=None):
                            help=f"--target is the real checkout; install into the {INSTALL_BRANCH} worktree")
         if name == "draft":
             p.add_argument("--out", required=True, help="where to write the draft answers (JSON)")
+            p.add_argument("--fresh", action="store_true",
+                           help="start over: park an earlier install worktree (renamed, never deleted) first")
         if name == "review":
             p.add_argument("--answers", help="the draft or answers file (optional for an upgrade)")
             p.add_argument("--out", help="also write the page here (Markdown)")
@@ -3438,7 +3479,7 @@ def main(argv=None):
             print(json.dumps(pf, indent=2) if args.json else "\n".join(preflight_markdown(pf)))
             return 0 if pf["status"] == "READY" else 1
         if args.cmd == "draft":
-            d = draft(kit, args.target)
+            d = draft(kit, args.target, fresh=args.fresh)
             out = os.path.abspath(args.out)
             write_file(os.path.dirname(out), os.path.basename(out), dump_json(d).encode("utf-8"), [])
             asks = sorted(n for n, v in d["facts"].items() if v["source"] == "ask")

@@ -57,6 +57,16 @@ It only reads. It reports:
 - local-only files: `.mcp.json` and whether git ignores it, `settings.local.json` hooks, `.env*` names;
 - the MCP server each chosen pack needs (present, mapped, or added by the kit).
 
+**An earlier install attempt** (preflight lists one when an `agent-kit/install` worktree exists): ask the owner one
+question, before anything else.
+- **Continue it.** Pro: keeps its work. Con: it was built with that kit version and those answers.
+- **Start fresh.** Pro: a clean run with the current kit's review page. Con: its hand work is redone, though it can
+  be reused once the new page is approved.
+
+For a fresh start, run `draft` with `--fresh`. It parks the old worktree and branch under the old kit version
+(renamed, never deleted). Don't read the parked folder before the owner approves the new page; in Step 4, reuse its
+hand work where it matches what they decided.
+
 Then do its **agent checks**: one read call through each MCP server it names (for Jira, fetch any issue). A server
 that isn't authorized is a blocker. **BLOCKED:** send the owner every blocker with its fix, in one message, and
 stop.

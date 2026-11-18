@@ -228,6 +228,29 @@ class Guided(TempDirs, unittest.TestCase):
         self.assertIn(".mcp.json: local-only", out)
 
 
+    def test_an_earlier_attempt_is_reported_then_continued_or_parked_for_a_fresh_start(self):
+        _p, d = self.draft()
+        answers = self.filled(d)
+        rc, out, err = run(["apply", "--target", self.top, "--answers", answers, "--worktree"])
+        self.assertEqual(rc, 0, out + err)
+        old = d["notes"]["install_worktree"]
+        write(os.path.join(old, "CLAUDE.md"), "hand work from the earlier attempt\n")
+        pf = agent_kit.preflight(agent_kit.Kit(KIT), self.top, d)
+        item = next(i for i in pf["items"] if i["check"] == "earlier install attempt")
+        self.assertFalse(item["blocker"])
+        self.assertIn("continue it", item["detail"])
+        _p, d2 = self.draft()  # no --fresh: the same attempt continues
+        self.assertEqual(d2["notes"]["install_worktree"], old)
+        out = os.path.join(self.tmp(), "fresh.json")
+        rc, stdout, err = run(["draft", "--target", self.top, "--out", out, "--fresh"])
+        self.assertEqual(rc, 0, stdout + err)
+        version = agent_kit.Kit(KIT).version
+        parked = f"{old}-{version}"
+        self.assertEqual(read(os.path.join(parked, "CLAUDE.md")), "hand work from the earlier attempt\n")  # kept
+        self.assertEqual(git(parked, "rev-parse", "--abbrev-ref", "HEAD"), f"{agent_kit.INSTALL_BRANCH}-{version}")
+        self.assertFalse(os.path.isfile(os.path.join(old, agent_kit.LOCK_PATH)))  # the new attempt starts clean
+        self.assertEqual(git(old, "rev-parse", "--abbrev-ref", "HEAD"), agent_kit.INSTALL_BRANCH)
+
 class Decisions(TempDirs, unittest.TestCase):
     """Every clash carries its advice; the owner's answers, exceptions and budget are kept and written down."""
 
