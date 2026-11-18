@@ -109,7 +109,7 @@ Packs may add checks here: see the section for this command in each installed `.
 ### Mandatory sweeps
 
 These run every time, not only when a trigger fires. A sweep skipped here comes back mid-review as an
-adjacent-gap finding, and each one costs a capped review round.
+adjacent-gap finding, and each one costs a review round.
 
 - **Consumer sweep, exhaustive.** Grep every consumer of each touched function, column, endpoint or pattern across
   the source tree, including those the ticket doesn't name. Give each a disposition: covered by this fix, or
@@ -219,6 +219,41 @@ or patch. It returns adversarial vectors:
 This pass designs vectors only. It doesn't implement, waive the later reviews, or add a delivery stage. The
 post-work `/peer-review` stays optional.
 
+## Step 4.8: Plan self-check (mandatory)
+
+Some defects start before any code: the code faithfully follows a plan that stores one fact twice, contradicts a
+decision, or never settled a state's lifecycle. Every review round then finds one more symptom. Write all four parts
+below into `triage.md`. A docs- or rules-only ticket writes each as `none — <reason>`.
+
+**A. State homes: one fact, one home.** For every piece of state the ticket stores or depends on:
+
+| Fact | Its one home | Who writes it | Who reads it | Second home? |
+|---|---|---|---|---|
+| what is true (a status, a mode, a verdict, a count) | the one table, column, record or store that holds it | `file:line` or the new writer | `file:line` of every reader | `none`, or the copy and how it stays in step |
+
+- **The same fact in two places** (a copy, a cache, a mirrored column, a status duplicated into another record, two
+  rows that must agree): collapse it to one home, or derive it at the read. Keeping two copies in step by a side
+  effect (a follow-up write, a hook, a "remember to also update") is not allowed. If two copies are truly
+  unavoidable, they change in the same transaction or by a database trigger. The row says which, and the owner's OK
+  is recorded.
+- **Two independent facts stored as one** (one priority or status value mixing "archived" with "flagged"): keep
+  them separate, and combine them at the read.
+- **A gating status** is applied where it is read, never copied somewhere that must be kept current.
+
+**B. Contradiction check.** Read every contract row against every decision (ticket comments, epic constraints, owner
+answers) and against the ticket text. List each conflict, and resolve it with the owner or an explicit recorded
+default. Record `Contradiction check: <conflicts found and how each was resolved | none found — <n> rows × <n>
+decisions read>`.
+
+**C. Lifecycle check.** For every state the ticket adds or changes, answer: how it is created, changed, removed and
+restored; what editing a record in that state does; whether its name or key can be reused; how it interacts with
+each safety flag; and what a person sees. Each unanswered question goes to the owner, one at a time. Record
+`Lifecycle check: <state> — <answers>` (or `none — no state added or changed`).
+
+**D. Safety defaults.** An engineering default that touches S1–S3 or a user-facing send ("any verdict → hand to a
+human", "on error, skip") is shown to the owner as a choice. It is never applied silently. Record each one under the
+lifecycle check with the owner's answer.
+
 ---
 
 ## Step 5: Output
@@ -251,6 +286,9 @@ TICKET ANALYSIS: <ticket> — <title>
   - Module placement: <chosen module and why, or n/a>
   - Files this approach touches: <list>
 🧪 Test approach: existing patterns at <path>; new tests <yes/no + what>
+🏠 State homes: <the Step 4.8 table> · second homes: <none | each, with its transaction/trigger and owner OK>
+🧷 Contradiction check: <conflicts and resolutions | none found>
+♻️ Lifecycle check: <each state: created / changed / removed / restored / edited / name reused / safety flags / what a person sees>
 🧾 Acceptance-and-proof contract: <the Step 4.6 table>
   Threat model / out of scope: <one line>
 🧨 Pre-code vectors: <the Step 4.7 table, or: skipped — no executable behaviour>
@@ -270,6 +308,8 @@ TICKET ANALYSIS: <ticket> — <title>
 - [ ] Every contract row has an ID `C<digits>`, a class, a hostile case, a proof plan and a counterfactual, plus the
       threat-model line
 - [ ] Ran `/peer-review test-contract` (executable work) and folded in its vectors with provenance
+- [ ] Wrote the state-homes table (one fact, one home), the contradiction check and the lifecycle check; showed the
+      owner every safety default
 - [ ] Completed the Step 6 hand-off
 
 ---
@@ -284,7 +324,8 @@ state a status:
    `Pre-code vectors: <ticket>`). For each linked ticket triage decided something for, ticket op **comment** on it
    with that constraint.
 2. **Exact copy.** Write `.claude/state/<ticket>/triage.md` (gitignored) with the final design decisions, every
-   contract row and every vector **verbatim**, plus the comment ids. A tracker's renderer can drop characters, so
+   contract row and every vector **verbatim**, the Step 4.8 state-homes table, `Contradiction check:` and
+   `Lifecycle check:` lines, plus the comment ids. A tracker's renderer can drop characters, so
    this file, not the comment, is what `/operate` reads.
 3. **Record check.** Run `python3 .claude/hooks/check-record.py --kind triage --ticket <ticket>`. Fix
    `.claude/state/<ticket>/triage.md` and re-run until it exits 0.
@@ -327,7 +368,7 @@ product decision, an Owner-Kept Gate or a missing test runner.
 |---|---|---|
 | Bug or regression | `/investigate` | Root cause first; no fix without a confirmed cause |
 | Always | `/operate` | The implementation: discharge every contract row, run every helper, read the diff back before review |
-| Always | `/post-op` | Self-red-team, contract audit, the gates (observability, security, API contract, migration guard, compliance, docs, test, mock fidelity), then the capped review rounds. Before any commit that touches source |
+| Always | `/post-op` | Self-red-team, contract audit, the gates (observability, security, API contract, migration guard, compliance, docs, test, mock fidelity), then review rounds until clean. Before any commit that touches source |
 | Optional, owner's call | `/peer-review` | Two independent reviewers on a frozen snapshot, after post-op. Not required by `/ship`, but an unresolved verified finding blocks it |
 | Behaviour on a live surface | `/verify` | Drive the changed flow locally against real services before merge; confirm deploy and logs after |
 | Ready to merge | `/ship` | PR to `<MAIN_BRANCH>`, owner's yes, merge, open items, close |

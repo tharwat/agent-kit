@@ -2,11 +2,11 @@
 // One code-review round for /post-op Step 1.5. Post-op owns the loop, the cap, the fixes
 // and the end states (round rules 1–11); this script only runs a round:
 // 3 lens reviewers → dedup in code → 2 refuting verifiers per finding (+1 tie-breaker)
-// → classed findings and a redesign signal.
+// → classed findings with their origin, and a redesign signal.
 // Run it by scriptPath (<repo root>/.claude/workflows/consensus-review.js), never by name.
 export const meta = {
   name: 'consensus-review',
-  description: 'One post-op review round: 3 lens reviewers, dedup, 2-of-3 adversarial verification, severity class + redesign signal',
+  description: 'One post-op review round: 3 lens reviewers, dedup, 2-of-3 adversarial verification, severity class + origin + redesign signal',
   whenToUse: 'Called by /post-op Step 1.5 for each code-review round (args: ticket, round, base, criticalDomain, consumerSurfaces, contract, threatModel, prior, savedDiff, scratchDir)',
   phases: [
     { title: 'Review', detail: '3 reviewers, one lens each, on the merge-base diff against args.base' },
@@ -27,7 +27,7 @@ const SCRATCH = text(A.scratchDir) || '.claude/state/tmp'
 const notRun = (reviewers, why) => {
   log(why)
   return { ticket: A.ticket || null, round: ROUND, round_ran: false, base: BASE, reviewers, reason: why,
-    must_fix: [], noted: [], repeats: [], rejected: [], unverified: [], redesign_signal: { recommended: false, findings: [], simpler_shape: null } }
+    must_fix: [], noted: [], nits: [], repeats: [], rejected: [], unverified: [], origins: {}, redesign_signal: { recommended: false, findings: [], simpler_shape: null } }
 }
 if (!BASE) return notRun('0/3', 'args.base is missing (post-op passes origin/<MAIN_BRANCH>) — round did not run')
 
@@ -37,7 +37,15 @@ const BAR = [
   'S2 auth & security (lock-out, privilege or access-control holes, PII in logs, secrets, injection or unsafe input, unverified webhook);',
   `S3 ${CRITICAL} (a wrong result in the logic that must never be wrong here);`,
   'S4 the ticket\'s own behaviour (breaks a contract row or pre-code vector, or the changed flow crashes / returns a wrong result on input production realistically sends).',
-  'Everything else is "noted": style, naming, refactors, test polish, wording, unmeasured performance, inputs outside the threat model, unreachable paths.',
+  'Below the bar is "noted": a real wrong behaviour that is none of S1–S4. A finding with no wrong behaviour at all (style, naming, refactor, test polish, wording, unmeasured performance) is "nit". Inputs outside the threat model and unreachable paths are not real.',
+].join(' ')
+
+// Round rule 2: origin decides whether a real defect is fixed here. Code this ticket wrote is fixed whatever its class.
+const ORIGIN = [
+  'Origin of a real finding (post-op round rule 2):',
+  `"pre-existing" when the defective code is unchanged from ${BASE || 'the base'} (check with \`git show <base>:<file>\`);`,
+  '"fix-introduced" when it sits in lines an earlier review round\'s fix added or changed (the fix delta: the previous round\'s saved diff against the current diff);',
+  '"first-draft" for any other line this branch wrote.',
 ].join(' ')
 
 const CONTEXT = [
@@ -73,7 +81,7 @@ const FINDINGS = {
           line: { type: 'integer' },
           summary: { type: 'string' },
           failure_scenario: { type: 'string' },
-          proposed_class: { type: 'string', enum: ['S1', 'S2', 'S3', 'S4', 'noted'] },
+          proposed_class: { type: 'string', enum: ['S1', 'S2', 'S3', 'S4', 'noted', 'nit'] },
           design: { type: 'string', enum: ['ok', 'redesign'] },
           simpler_shape: { type: 'string' },
         },
@@ -88,19 +96,41 @@ const VERDICT = {
   type: 'object',
   properties: {
     real: { type: 'boolean' },
-    class: { type: 'string', enum: ['S1', 'S2', 'S3', 'S4', 'noted'] },
+    class: { type: 'string', enum: ['S1', 'S2', 'S3', 'S4', 'noted', 'nit'] },
+    origin: { type: 'string', enum: ['first-draft', 'fix-introduced', 'pre-existing'] },
     repeat_of: { type: 'string' },
     evidence: { type: 'string' },
     design: { type: 'string', enum: ['ok', 'redesign'] },
     simpler_shape: { type: 'string' },
   },
-  required: ['real', 'class', 'evidence', 'design'],
+  required: ['real', 'class', 'origin', 'evidence', 'design'],
 }
+
+// Only dispositions that can make a finding a repeat (round rule 4); a fixed finding that
+// comes back is new, so fixed ones are never offered as a repeat target. These words must
+// equal post-op's disposition words: matching is by leading word.
+const REPEATABLE = ['rejected', 'noted', 'nit', 'own ticket', 'already decided']
+const priorRepeatable = PRIOR.filter(p => { const d = String(p.disposition || '').trim().toLowerCase(); return REPEATABLE.some(r => d.startsWith(r)) })
+const PRIOR_IDS = priorRepeatable.map((_, k) => `P${k + 1}`)
+const priorText = priorRepeatable.length
+  ? 'Earlier rounds already decided these. If this finding is the same defect as one of them, set repeat_of to its id; otherwise set repeat_of to "none":\n' +
+    priorRepeatable.map((p, k) => `- ${PRIOR_IDS[k]}: ${p.finding} → ${p.disposition}`).join('\n')
+  : 'No earlier decisions this could repeat: set repeat_of to "none".'
+// The verdict schema for this round: repeat_of is one of the ids or "none" (no free text).
+const VERDICT_ROUND = { ...VERDICT, properties: { ...VERDICT.properties, repeat_of: { type: 'string', enum: ['none', ...PRIOR_IDS] } },
+  required: [...VERDICT.required, 'repeat_of'] }
+const priorById = Object.fromEntries(priorRepeatable.map((p, k) => [PRIOR_IDS[k], `${p.finding} → ${p.disposition}`]))
+// Reviewers get the same list (doc: the decided list reaches the reviewer), so they stop re-raising it.
+const decidedText = priorRepeatable.length
+  ? 'Already decided in earlier rounds. Do not raise these again unless you bring NEW evidence that the recorded reason is wrong:\n' +
+    priorRepeatable.map(p => `- ${p.finding} → ${p.disposition}`).join('\n')
+  : 'Nothing has been decided in earlier rounds.'
+const MARKERS = 'A code comment starting "Deliberate (decided R<n>-<k>):" states a reason for a decided design choice. Check the reason against the code: report the spot only if the reason is wrong, and say why. It covers only the concern it names.'
 
 phase('Review')
 const reviews = await parallel(LENSES.map(l => () =>
   agent(
-    `You are one of three independent code reviewers. Your lens: ${l.focus}\n\n${CONTEXT}\n\n${BAR}\n\n${DIFF_HOWTO}\n\n` +
+    `You are one of three independent code reviewers. Your lens: ${l.focus}\n\n${CONTEXT}\n\n${BAR}\n\n${DIFF_HOWTO}\n\n${decidedText}\n\n${MARKERS}\n\n` +
     'Report only defects you can tie to a file and line, each with a concrete failure scenario (input/state → wrong outcome). Classify each with the bar. ' +
     'For each, answer the design question: design="redesign" with a concrete simpler_shape if it is a symptom of a design that keeps breaking (code inferring a fact that could be stored, one mechanism producing several defects), else design="ok". ' +
     'Report at most 10, most severe first. An empty list is a valid answer.',
@@ -133,31 +163,17 @@ for (const f of all) {
 }
 log(`${all.length} raw findings from ${returned.length}/3 reviewers → ${merged.length} after dedup`)
 
-// Only dispositions that can make a finding a repeat (round rule 4); a fixed finding that
-// comes back is new, so fixed ones are never offered as a repeat target. These words must
-// equal post-op's disposition words: matching is by leading word.
-const REPEATABLE = ['rejected', 'noted', 'own ticket', 'already decided']
-const priorRepeatable = PRIOR.filter(p => { const d = String(p.disposition || '').trim().toLowerCase(); return REPEATABLE.some(r => d.startsWith(r)) })
-const PRIOR_IDS = priorRepeatable.map((_, k) => `P${k + 1}`)
-const priorText = priorRepeatable.length
-  ? 'Earlier rounds already decided these. If this finding is the same defect as one of them, set repeat_of to its id; otherwise set repeat_of to "none":\n' +
-    priorRepeatable.map((p, k) => `- ${PRIOR_IDS[k]}: ${p.finding} → ${p.disposition}`).join('\n')
-  : 'No earlier decisions this could repeat: set repeat_of to "none".'
-// The verdict schema for this round: repeat_of is one of the ids or "none" (no free text).
-const VERDICT_ROUND = { ...VERDICT, properties: { ...VERDICT.properties, repeat_of: { type: 'string', enum: ['none', ...PRIOR_IDS] } },
-  required: [...VERDICT.required, 'repeat_of'] }
-const priorById = Object.fromEntries(priorRepeatable.map((p, k) => [PRIOR_IDS[k], `${p.finding} → ${p.disposition}`]))
 
 const verifyOne = (f, i, n) => agent(
   `You are a skeptical verifier. Try to REFUTE this code-review finding against the actual code. If you cannot confirm it from the code, it is not real (real=false). Read the code; do not trust the claim.\n\n` +
   `Finding: ${f.file}:${f.line} — ${f.summary}\nClaimed failure: ${f.failure_scenario}\n` +
   (f.also.length ? `Another reviewer reported the same defect at this line as: ${f.also.join(' / ')}\n` : '') +
-  `\n${CONTEXT}\n\n${BAR}\n\n${priorText}\n\n` +
-  'If real, give its class by the bar (classify by what it does to users or data, never by how big the fix is), and the evidence (file:line and what the code does). ' +
+  `\n${CONTEXT}\n\n${BAR}\n\n${ORIGIN}\n\n${DIFF_HOWTO}\n\n${priorText}\n\n${MARKERS}\n\n` +
+  'If real, give its class by the bar (classify by what it does to users or data, never by how big the fix is), its origin, and the evidence (file:line and what the code does). ' +
   'Then the design question: is this a symptom of a design that keeps breaking (several defects from one mechanism, code inferring a fact that could be stored)? design="redesign" with simpler_shape, else design="ok". Do not modify any file.',
   { label: `verify:${i + 1}.${n}`, phase: 'Verify', schema: VERDICT_ROUND })
 
-const SEV = ['S1', 'S2', 'S3', 'S4', 'noted']
+const SEV = ['S1', 'S2', 'S3', 'S4', 'noted', 'nit']
 // The one rule for every decision: a value counts only when 2 votes agree on it; a split is null.
 const quorum = (votes, key) => {
   const c = {}
@@ -165,7 +181,9 @@ const quorum = (votes, key) => {
   return Object.keys(c).find(k => c[k] >= 2) || null
 }
 const statusKey = v => (v.real ? 'real' : 'not')
-const bucketKey = v => (v.class === 'noted' ? 'noted' : 'must_fix')
+// Round rule 2: a nit is never fixed or filed; a below-bar defect is "noted" only when it is pre-existing;
+// every other real defect (S1–S4, or this ticket's own code at any class) is fixed on the ticket.
+const bucketKey = v => (v.class === 'nit' ? 'nit' : v.class === 'noted' && v.origin === 'pre-existing' ? 'noted' : 'must_fix')
 const repeatKey = v => v.repeat_of || 'none'
 const decide = votes => {
   const status = quorum(votes, statusKey)
@@ -186,14 +204,16 @@ const judged = await pipeline(merged, async (f, _orig, i) => {
   const yes = votes.filter(v => v.real)
   const no = votes.filter(v => !v.real)
   const status = d.status === 'not' ? 'rejected' : settled(d) ? 'real' : 'unverified'
-  // Within must_fix, the exact S-class goes to the most severe class a "real" vote gave.
+  // Within must_fix, the class is the most severe one a "real" vote gave (own-code defects may be "noted").
   const cls = status !== 'real' ? null
+    : d.bucket === 'nit' ? 'nit'
     : d.bucket === 'noted' ? 'noted'
-    : yes.map(v => v.class).filter(c => c !== 'noted').sort((x, y) => SEV.indexOf(x) - SEV.indexOf(y))[0]
+    : yes.map(v => v.class).filter(c => c !== 'nit').sort((x, y) => SEV.indexOf(x) - SEV.indexOf(y))[0]
+  const origin = status !== 'real' ? null : quorum(yes, v => v.origin) || 'unclear'
   const shapes = [f.reviewer_redesign, ...yes.filter(v => v.design === 'redesign').map(shape)].filter(Boolean)
   return {
     file: f.file, line: f.line, summary: f.summary, failure_scenario: f.failure_scenario, also: f.also,
-    lenses: f.lenses, votes: `${yes.length} real / ${no.length} not / ${votes.length} returned`, status, class: cls,
+    lenses: f.lenses, votes: `${yes.length} real / ${no.length} not / ${votes.length} returned`, status, class: cls, origin,
     repeat_of: status === 'real' && d.repeat !== 'none' ? `${d.repeat}: ${priorById[d.repeat] || ''}` : null,
     evidence: (status === 'real' ? yes : votes).map(v => v.evidence).join(' | '),
     redesign: shapes.length > 0, simpler_shape: shapes[0] || null,
@@ -202,11 +222,13 @@ const judged = await pipeline(merged, async (f, _orig, i) => {
 
 const results = judged.filter(Boolean)
 const verified = results.filter(r => r.status === 'real' && !r.repeat_of)
-const mustFix = verified.filter(r => r.class !== 'noted')
+const mustFix = verified.filter(r => r.class !== 'nit' && !(r.class === 'noted' && r.origin === 'pre-existing'))
+// Round rule 8: the origin counts every round record carries (A first-draft, B fix-introduced, D pre-existing).
+const origins = verified.filter(r => r.class !== 'nit').reduce((c, r) => ({ ...c, [r.origin]: (c[r.origin] || 0) + 1 }), {})
 // Round rule 10(c): one concrete recommendation from a reviewer or verifier on a verified finding is enough.
 const redesignOn = verified.filter(r => r.redesign)
 const unverified = results.filter(r => r.status === 'unverified')
-log(`${verified.length} verified (${mustFix.length} must-fix), ${results.filter(r => r.status === 'rejected').length} rejected, ` +
+log(`${verified.length} verified (${mustFix.length} must-fix, origins ${JSON.stringify(origins)}), ${results.filter(r => r.status === 'rejected').length} rejected, ` +
     `${results.filter(r => r.status === 'real' && r.repeat_of).length} repeats, ${unverified.length} unverified`)
 
 return {
@@ -216,7 +238,9 @@ return {
   base: `${BASE} (merge-base, working tree included)`,
   reviewers: `${returned.length}/3`,
   must_fix: mustFix,
-  noted: verified.filter(r => r.class === 'noted'),
+  noted: verified.filter(r => r.class === 'noted' && r.origin === 'pre-existing'),
+  nits: verified.filter(r => r.class === 'nit'),
+  origins,
   repeats: results.filter(r => r.status === 'real' && r.repeat_of),
   rejected: results.filter(r => r.status === 'rejected').map(r => ({ file: r.file, line: r.line, summary: r.summary, votes: r.votes, evidence: r.evidence })),
   unverified,

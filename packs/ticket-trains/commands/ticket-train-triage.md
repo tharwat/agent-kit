@@ -142,7 +142,7 @@ Questions the run raises, asked the same way:
 | ID | Raised when | Options (each with a pro and a con) |
 |---|---|---|
 | `nc1` | the circuit breaker: an own gate the run couldn't make pass (show its output and the kept branch) | **continue** on the kept work; **re-scope** the notes or contract first; **drop** (stays blocked) |
-| `cr-e<n>` | post-op ended `escalate` (round rule 6). Name the cause: an S1–S3 finding in or after the last round, an open needs-owner finding, or a redesign needing a gate | those the escalation carries, typically **accept and ship** / **one more round on the fix** / **revert and re-scope** |
+| `cr-e<n>` | post-op ended `escalate` (round rule 6). Name the cause: a spiral assessment (round rule 10), the round limit reached with a must-fix open, or an open needs-owner finding | those the escalation carries, typically **redesign as assessed** / **targeted fix** / **one more round on the fix** / **re-scope** / **ship with these named defects** |
 | `pr-f<n>` | `/peer-review` left a verified finding unresolved, or a `NEEDS-OWNER` one (show the finding, its evidence, the snapshot hash) | **new approach** / **re-scope** keeping every unresolved row / **stop** (stays blocked) |
 | `halt<n>` | a merge broke `<MAIN_BRANCH>` and the run stopped. Before asking, check the fix-forward ticket merged and the deploy is live (`/verify` post-merge half) | **resume** the train / **stay halted** |
 

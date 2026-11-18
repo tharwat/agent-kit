@@ -19,10 +19,15 @@
 
 | kind     | record                              | must contain                                                    |
 |----------|-------------------------------------|-----------------------------------------------------------------|
-| triage   | .claude/state/<T>/triage.md         | the contract table header and at least one `| C<n> |` row      |
-| operate  | .claude/state/<T>/self-review.md    | a `Fingerprint: <64-hex>` line                                  |
+| triage   | .claude/state/<T>/triage.md         | the contract table header and at least one `| C<n> |` row;     |
+|          |                                     | the state-homes table (or `State homes: none — <reason>`), and  |
+|          |                                     | `Contradiction check:` and `Lifecycle check:` lines             |
+| operate  | .claude/state/<T>/self-review.md    | a `Fingerprint: <64-hex>` line, and an `Inventory: <heading>`   |
+|          | + .claude/state/<T>/inventory.md    | line naming a `## <heading>` section of inventory.md that holds |
+|          |                                     | Table 1a with rows (writers/readers as file:line or `none`, a   |
+|          |                                     | Search cell) and Table 1b                                       |
 | post-op  | .claude/state/<T>/post-op.md        | `Fingerprint: <64-hex or none (no reviewable change)>` and      |
-|          |                                     | `Result: clean, capped or escalate`                             |
+|          |                                     | `Result: clean or escalate` (`capped` is gone since 1.8.0)      |
 | handoff  | .claude/handoffs/latest.md          | written after the start, with the `## Git state` / `Branch:` block |
 
 The ticket comes from `--ticket` (upper-cased), else from the current `<BRANCH_PREFIX><ticket-lowercase>-<slug>`
@@ -56,9 +61,17 @@ HEX64 = r"[0-9a-f]{64}"
 OPERATE_RE = re.compile(r"^Fingerprint:\s*%s\s*$" % HEX64)
 FINGERPRINT_LINE_RE = re.compile(r"^Fingerprint:.*$", re.M)
 POSTOP_FP_RE = re.compile(r"^Fingerprint:\s*(%s|none \(no reviewable change\))\s*$" % HEX64)
-POSTOP_RESULT_RE = re.compile(r"^Result:\s*(clean|capped|escalate)\s*$")
+POSTOP_RESULT_RE = re.compile(r"^Result:\s*(clean|escalate)\s*$")
 RESULT_LINE_RE = re.compile(r"^Result:.*$", re.M)
 HANDOFF_BRANCH_RE = re.compile(r"^Branch:\s*\S", re.M)
+STATE_HOMES_HEADER = "| Fact | Its one home | Who writes it | Who reads it | Second home? |"
+STATE_HOMES_NONE_RE = re.compile(r"^State homes:\s*none\s*[—-]\s*\S", re.M)
+CHECK_LINE_RE = {name: re.compile(r"^%s:\s*\S" % name, re.M) for name in ("Contradiction check", "Lifecycle check")}
+INVENTORY_1A = ("| Value changed | How it changes | Writers (file:line) | Readers (file:line) | What each reader assumes | "
+                "Needs a change? | Search |")
+INVENTORY_1B = "| New behaviour | Existing sibling (file:line) | Guards the sibling has | Copied? |"
+INVENTORY_LINE_RE = re.compile(r"^Inventory:[ \t]*(.*)$", re.M)
+FILE_LINE_RE = re.compile(r"[^\s|`]+:[0-9]+")
 
 
 def norm(line):
@@ -133,6 +146,75 @@ def fingerprints_at_start(marker):
     return None
 
 
+def table_rows(text, header):
+    """The data rows (lists of cells) under every copy of `header` in `text`; separator rows are skipped."""
+    rows, inside = [], False
+    for line in text.split("\n"):
+        if norm(line) == norm(header):
+            inside = True
+            continue
+        if not inside:
+            continue
+        if not line.strip().startswith("|"):
+            inside = False
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if all(re.fullmatch(r":?-{3,}:?", c) for c in cells if c):
+            continue
+        rows.append(cells)
+    return rows
+
+
+def evidenced(cell):
+    """A writer/reader cell is backed by a `file:line` or says `none`."""
+    return bool(FILE_LINE_RE.search(cell)) or cell.lower().startswith("none")
+
+
+def inventory_problems(project, ticket, self_review):
+    """The dependency inventory /operate writes before its first production edit (operate Phase 1 step 2)."""
+    path = os.path.join(ticket_dir(project, ticket), "inventory.md")
+    shown = rel(project, path)
+    blocks = self_review.split("Self-review:")
+    heading_m = INVENTORY_LINE_RE.findall(blocks[-1]) if len(blocks) > 1 else INVENTORY_LINE_RE.findall(self_review)
+    heading = heading_m[-1].strip() if heading_m else ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return ["%s doesn't exist (the dependency inventory comes before the first production edit)" % shown]
+    if not heading:
+        return ["the last Self-review block has no `Inventory: <heading>` line naming the inventory.md section it "
+                "covers (Plan, or Fix batch <n>)"]
+    sections = {}
+    for part in re.split(r"^## ", text, flags=re.M)[1:]:
+        title, _, body = part.partition("\n")
+        sections[norm(title)] = body
+    body = sections.get(norm(heading))
+    if body is None:
+        return ["%s has no `## %s` section (named by the Self-review `Inventory:` line)" % (shown, heading)]
+    out = []
+    if not any(norm(line) == norm(INVENTORY_1A) for line in body.split("\n")):
+        out.append("%s `## %s` has no Table 1a (header `%s`)" % (shown, heading, INVENTORY_1A))
+    else:
+        rows = table_rows(body, INVENTORY_1A)
+        if not rows:
+            out.append("%s `## %s` Table 1a has no rows (write `none` with the search that showed it)" % (shown, heading))
+        for cells in rows:
+            cells = (cells + [""] * 7)[:7]
+            name = cells[0] or "(unnamed row)"
+            if not cells[0].lower().startswith("none") and not (evidenced(cells[2]) and evidenced(cells[3])):
+                out.append("%s Table 1a row `%s`: every writer and reader needs a file:line (or `none`)" % (shown, name))
+            if not cells[6]:
+                out.append("%s Table 1a row `%s` has no Search command" % (shown, name))
+    if heading.lower() == "plan" and not any(norm(line) == norm(INVENTORY_1B) for line in body.split("\n")):
+        out.append("%s `## Plan` has no Table 1b (header `%s`)" % (shown, INVENTORY_1B))
+    for cells in table_rows(body, INVENTORY_1B):
+        cells = (cells + [""] * 4)[:4]
+        if not cells[0].lower().startswith("none") and not evidenced(cells[1]):
+            out.append("%s Table 1b row `%s`: the sibling needs a file:line (or `none`)" % (shown, cells[0] or "?"))
+    return out
+
+
 def problems(project, kind, ticket, started=None, fp_before=None):
     """What's missing from the record, as a list of short reasons. Empty means complete."""
     path = record_path(project, kind, ticket)
@@ -150,6 +232,13 @@ def problems(project, kind, ticket, started=None, fp_before=None):
             out.append("%s has no contract table (header `%s`)" % (shown, TRIAGE_HEADER))
         elif not TRIAGE_ROW_RE.search(text):
             out.append("%s has a contract table with no `| C1 |` row" % shown)
+        if not (any(norm(line) == norm(STATE_HOMES_HEADER) for line in text.split("\n"))
+                or STATE_HOMES_NONE_RE.search(text)):
+            out.append("%s has no state-homes table (header `%s`, or `State homes: none — <reason>`)"
+                       % (shown, STATE_HOMES_HEADER))
+        for name, pattern in CHECK_LINE_RE.items():
+            if not pattern.search(text):
+                out.append("%s has no `%s:` line (triage Step 4.8)" % (shown, name))
     elif kind == "operate":
         lines = FINGERPRINT_LINE_RE.findall(text)
         if fp_before is not None and len(lines) <= fp_before:
@@ -157,6 +246,7 @@ def problems(project, kind, ticket, started=None, fp_before=None):
         elif not lines or not OPERATE_RE.match(lines[-1].strip()):  # the last Fingerprint: line is the record
             out.append("%s: its last `Fingerprint:` line isn't `Fingerprint: <64-hex>` (take it with node "
                        ".claude/scripts/kit-tools.mjs fingerprint)" % shown)
+        out.extend(inventory_problems(project, ticket, text))
     elif kind == "post-op":
         fps, results = FINGERPRINT_LINE_RE.findall(text), RESULT_LINE_RE.findall(text)
         # the closing lines are the record: the last of each
@@ -164,7 +254,8 @@ def problems(project, kind, ticket, started=None, fp_before=None):
             out.append("%s: its last `Fingerprint:` line isn't `Fingerprint: <64-hex>` (or `none (no reviewable "
                        "change)`)" % shown)
         if not results or not POSTOP_RESULT_RE.match(results[-1].strip()):
-            out.append("%s: its last `Result:` line isn't `Result: clean`, `capped` or `escalate`" % shown)
+            out.append("%s: its last `Result:` line isn't `Result: clean` or `escalate` (there is no `capped` end "
+                       "state: post-op round rule 6)" % shown)
     elif kind == "handoff":
         section = text.split("## Git state", 1)[1].split("\n## ", 1)[0] if "## Git state" in text else ""
         if not HANDOFF_BRANCH_RE.search(section):

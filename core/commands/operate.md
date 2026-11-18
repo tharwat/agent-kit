@@ -52,8 +52,51 @@ derive it now from the language, the schema or the call graph.
 | a UI state change | every effect that reads that state, and the order they flush in |
 | new branch logic on a source field | the null, empty, absent and zero-rows cases, with nullability confirmed in the schema source |
 
-Write the list down. It becomes the probe matrix in Phase 3. `docs/agent/source-layout.md` says where the schema,
-clients and consumer surfaces live. `docs/agent/sibling-paths.md` lists known pairs that must change together.
+**Write it as the dependency inventory, before the first production edit.** About half of all review findings are
+one failure: a value changed while a place that reads or writes it, or a sibling that already guards the same job,
+was missed. A list kept in your head doesn't prevent that; a table with evidence does. Write
+`.claude/state/<ticket>/inventory.md`:
+
+```
+# Inventory: <ticket>
+
+## Plan
+
+### Table 1a: readers and writers
+| Value changed | How it changes | Writers (file:line) | Readers (file:line) | What each reader assumes | Needs a change? | Search |
+|---|---|---|---|---|---|---|
+
+### Table 1b: siblings
+| New behaviour | Existing sibling (file:line) | Guards the sibling has | Copied? |
+|---|---|---|---|
+
+### Helper contracts
+- <helper> (file:line): <short-circuits> · <error shape it throws or returns> · <what "success" means>
+```
+
+- **Table 1a**, one row per value the ticket changes:
+  - a value is a column, field, enum value, status, mode, flag, the meaning of an existing value, a function's
+    return or error contract, a config key, or a response shape;
+  - list every writer and every reader, including indirect ones: anything that branches on the value, counts,
+    displays, logs or relays it to a person;
+  - each writer or reader cell holds `file:line` entries, or `none`;
+  - **Needs a change?** is `yes`, or `no` with the reason;
+  - **Search** is the exact command that found the rows, so it can be repeated. Find them by searching, never from
+    memory: the name, its literal values, and the table or column in queries, database functions, triggers, views,
+    clients, scripts and tests.
+- **Table 1b**, one row per new behaviour that does a job an existing path already does (sends a message, screens
+  input, retries, runs in a scheduled job, handles a burst, writes a status):
+  - list every guard the sibling has: error handling and retry shape, fail-closed checks, burst or coalescing,
+    time budget and fair share, synthetic or test-data refusal, idempotency and compare-and-swap, log redaction,
+    user-facing wording, and the order of its gates;
+  - **Copied?** is `yes`, or `not applicable` with the reason.
+- **Helper contracts:** before calling an existing helper, read it, and write one line on its short-circuits, the
+  error shape it throws or returns, and what "success" means.
+- No value or behaviour of a kind: one row reading `none` with the search that showed it.
+
+The inventory is also the probe matrix in Phase 3. `docs/agent/source-layout.md` says where the schema, clients and
+consumer surfaces live. `docs/agent/sibling-paths.md` lists known pairs that must change together. Check each state
+the ticket stores against the state-homes table in `triage.md`: one fact, one home.
 
 **3. Read the sibling first.** The repo usually does this already somewhere. Open that code before writing yours,
 and copy the pattern.
@@ -74,6 +117,8 @@ breaks in every case nobody listed. If the fact is known when something is writt
 | matching text or patterns to recover what a record is | a typed field written when the record is created |
 | the same rule computed in the API and in each client | one stored value, or one function, that all of them read |
 | a special-case branch for each new shape | one data shape with no special cases |
+| word lists, keyword or pattern checks, or hand-built heuristics that judge language or content | a model classification call with a fixed output schema (the cheapest option that passes the tests), or a field stored when the record is written. Hand-built classifiers grow by one check per review round |
+| one fact kept in two places, kept in step by a follow-up write or a "remember to also update" | one home, with the other read derived from it; an unavoidable copy changes in the same transaction or by a database trigger (`triage.md` state homes) |
 
 - A new nullable column, or one with a default, is the lower-risk path (the additive schema rule in
   `CLAUDE.kit.md`). It goes in the contract as a row: who writes it, the backfill, who reads it.
@@ -158,6 +203,10 @@ For a fix batch, compare against the diff the last record saved. Write the curre
 Read it as if someone else wrote it and you are paid to find the error: the characters that are there, not what you
 meant.
 
+**Re-walk the inventory against the diff.** For each Table 1a row, open every reader and writer and confirm the
+diff handles it as the row says. Add any value or behaviour the diff changes that has no row, with its search. A
+row you can't back with a `file:line` isn't done.
+
 **2. Discharge the contract and the Phase 1 probe matrix**, not one a reviewer suggests later. Fill each row's
 `Discharge` cell in `.claude/state/<ticket>/triage.md`:
 
@@ -206,6 +255,7 @@ starting" and the lenses below. Then:
 Self-review: <ticket>
 Fingerprint: <h>
 Covers: whole branch | fix batch since <previous fingerprint>
+Inventory: <the inventory.md heading this pass wrote or re-walked: Plan, or Fix batch <n>>
 Diff read: <files> · <lines> lines, read line by line against origin/<MAIN_BRANCH>
 Design: <shape chosen>; simpler alternative considered: <one>, rejected because <reason>
 Edge cases checked: <null/empty/absent, malformed, concurrent, each sibling path…>
@@ -222,16 +272,22 @@ unless it equals the current fingerprint.
 
 **Review-ready checklist.** Don't hand code to `/post-op` until:
 1. every contract row has a behavioral proof on the exact runtime path, and its named bad behavior demonstrably
-   fails it;
+   fails it, and every inventory row has been re-walked against the diff;
 2. the whole diff has been read line by line;
 3. the affected regression tests and the full suites are green, and type-check, build and syntax checks pass;
 4. every mutation ran in a disposable copy, never the active checkout;
 5. the self-review record is written for the current fingerprint.
 
 **Every fix batch comes back through this phase.** Fixes from a review round, a gate or `/peer-review` are new code.
-Before the next round, do steps 1, 7 and 8 on the **fix delta**: read it line by line, simplify it, red-team it,
-write a new record. Then ask again: *am I fixing the same mechanism a second time?* If yes, stop patching and follow
-the redesign rule (post-op Step 1.5 round rule 10).
+A third of review findings are bugs that an earlier fix introduced. A fix never goes in because "this line looks
+right".
+1. **Before the fix,** append `## Fix batch <n>` to `inventory.md`, with its own Table 1a and 1b rows for what the
+   fix changes: a value, the order of a branch, a guard, a state transition. A fix that changes a state transition
+   must match the lifecycle in `triage.md`. A path the plan doesn't have is a scope change, and goes to the owner.
+2. **After the fix,** do steps 1, 7 and 8 on the **fix delta**: read it line by line, simplify it, red-team it, and
+   write a new record whose `Inventory:` line names the batch.
+3. Then ask: *is this the second finding in the same area?* If yes, stop patching and follow the spiral rule
+   (post-op Step 1.5 round rule 10).
 
 Only now hand it to `/post-op`. Its own gates run before any external reviewer sees the code.
 
@@ -269,10 +325,12 @@ Packs may add lenses here: see the section for this command in each installed `.
 - **Never hand over code you haven't read back.** Writing it is not reading it.
 - **Never ship a pattern you haven't watched match something.**
 - **Never accept a red test without reading why it is red**, or a green one without knowing what would turn it red.
-- **Must-fix findings (S1–S4) inside the definition of done are fixed here.** Findings below the bar are noted
-  (post-op Step 1.5 round rule 2). A verified must-fix defect on the ticket's execution path is always inside it:
+- **Every real defect in code this ticket wrote is fixed here, whatever its class**, and so is a must-fix (S1–S4)
+  inside the definition of done. Only pre-existing defects below the bar are noted (post-op Step 1.5 round rule 2). A verified must-fix defect on the ticket's execution path is always inside it:
   calling it "pre-existing", or reading the ticket narrowly, never makes it safe to leave. Only a genuinely
   independent capability gets its own ticket (post-op Step 1.5, disposition "own ticket").
+- **No inventory, no edit.** A production edit made before its `inventory.md` rows exist is the first draft the
+  reviewers will spend rounds on.
 - **Slow is the point.** Every shortcut skipped here was tried, and it produced a fix round, which is slower.
 
 Why these rules exist: `docs/workflow/history/review-loop.md` (not loaded by default; where it disagrees with a rule

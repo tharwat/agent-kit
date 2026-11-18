@@ -111,8 +111,12 @@ record of what was decided, built, reviewed and verified.
    - a **consensus review round**: three reviewers with different lenses, and each finding checked by two
      verifiers who try to refute it.
 
-   Findings at severity S1–S4 must be fixed; lower ones are noted. It runs at most three rounds and ends `clean`,
-   `capped` or `escalate`. An escalation tells you exactly what it needs from you.
+   Findings at severity S1–S4 must be fixed, and so must every real defect in code the ticket wrote, whatever its
+   severity. Only pre-existing, lower-severity defects go to the tracker. Rounds continue until the code is clean.
+   A second finding in one area, or a third round that still finds defects, stops the patching: it writes a spiral
+   assessment (origins, simplest approach, state, classification in code, a recommendation) for you to decide on.
+   It ends `clean` or `escalate`, never with known defects of its own or a fix no reviewer read. An escalation
+   tells you exactly what it needs from you.
 4. **`/peer-review`** (optional) freezes the diff, then has it reviewed by a zero-context second Claude and by Codex.
    Both reviews are bound to the frozen snapshot's hash.
 5. **`/ship`** opens the PR to `main`, requires a passing `/verify`, and **asks for your yes before merging**. After

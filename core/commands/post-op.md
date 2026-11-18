@@ -1,5 +1,5 @@
 ---
-description: Run your own gates on the finished work (self-red-team, contract audit, eight gates, capped code-review rounds, lessons) and report whether it is ready to ship.
+description: Run your own gates on the finished work (self-red-team, inventory audit, contract audit, eight gates, code-review rounds until clean, lessons) and report whether it is ready to ship.
 argument-hint: "[ticket]"
 ---
 <!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
@@ -23,10 +23,11 @@ rounds (Step 1.5) and Lessons learned. It ends with a report that answers one qu
 - **B-Team and Codex reviews are not part of post-op.** They run in the optional `/peer-review`, after post-op, when
   the owner chooses: `/triage` → `/operate` → `/post-op` → `/peer-review` (optional) → `/ship`. Never launch them
   here, and never report their absence as a gap.
-- **Verified defects converge on this ticket.** A must-fix defect (round rule 2) on this ticket's execution path,
-  invariant, safety outcome or contract is fixed here: regression proof, root-cause and sibling repair, then the
-  gates again. "Pre-existing" is attribution, not permission. A separate ticket is only for an independent
-  capability.
+- **Verified defects converge on this ticket.** Every real defect in code this ticket wrote, of any class, and a
+  must-fix defect (round rule 2) on this ticket's execution path, invariant, safety outcome or contract are fixed
+  here: regression proof, root-cause and sibling repair, then the gates again. "Pre-existing" is attribution, not
+  permission. A separate ticket is only for an independent capability. The ticket ends clean or goes to the owner:
+  it never ends with known defects of its own (round rules 3 and 6).
 - **The gates are static and check conventions.** None runs the changed code against real services, so a green
   post-op is not "validated": that is `/verify`, run by `/ship` before merge. Nor do they attack the diff: the
   self-red-team does. A diff can pass every gate and still hold a dead path, impossible user-facing copy, or a race.
@@ -71,6 +72,18 @@ and record what each probe covered, so a skip is visible.
   `docs/agent/defect-classes.md`, as a checklist, not from memory.
 - **Multi-writer and race.** Trace every writer/reader pair the diff touches, and each interleaving: read-then-write
   windows, mid-flight events, webhook replays, concurrent submissions. Name the ones accepted as bounded, and why.
+- **Inventory audit.** Open `.claude/state/<ticket>/inventory.md` (`/operate` Phase 1 step 2) and the state-homes
+  table in `triage.md`, and walk the final diff against them:
+  - every value the diff changes has a Table 1a row, and its readers and writers were re-walked against this diff;
+  - every new behaviour has a Table 1b row, with every guard its sibling has, copied or not applicable with a
+    reason;
+  - every fix batch has its `## Fix batch <n>` section;
+  - every stored state matches its one home.
+
+  A missing or stale row fails the self-red-team. The work goes back to `/operate` Phase 1 step 2 for that row,
+  never on to review.
+- **Deliberate markers.** Every `Deliberate (decided R<n>-<k>)` comment in the diff names an id in
+  `.claude/state/<ticket>/review-rounds.md`, and the code under it still matches the recorded reason.
 
 Sort each self-red-team finding into one of two kinds:
 - **Auto-fix:** mechanical, unambiguous and low-risk, such as a missing or wrongly formatted log line, an unmasked
@@ -152,7 +165,9 @@ origin/<MAIN_BRANCH>` with the last `Fingerprint:` line in `.claude/state/<ticke
      "prior": [{ "finding": "...", "disposition": "..." }], "savedDiff": "<previous round's saved diff, rounds 2+>",
      "scratchDir": "<session scratch dir, else .claude/state/tmp>" }
    ```
-   Running it is part of this command and needs no separate opt-in.
+   `prior` is the **decided list**: every earlier finding, as `"R<n>-<k>: <finding>"`, with its disposition, plus
+   the standing items. Reviewers and verifiers both get it, so an already-decided item comes back only with new
+   evidence. Running the workflow is part of this command and needs no separate opt-in.
 3. **Fallback, when the Workflow tool is unavailable:** run `/code-review high` (Skill `code-review`, args `high`).
    It is built into Claude Code, not shipped by the kit; if this session doesn't list it, the round didn't run
    (`⚠️ Not run`). Codex has neither, so it skips Step 1.5 and records `⏭️ Skipped — Codex`. Never `ultra` (the
@@ -173,30 +188,46 @@ origin/<MAIN_BRANCH>` with the last `Fingerprint:` line in `.claude/state/<ticke
 
    After the review: read `<saved>` again. If it is `none`, run `git branch --unset-upstream`; if it is a branch, run
    `git branch --set-upstream-to=<saved>`; if it is `restored` or empty, do nothing. Then write `restored` into the
-   file. It is marked `restored`, never removed. Verify the fallback's findings yourself, as in step 6.
+   file. It is marked `restored`, never removed. Verify the fallback's findings yourself, as in step 6. The
+   built-in review takes no extra instructions, so match each finding against the decided list yourself (same
+   file and symbol, same claim) and mark matches `repeat` (round rule 4), then give each real finding its origin
+   (round rule 2).
 4. **Wait for the completion notification** before writing the report. Don't call `ReportFindings`.
 5. **Check what it reviewed:** the whole branch against `origin/<MAIN_BRANCH>` (the workflow's `base`; for the
    fallback, paste the `must print` output into the row). A failed reviewer, a wrong base or `round_ran: false`
    (fewer than 2 of 3 reviewers returned) means the round didn't run: run it again. A partial review is not a round.
-6. **Use the votes, then check before fixing.** `rejected` and `repeats` were decided by 2 agreeing votes and need
-   no more work. `noted` is recorded as is. `redesign_signal.recommended` is round rule 10 trigger (c).
+6. **Use the votes, then check before fixing.** `rejected`, `repeats` and `nits` were decided by 2 agreeing votes
+   and need no more work. `noted` (pre-existing, below the bar) is recorded as is. `must_fix` holds every real
+   defect to fix here: S1–S4, plus the ticket's own code at any class. Each finding carries its `origin`, and
+   `origins` gives the round's counts (round rule 8). `redesign_signal.recommended` is round rule 10 trigger (c).
    `unverified` (verifiers died before 2 agreed): verify each yourself before the round counts. Before fixing a
    `must_fix` item, confirm the evidence at its `file:line`; disagree only with new evidence, as `rejected`.
 
-**Every finding is a lead, not a fact.** Check it against the code and how the app really behaves. Give it a class
-(round rule 2) and one disposition, starting with its word exactly as below (the workflow matches earlier
-dispositions by leading word):
-- **`must-fix`** (S1–S4): real, with `<file:line>` evidence. Fix it on this ticket now, with no owner question:
-  first check the redesign triggers (round rule 10), then a regression test that fails without the fix, the
-  root-cause and sibling repair, `/operate` Phase 3 steps 1, 7 and 8 on the fix delta, and gates 1–8 again.
-- **`noted`**: real, below the bar. Don't fix it. Record it with where, effect and suggested fix (round rule 8). The
-  closing step files it on the tracker (round rule 11).
+**Every finding is a lead, not a fact.** Check it against the code and how the app really behaves. Give it an id
+`R<round>-<k>`, a class and an origin (round rule 2), and one disposition, starting with its word exactly as below
+(the workflow matches earlier dispositions by leading word):
+- **`must-fix`**: real, with `<file:line>` evidence, and either in code this ticket wrote (origin `first-draft` or
+  `fix-introduced`, any class) or a pre-existing S1–S4 defect on the ticket's path. Fix it on this ticket now, with
+  no owner question, in this order: the redesign triggers first (round rule 10); the fix inventory (`/operate`,
+  "Every fix batch"); a regression test that fails without the fix; the root-cause and sibling repair; `/operate`
+  Phase 3 steps 1, 7 and 8 on the fix delta; gates 1–8 again. A fix that changes a state transition must match the
+  lifecycle in `triage.md`. A path the plan doesn't have is a scope change, so it is `needs owner`.
+- **`noted`**: real, **pre-existing** and below the bar. Don't fix it. Record it with where, effect and suggested fix
+  (round rule 8). The closing step files it on the tracker (round rule 11).
+- **`nit`**: no wrong behaviour (style, naming, refactor, test polish, wording, unmeasured performance). Not fixed,
+  not filed: one line in the round record.
 - **`own ticket`**: a genuinely independent capability, never a defect on the ticket's own path. Run ticket op
   **search** first. If an open ticket covers it, add the finding there with ticket op **comment**. Otherwise use
   ticket op **create** in the backlog with the finding and evidence (parent: the ticket's epic, if any; labels per
   `.claude/rules/ticket-ops.md`). Record the key and carry on.
-- **`rejected`**: disproved, with the evidence.
-- **`already decided`**: an owner decision covers it. Quote where it is recorded.
+- **`rejected`**: disproved, outside the threat model, or unreachable, with the evidence. When it upholds a
+  deliberate design choice, write the reason at the site as a code comment:
+  `Deliberate (decided R<n>-<k>): <the concern> — <why it is right> — <evidence>`. Write a reason, never "ignore
+  this": a reviewer who can show the reason is wrong must still flag it. The marker covers only the concern it
+  names. If the code under it changes, re-check the marker in the same change.
+- **`already decided`**: an owner decision covers it. Quote where it is recorded. A process item that stays true
+  until ship ("the migration isn't applied yet", "the env var isn't set") is recorded once as `already decided —
+  standing until ship`, gets no code marker, and is passed to every later round.
 - **`needs owner`**: a product decision code can't settle. Don't stop the round. Collect it for the one escalation
   (round rule 6). Post-op doesn't pass while one is unanswered.
 - **`repeat`**: see round rule 4.
@@ -210,109 +241,170 @@ This section is the one definition. Other commands cite it as "round rule N".
    user-facing copy, config the code reads, and the files that drive agents (`.claude/`, `CLAUDE.md`,
    `CLAUDE.kit.md`, `AGENTS.md`, `.agents/`) all count. This is not the "executable change" that decides the
    Self-red-team and Contract-audit rows.
-2. **Severity bar.** A verified finding is must-fix only in one of these classes:
+2. **Severity bar and origin.** A verified finding has a class:
    - **S1 data integrity:** data loss or corruption, wrong or irreversible writes, cross-tenant exposure.
    - **S2 auth and security:** lock-out, privilege or access-control holes, PII in logs, leaked secrets, injection or
      unsafe input, an unverified webhook.
    - **S3 `<CRITICAL_DOMAIN>`:** a wrong result in the logic that must never be wrong here.
    - **S4 the ticket's own behaviour:** it breaks a contract row or pre-code vector, or the changed flow crashes or
      returns a wrong result on input production realistically sends.
+   - **noted:** any other real wrong behaviour.
+   - **nit:** no wrong behaviour at all: style, naming, refactors, test polish, wording, extra logging, unmeasured
+     performance.
 
-   Everything else is **noted**: style, naming, refactors, test polish, wording, extra logging, unmeasured
-   performance, unreachable paths, and anything needing a deliberately hostile author or an input outside the
-   threat model. Classify by what the defect does to users or data, never by the size of the fix. Between S4 and
-   noted, read the contract: breaking a row or vector is S4. No threat-model / out-of-scope line in the contract:
-   write one from the acceptance criteria before classifying, and show it in the round record and the summary.
-3. **At most three rounds per ticket**, counted per ticket, not per run. Continue the count from the round records
-   (round rule 8): the state file, or the `Review round` comments from ticket op **get** when it is missing. Every
-   round reviews the branch against `origin/<MAIN_BRANCH>` and saves the diff it reviewed. Round 1 covers the whole
-   branch. Every later round (including owner-granted and post-redesign rounds) looks first at the **fix delta**: the
-   previous round's saved diff against the current one, plus the functions those lines sit in. The delta holds every
-   fix since, from any source, committed or not. It sets where the reviewer looks first, not what counts: a verified
-   finding anywhere is classed like any other. Rounds run without asking, attended or not, and never create or move
-   branches. The only ways past three are one redesign (round rule 10) and one owner-granted round (round rule 6).
-   "The cap is used up" means the current count is three, or four with an owner-granted round.
-4. **Repeats.** A finding that repeats an earlier `rejected`, `noted`, `own ticket` or `already decided`
-   disposition is marked `repeat` (citing the round) and never counts as new. A finding fixed in an earlier round
-   that comes back is **not** a repeat: the fix didn't hold, so treat it as new.
+   Inputs outside the threat model, a deliberately hostile author and unreachable paths are not real: `rejected`.
+   Classify by what the defect does to users or data, never by the size of the fix. Between S4 and noted, read the
+   contract: breaking a row or vector is S4. No threat-model / out-of-scope line in the contract: write one from
+   the acceptance criteria before classifying, and show it in the round record and the summary.
+
+   It also has an **origin**: `first-draft` (a line this branch wrote), `fix-introduced` (a line an earlier round's
+   fix added or changed, which is inside the fix delta) or `pre-existing` (unchanged from `origin/<MAIN_BRANCH>`).
+   **Every real defect in code this ticket wrote is fixed on this ticket, whatever its class.** The S1–S4 bar
+   decides only pre-existing defects: S1–S4 on the ticket's path is must-fix, and the rest is noted. A ticket's own
+   bugs never go to the tracker.
+3. **Rounds run until the code is clean.** The count is a checkpoint, not an exit, and it is counted per ticket,
+   not per run. Continue the count from the round records (round rule 8): the state file, or the `Review round`
+   comments from ticket op **get** when it is missing. Every round reviews the branch against
+   `origin/<MAIN_BRANCH>` and saves the diff it reviewed.
+   - Round 1 covers the whole branch.
+   - Every later round (including owner-granted and post-redesign rounds) looks first at the **fix delta**: the
+     previous round's saved diff against the current one, plus the functions those lines sit in. The delta holds
+     every fix since, from any source, committed or not. It sets where the reviewer looks first, not what counts:
+     a verified finding anywhere is classed like any other.
+   - Rounds run without asking, attended or not, and never create or move branches.
+   - Round 3 brings the design review (round rule 10 trigger d). One redesign allows three more rounds, and the
+     owner may grant one extra round (round rule 6).
+   - **The limit is reached** at three rounds with no redesign, or six after one, plus any owner-granted round.
+     Reaching it with work left escalates. It never ends the work quietly, and nothing is filed away to make it
+     end.
+4. **Repeats.** A finding that repeats an earlier `rejected`, `noted`, `nit`, `own ticket` or `already decided`
+   disposition is marked `repeat` (citing its id) and never counts as new. A finding fixed in an earlier round
+   that comes back is **not** a repeat: the fix didn't hold, so it is new, and it is redesign trigger (a).
 5. **A round is due** when a reviewable change landed after the last round (a must-fix, a gate fix, a
-   `/peer-review` fix) and the cap allows another round. Noted items, rejected leads and repeats change no code, so
-   they never make a round due. Re-run gates 1–8 before each round. With the cap used up, the change is a post-cap
-   fix (round rule 7).
-6. **End states.** When no round is due and no redesign is in progress, take the **first** line that matches:
-   1. **`escalate`:** a needs-owner finding is open; **or** the cap is used up and an S1–S3 must-fix was found in the
-      last round or fixed after it; **or** round rule 10 escalates.
-   2. **`capped`:** the cap is used up, and the last round found a must-fix or a post-cap fix was made. All are S4
-      or below, and all are fixed.
-   3. **`clean`:** anything else. The last round found no new must-fix and nothing changed after it.
+   `/peer-review` fix). Noted items, nits, rejected leads and repeats change no code, so they never make a round
+   due. Re-run gates 1–8 before each round. **No change ships unreviewed:** with the limit reached, don't make the
+   change. Escalate it (round rule 6).
+6. **End states.** When no round is due and no assessment or redesign is in progress, take the **first** line that
+   matches:
+   1. **`escalate`:** a needs-owner finding is open; **or** a spiral assessment waits for the owner (round rule
+      10); **or** the limit is reached and the last round found a must-fix.
+   2. **`clean`:** anything else. The last round ran on the final code (round rule 7) and found no new must-fix.
 
-   A round rule 10 escalation doesn't wait for this table. Send it when the trigger fires; the loop pauses for the
-   answer, then continues with it.
+   **Escalating:** send **one** message to the owner. Attended: ask in the session. Unattended: post it with
+   ticket op **comment** `<ticket>` and Notify (Step 3), and pause the loop. It holds every open item: the finding
+   in plain language, its evidence and origin, the proposed fix (not applied), a recommendation, and options each
+   with a pro and a con. Typically:
+   - **redesign as the spiral assessment proposes**, offered only while no redesign has run;
+   - **one more round on the fix**, which grants exactly one round past the limit, is recorded as
+     `extra_round: true`, and is offered only while none has been granted;
+   - **re-scope the ticket**;
+   - **ship with these named defects**: the owner accepts each defect by name.
 
-   **Escalating:** fix any S1–S3 finding anyway (regression test and gates), then send **one** message to the owner.
-   Attended: ask in the session. Unattended: post it with ticket op **comment** `<ticket>` and Notify (Step 3). It
-   holds every open item: the finding in plain language, the evidence, the fix made, a recommendation, and options
-   each with a pro and a con. Typically: **accept and ship**; **one more round on the fix** (grants exactly one
-   round past the cap, recorded as `extra_round: true`, offered only while none has been granted); **revert the fix
-   and re-scope**. Post-op doesn't pass until the answer is recorded, and the answer is applied without another
-   question. A round that fails or doesn't cover its branch is not a round: run it again.
-7. **Covered** (needed for every passing status): no round is due; the end state is `clean`, `capped` or an
-   answered `escalate`; and every reviewable change after the last round is a post-cap fix. A post-cap fix is any
-   change made once the cap is used up. It needs gates 1–8 and the self-red-team, and is listed in the summary. A
-   post-cap fix of an S1–S3 issue escalates (round rule 6).
+   The answer is recorded and applied without another question. A redesign or an extra round continues the loop,
+   and the end state is taken again afterwards. The only passing `escalate` is an answered **ship with these named
+   defects**: the closing step files those defects (round rule 11). A round that fails or doesn't cover its branch
+   is not a round: run it again.
+7. **Covered** (needed for every passing status): no round is due, and the last round reviewed the current code.
+   Compare its saved diff with the current diff: nothing but code comments and plain docs (round rule 1) may have
+   changed, so a `Deliberate` marker added after a round keeps the code covered. There are no post-cap fixes: a
+   reviewable change after the last round makes a round due, or, with the limit reached, escalates.
 8. **Record each round** as one block in `.claude/state/<ticket>/review-rounds.md`, and post the same block with
    ticket op **comment** `<ticket>`, first line `Review round <n>: <ticket>` (the record marker in
-   `docs/workflow/ticket-ops.md` §3; `/ship` reads it). Include: the saved diff's path and fingerprint; every finding
-   with its class and disposition; each `noted` item with **where**, **effect** and **suggested fix** (the closing
-   step copies them); tickets created; the end state; any owner answer verbatim; and any `redesign:` line.
+   `docs/workflow/ticket-ops.md` §3; `/ship` reads it). Include:
+   - the saved diff's path and fingerprint;
+   - every finding with its id, class, origin and disposition;
+   - an `Origins:` line (`first-draft <a> · fix-introduced <b> · pre-existing <d> · not a defect <e>`, where `e`
+     counts rejected, repeats and nits). This is how a project measures whether its first drafts are improving;
+   - each `noted` item with **where**, **effect** and **suggested fix** (the closing step copies them);
+   - the standing items;
+   - tickets created;
+   - the end state;
+   - any owner answer, verbatim;
+   - any `redesign:` line and spiral assessment.
 9. **Attended and unattended runs follow the same rules.** Only how an escalation reaches the owner differs (round
    rule 6). Plain post-op and packs that run it (ticket trains) all use rules 1–11.
-10. **Patch spiral → redesign, not another patch.** In every round from round 2 on, after verifying the findings and
-    **before fixing any**, check the triggers:
-    - (a) a finding shows an earlier fix didn't work: the same defect is back, or the fix is the defect. An
-      unrelated finding in the same function doesn't count;
-    - (b) must-fix findings in two or more rounds come from the same mechanism (function, rule or inference);
+10. **Patch spiral → stop and assess before any edit.** In every round from round 2 on, after verifying the
+    findings and **before fixing any**, check the triggers:
+    - (a) a finding shows an earlier fix didn't work: the same defect is back, or the fix is the defect;
+    - (b) a **second** real finding (any class but nit) in the same area as an earlier one, in this round or an
+      earlier one. "Same area" means the same mechanism, rule, inference, piece of state, or flow. An unrelated
+      finding that only shares a function doesn't count;
     - (c) a reviewer or verifier recommends a redesign with a concrete simpler shape. With the fallback, the agent
-      verifying the round answers `design: ok | redesign recommended — <simpler shape>`.
+      verifying the round answers `design: ok | redesign recommended — <simpler shape>`;
+    - (d) round 3 or later finds a must-fix in code this ticket wrote.
 
-    The typical simpler shape is a stored fact replacing inference (`/operate` Phase 1 step 6). If a trigger fires,
-    stop patching and write a design note on the ticket (ticket op **comment**): what keeps breaking, the shape
-    that causes it, the simpler shape (what is stored, who writes it, who reads it, the backfill), what code it
-    removes, and which contract rows change. Then:
-    - **It stays inside the contract and hits no Owner-Kept Gate** (a Critical System change is fine; run the
-      Critical Systems checks in `CLAUDE.kit.md`): implement it with `/operate` from Phase 1 step 6 through Phase
-      3, **replacing** the patched code. This starts a new count of up to three rounds, and its round 1 reviews the
-      whole branch. At most **once per ticket**. A trigger after the redesign escalates.
-    - **It needs an Owner-Kept Gate or changes the contract's scope:** escalate now, with the design note and the
-      options **redesign as proposed** / **keep patching under the cap** / **re-scope the ticket**, each with a pro
-      and a con.
+    If a trigger fires, **stop editing**. Write a **spiral assessment** into `review-rounds.md`, and post it with
+    ticket op **comment** (first line `Spiral assessment: <ticket>`). Cite specific findings, and say where the
+    evidence is inconclusive:
+    1. **Origins.** For every finding so far: first-draft, fix-introduced, or a gap in the requirements or the
+       verification; an isolated defect, or a symptom of one shared design problem.
+    2. **Simplest approach.** Back to the original requirements: is this approach still the simplest that meets
+       them? What logic can be removed, consolidated or redesigned while keeping the behaviour existing callers
+       rely on? Several findings from one cause get one fix at that level.
+    3. **State.** Is the same state inferred again and again from scattered fields, logs or side effects? Would an
+       explicit status in an existing record or a durable store be simpler? List the valid states, who may change
+       each, and what happens on retries, failures and concurrent updates. If the state can be derived reliably
+       from an existing source, say why that is simpler. Check the state-homes table in `triage.md`: one fact, one
+       home.
+    4. **Self-check.** Read the full diff line by line, and trace the affected paths end to end, including existing
+       data and partial failures. For each earlier fix that touched shared logic, list what depends on it. Report
+       the checks actually run, what they showed, and what still needs verifying.
+    5. **Classification in code.** Is code using word lists, keyword or pattern checks, or hand-built heuristics to
+       judge language or content? Those grow with every round. Name the alternative: a model classification call
+       with a fixed output schema (the cheapest option that passes the tests), or a field stored when the record
+       is written.
+    6. **Recommendation.** **Targeted fix**, **simplify <part>** or **redesign <flow>**. Say why, what would change,
+       which test would prove the root cause is fixed without breaking existing behaviour, what evidence would
+       close the review, and what would justify another round. A redesign note says what is stored, who writes
+       it, who reads it, the backfill, the code it removes, and which contract rows change.
 
-    Record `redesign: <trigger> → <decision>`. While a redesign is in progress, the loop has no end state. A ticket
-    can have at most three rounds, plus three after one redesign, plus one owner-granted round.
-11. **Open items go to `<OPEN_ITEMS_TICKET>`.** A noted finding kept only on its own ticket is lost when that ticket
-    closes. **One writer, at one moment:** the step that closes the ticket (`/ship`, or a pack that closes
-    tickets) writes **one** comment on `<OPEN_ITEMS_TICKET>` with ticket op **comment**, before closing, from the
-    records already on the ticket. Never a ticket per finding. Post-op and `/peer-review` only record items on the
-    ticket.
-    - **Filed:** every `noted` item in the round records, every item in a `Noted for the tracker` comment (from
-      `/peer-review`, or a pack's `/security` audit), and every noted sibling, pre-existing gap or accepted bounded race the records name.
+    **The owner decides** (round rule 6 escalation, options from the recommendation, each with a pro and a con).
+    Make no edit until the answer is recorded.
+    - **Redesign:** implement it with `/operate` from Phase 1 step 2 (a fresh inventory) through Phase 3, starting
+      from the state-homes table, **replacing** the patched code. Run the Critical Systems checks in
+      `CLAUDE.kit.md` where they apply. This starts a new count of up to three rounds, and its round 1 reviews the
+      whole branch. At most **once per ticket**: a trigger after it escalates again with a fresh assessment, and
+      without the redesign option.
+    - **Targeted fix** or **simplify:** carry on with the fix steps, then the next round.
+
+    Record `redesign: <trigger> → <decision>`. While an assessment or a redesign is in progress, the loop has no end
+    state.
+11. **Open items go to `<OPEN_ITEMS_TICKET>`.** It holds only work that isn't this ticket's own defect. A noted
+    finding kept only on its own ticket is lost when that ticket closes. **One writer, at one moment:** the step
+    that closes the ticket (`/ship`, or a pack that closes tickets) writes **one** comment on
+    `<OPEN_ITEMS_TICKET>` with ticket op **comment**, before closing, from the records already on the ticket. Never a
+    ticket per finding. Post-op and `/peer-review` only record items on the ticket.
+    - **Filed:**
+      - every `noted` item in the round records (pre-existing, below the bar);
+      - every item in a `Noted for the tracker` comment (from `/peer-review`, or a pack's `/security` audit);
+      - every pre-existing gap or accepted bounded race the records name;
+      - every defect the owner accepted by name, tagged `accepted by owner`.
+
+      Never a must-fix or a nit.
     - **Format:** `## <ticket> — <title> (closed <date>; round records <comment refs>)`, then one numbered item
       each: **where** (`file:line` or function), **effect** (what happens, to whom), **why it was left open** (class,
-      pre-existing or not), **suggested fix and test**, tagged `(worth fixing)` or `(minor)`, plus `· S3` when it
-      touches `<CRITICAL_DOMAIN>` logic.
+      origin, or owner acceptance), **suggested fix and test**, tagged `(worth fixing)` or `(minor)`, plus `· S3`
+      when it touches `<CRITICAL_DOMAIN>` logic.
     - **Marker** on the source ticket, first line: `Open items (PR #<N>): <OPEN_ITEMS_TICKET> comment <id>`, or
       `Open items (PR #<N>): none` (then nothing is filed). One marker per PR, so a reopened ticket files only items
       recorded after its previous marker.
     - `<OPEN_ITEMS_TICKET>` stays open. A later ticket that fixes an item replies on that item's comment:
       `fixed in <ticket>`.
 
-**Code review row.** Passing: `✅ Clear` (end state `clean`, no must-fix in any round, covered); `✅ N found, N
-resolved` (end state `clean`, `capped` or answered `escalate`, every finding disposed of, covered);
-`⏭️ Skipped — no reviewable change` (docs only); `⏭️ Skipped — Codex` (Codex has no Workflow tool or `/code-review`,
-and never claims a review ran). Not passing: `⚠️ Escalated` (waiting on the owner), `⚠️ N open` (a must-fix isn't
-fixed), `⚠️ Not run` (the review failed, didn't cover the branch, or the code isn't covered). Summary: one line, such
-as "base origin/<MAIN_BRANCH> · 3 rounds · capped: 14 found, 5 fixed (2 post-cap), 6 noted, 1 own ticket, 2
-rejected".
+**Code review row.** Passing:
+- `✅ Clear`: end state `clean`, no must-fix in any round, covered;
+- `✅ N found, N resolved`: end state `clean`, every finding disposed of, covered;
+- `✅ Accepted by owner`: an answered `escalate` that ships named defects, covered;
+- `⏭️ Skipped — no reviewable change`: docs only;
+- `⏭️ Skipped — Codex`: Codex has no Workflow tool or `/code-review`, and never claims a review ran.
+
+Not passing:
+- `⚠️ Escalated`: waiting on the owner, including a spiral assessment;
+- `⚠️ N open`: a must-fix isn't fixed;
+- `⚠️ Not run`: the review failed, didn't cover the branch, or the code isn't covered.
+
+Summary: one line, such as "base origin/<MAIN_BRANCH> · 2 rounds · clean: 9 found (first-draft 5 · fix-introduced 1
+· pre-existing 1 · not a defect 2), 6 fixed, 1 noted, 2 rejected".
 
 ---
 
@@ -341,7 +433,8 @@ Contract audit:
   C1 | <exact input> | <observable asserted> | <mutation applied> | <counterfactual result>
 
 Code review findings (one line each):
-  [R1] <finding> — <file:line> — <class> — <disposition>
+  [R1-1] <finding> — <file:line> — <class> · <origin> — <disposition>
+Origins: first-draft <a> · fix-introduced <b> · pre-existing <d> · not a defect <e>
 
 Peer review: not run | CLEAN <snapshot_hash> | UNRESOLVED
 Recorded for the tracker: <N> noted (filed on <OPEN_ITEMS_TICKET> when the ticket closes) | 0
@@ -368,9 +461,10 @@ Owner action: none | <the one decision needed now>
 lines:
 ```
 Fingerprint: <output of node .claude/scripts/kit-tools.mjs fingerprint --base origin/<MAIN_BRANCH>, on this tree>
-Result: clean | capped | escalate
+Result: clean | escalate
 ```
-`Result` is the end state (round rule 6); `escalate` is written only once the owner's answer is recorded. On a
+`Result` is the end state (round rule 6); `escalate` is written only once the owner has answered **ship with these
+named defects**. Any other answer continues the loop. On a
 docs-only branch, write `Fingerprint: none (no reviewable change)` and `Result: clean`. On a Codex run, `Result:
 clean` means the gates passed and the report's Code review row says `⏭️ Skipped — Codex`. `/ship` reads this file
 for its covered check, so write it last, after every fix. Then run
@@ -417,7 +511,8 @@ Owner action: <none | the action>
   fix, invalidates the gate verdicts: re-run gates 1–8, or mark the ones not re-run.
 - Only the closing step writes to `<OPEN_ITEMS_TICKET>` and the `Open items (PR #<N>)` marker, so a later
   `/peer-review` can still add items.
-- Never defer, downsize or split a real S1–S4 defect on the ticket's path.
+- Never defer, downsize or split a real S1–S4 defect on the ticket's path, or any real defect in code this ticket
+  wrote. Filing it on the tracker is deferring it.
 
 Why these rules exist: `docs/workflow/history/review-loop.md` (not loaded by default; where it disagrees with a rule
 here, the rule wins).

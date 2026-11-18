@@ -251,6 +251,16 @@ test("code_review: rounds never decrease and stay under the cap", () => {
   assert.throws(() => patch(granted, "ABC-1", { code_review: { ...cr } }), /extra_round cannot be taken back/);
 });
 
+test("code_review: no capped end state; nit is a disposition and a class (kit 1.8.0)", () => {
+  const cr = { rounds: 1, extra_round: false, redesign: null, end_state: null, self_review: null, dispositions: [{ round: 1, finding: "x", class: "S4", disposition: "must-fix" }] };
+  const s = train([ticket("ABC-1", { code_review: cr })]);
+  assert.throws(() => patch(s, "ABC-1", { code_review: { ...cr, end_state: "capped" } }), /no capped end state/);
+  assert.equal(patch(s, "ABC-1", { code_review: { ...cr, end_state: "clean" } }).revision, 1);
+  assert.equal(patch(s, "ABC-1", { code_review: { ...cr, end_state: "escalate" } }).revision, 1);
+  const nit = { round: 1, finding: "rename helper", class: "nit", disposition: "nit" };
+  assert.equal(patch(s, "ABC-1", { code_review: { ...cr, dispositions: [...cr.dispositions, nit] } }).revision, 1);
+});
+
 test("done and needs_verify need a PR, every row discharged, nothing open", () => {
   const base = triaged("ABC-1", { state: "in_progress" });
   const s = train([base]);

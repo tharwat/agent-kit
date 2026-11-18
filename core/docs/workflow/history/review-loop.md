@@ -70,9 +70,10 @@ session. If it and a rule disagree, the rule wins.
   branch's upstream for good made `git status` and `git pull` act on the main branch. A session can die between the
   switch and the restore, so the old value is saved to a file first, the next run repairs from it, and the file is
   marked `restored` rather than removed.
-- **A cap, not an owner gate per round.** Every fix is new code, so a reviewer always finds something. An uncapped,
-  owner-gated loop ran 12–20 rounds per ticket and needed the owner at each one. The cap (three, three more after
-  one redesign, one owner-granted) gives the loop a stopping condition other than the owner.
+- **A cap, not an owner gate per round (superseded in 1.8.0).** Every fix is new code, so a reviewer always finds
+  something. An uncapped, owner-gated loop ran 12–20 rounds per ticket and needed the owner at each one. The cap
+  (three, three more after one redesign, one owner-granted) gave the loop a stopping condition other than the
+  owner. It also let a ticket stop with defects left. See "Quality first" below.
 - **Severity bar.** Without it, style notes and theoretical edge cases each bought another round. Classing by what a
   defect does to users or data, not by the size of the fix, keeps the must-fix set honest.
 - **Threat-model line.** Guards, checkers, parsers and sanitizers ran four or more rounds on inputs nobody would
@@ -100,4 +101,50 @@ session. If it and a rule disagree, the rule wins.
 - **Dedup merges only exact twins** (same file, line and class, from different lenses), so every vote is about one
   claim.
 - **`REPEATABLE` matches by leading word**, so post-op's disposition words must stay exactly `rejected`, `noted`,
-  `own ticket` and `already decided`.
+  `nit`, `own ticket` and `already decided`.
+- **Reviewers get the decided list (1.8.0).** Only the verifiers used to see earlier decisions, so reviewers raised
+  the same decided items every round, and the verifiers spent votes marking them as repeats.
+- **`origin` is a vote like class (1.8.0).** It decides whether a below-bar defect is fixed (the ticket's own code)
+  or noted (pre-existing), so it has to be agreed, not guessed by one agent.
+
+## Quality first (1.8.0)
+
+The owner's diagnosis was that the agent writes defective code and the loop then spirals trying to fix it. A
+root-cause study of four multi-round tickets (19 rounds, 132 findings, every finding classified by an independent
+agent) found:
+- **Real defects: 76.** 67% were in the first draft, and 33% were introduced by an earlier round's fix. In late
+  rounds, the fix-introduced ones dominated: some tickets' last two rounds found only bugs that earlier fixes added.
+- **41% of all findings were not defects,** mostly the same already-decided items raised again every round.
+- **About half the real defects were one failure:** a value or behaviour changed without listing everything that
+  reads it, writes it, or already does the same job with its own guards. Notes in memory ("name the sibling",
+  "store the fact") were already there and the bugs recurred. A note does not prevent a bug; a step that must
+  produce checked written output does.
+- **Every ticket had one design that kept the same fact in two places**, or stored two independent facts as one.
+  Each fix broke the next thing until the design was rebuilt.
+- **Some defects started in the plan:** a contract row contradicting a decision, a state whose lifecycle was never
+  settled, an engineering default on a safety path applied without asking.
+- **Process slips:** fixes applied after the last round that no reviewer read, and reviewers never told what had
+  already been decided.
+
+What changed, and why:
+- **Triage plan self-check** (state homes, contradiction check, lifecycle check, safety defaults) addresses defects
+  that start before code.
+- **The dependency inventory** (`inventory.md`, checked by `check-record.py`) addresses the missed reader, writer
+  and sibling, the largest root cause. It has to exist before the first production edit, and every fix batch adds
+  its own.
+- **The spiral rule fires at the second finding in one area**, not after must-fix findings in two rounds. Round 3
+  finding the ticket's own defects also fires it. The assessment comes from the owner's standing "pause and
+  reassess" prompt (origins, simplest approach, state, self-check, classification in code, recommendation). The owner
+  decides, because patching without that decision was what spiralled.
+- **No `capped` end state.** The cap ended tickets with known defects and with fixes that shipped unread. The ticket
+  now ends clean, or the owner explicitly accepts named defects.
+- **Origin over severity for the ticket's own code.** Below-bar defects in code the ticket wrote went to the tracker
+  and were never fixed. Only pre-existing defects are filed now; nits are not filed at all.
+- **Hand-built classifiers.** Word lists and pattern checks that judge language grew by one check per round. The
+  design step and the spiral assessment now ask whether a model classification call, or a stored field, replaces
+  them.
+
+How to tell it worked: every round record carries an `Origins:` line. Over the next tickets, compare with the
+study's baseline (about 13 first-draft and 6 fix-introduced defects per ticket, 41% not-a-defect findings, about
+4.75 rounds per ticket). The targets: first-draft defects well under half, fix-introduced defects at 0–1, noise under
+15%, and 1–2 rounds.

@@ -14,7 +14,7 @@ every session. If this file and a rule disagree, the rule wins.
   "bypasses" that needed a deliberately hostile author. One loop ran four rounds that way. The line marks those
   findings `noted`.
 - **Mandatory sweeps.** When triage skipped the consumer sweep, the gaps came back mid-review as new findings, each
-  costing one of the capped rounds, and several turned into deferral tickets. A sweep at triage is cheaper.
+  costing a review round, and several turned into deferral tickets. A sweep at triage is cheaper.
 - **Adjacent gaps go in the contract.** Deferring an edge case on the same execution path left a known defect
   shipped. Finishing the feature safely includes it.
 - **Null / empty source check.** A nullable field fed new logic, and for a noticeable share of rows the check

@@ -84,7 +84,9 @@ reference them by path.
 | S3 | `<CRITICAL_DOMAIN>` |
 | S4 | The ticket's own behaviour: a contract row not met |
 
-S1–S4 findings are must-fix. Everything else is `noted` and goes to the open-items tracker.
+S1–S4 findings are must-fix, and so is every real defect in code the ticket wrote (origin `first-draft` or
+`fix-introduced`), whatever its class. Only pre-existing defects below the bar are `noted` and go to the open-items
+tracker. A finding with no wrong behaviour is a `nit`: not fixed, not filed.
 
 ## 6. Owner-Kept Gates and Critical Systems
 
@@ -139,10 +141,11 @@ A post-merge failure is fixed forward on a new ticket and alerts the owner.
 
   | File | Holds |
   |---|---|
-  | `triage.md` | Contract copy and hand-off |
-  | `self-review.md` | Contains `Fingerprint: <h>` |
-  | `review-rounds.md` | One block per round |
-  | `post-op.md` | Contains `Fingerprint: <h>` and `Result: clean\|capped\|escalate`. `clean` with a `⏭️ Skipped — Codex` review row means the gates passed and the review round was skipped |
+  | `triage.md` | Contract copy and hand-off, plus the plan self-check: the state-homes table and the `Contradiction check:` and `Lifecycle check:` lines |
+  | `inventory.md` | The dependency inventory: `## Plan` (Table 1a readers and writers, Table 1b siblings, helper contracts), then one `## Fix batch <n>` per fix batch |
+  | `self-review.md` | Contains `Fingerprint: <h>` and `Inventory: <inventory.md heading>` |
+  | `review-rounds.md` | One block per round (findings `R<n>-<k>` with class, origin and disposition; an `Origins:` line), plus any spiral assessment |
+  | `post-op.md` | Contains `Fingerprint: <h>` and `Result: clean\|escalate` (`capped` was removed in 1.8.0). `clean` with a `⏭️ Skipped — Codex` review row means the gates passed and the review round was skipped |
   | `self-review.diff`, `round-<n>.diff` | The saved diffs the fingerprints were taken from |
   | `upstream.txt` | Saved upstream for the fallback review path. Marked `restored` afterwards, never removed |
   | `.started-<kind>`, `.checked-<kind>`, `.cancelled-<kind>`, `.abandoned-<kind>` | Record-check markers (`check-record.py`): a command began, passed its record check, stopped early on purpose (`--cancel`), or was left unfinished for 24 h. Renamed between states, never deleted; a name already taken gets a `.<epoch-ms>` suffix. `/handoff`'s live in `.claude/state/` itself |
