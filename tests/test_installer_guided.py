@@ -278,6 +278,29 @@ class Guided(TempDirs, unittest.TestCase):
         self.assertIn("credential files the guard doesn't block", out)
         self.assertNotIn(literal, out + read(path))
 
+    def test_a_none_default_the_project_contradicts_becomes_a_guess(self):
+        write(os.path.join(self.top, "scripts", "sync-env.mjs"), "const id = process.env.RENDER_ENV_GROUP_ID;\n")
+        git(self.top, "add", "-A")
+        git(self.top, "commit", "-q", "-m", "ABC-21: sync env")
+        git(self.top, "push", "-q", "origin", "main")
+        out = os.path.join(self.tmp(), "d.json")
+        rc, stdout, err = run(["draft", "--target", self.top, "--out", out])
+        self.assertEqual(rc, 0, stdout + err)
+        d = json.loads(read(out))
+        wt = d["notes"]["install_worktree"]
+        self.assertEqual(agent_kit.mentions(wt, "ENV_GROUPS"), ["scripts/sync-env.mjs"])  # ENV_GROUP, any case
+        self.assertEqual(agent_kit.mentions(wt, "WEB_QA_URL"), [])
+        # The draft applies it to every "none" default: LOG_SINK is one, and a file naming it turns it into a guess.
+        write(os.path.join(self.top, "ops.md"), "Logs: see LOG_SINK in the runbook.\n")
+        git(self.top, "add", "-A")
+        git(self.top, "commit", "-q", "-m", "ABC-22: ops note")
+        git(self.top, "push", "-q", "origin", "main")
+        git(wt, "merge", "-q", "--ff-only", "origin/main")
+        rc, stdout, err = run(["draft", "--target", self.top, "--out", out])
+        f = json.loads(read(out))["facts"]["LOG_SINK"]
+        self.assertEqual(f["source"], "guess")
+        self.assertIn("ops.md", f["evidence"])
+
 class Decisions(TempDirs, unittest.TestCase):
     """Every clash carries its advice; the owner's answers, exceptions and budget are kept and written down."""
 

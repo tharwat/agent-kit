@@ -21,6 +21,11 @@ installed version before an upgrade.
   - A new guide entry, `secret-files`, recommends adding them to `docs/agent/secret-files.md`, plus a ticket to move
     the `.mcp.json` values into environment variables.
   - On a real project it found a service-account key that a manual review had missed.
+- **A "none" default the project contradicts becomes a guess.** When a fact defaults to `none` but the project's
+  tracked files name it (`ENV_GROUPS` → `RENDER_ENV_GROUP_ID` in a script), `draft` marks it `guess`, with where,
+  instead of accepting the default. A real install had recorded `none` for a Render env group that existed.
+- **Secret-file globs:** the template and the guide warn that `*` also matches across `/`, and recommend an exact
+  path for a single file.
 - **Tickets the install replaces are closed by the agent,** with a comment linking the install PR. After the merge,
   the agent moves the checkout to the main branch if it was parked on a replaced branch.
 

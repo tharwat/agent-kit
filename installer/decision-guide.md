@@ -222,7 +222,8 @@ upgrades follow them without asking again.
   service account), and, for `.mcp.json`, by a server holding a literal value instead of a `${ENV}` reference. It
   never shows a value.
 - **Recommend:** `kit`. Add every listed file to `docs/agent/secret-files.md`, `.mcp.json` included when it holds
-  literal credentials. Then propose a follow-up ticket that moves those values to environment variables
+  literal credentials. Use the exact path for a single file: a `*` also matches across `/` and can block whole
+  folders. Confirm which key is live before naming it (old, unused keys often sit next to the live one). Then propose a follow-up ticket that moves those values to environment variables
   (`"Authorization": "Bearer ${RENDER_API_KEY}"`), so `.mcp.json` holds none.
 - **Pro:** no session can leak those tokens. Scripts that read the files in their own process keep working. **Con:**
   agents can't open the file to inspect it. They read server names through the installer, or ask the owner.

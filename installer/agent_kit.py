@@ -2978,6 +2978,15 @@ def credential_files(root):
     return out
 
 
+def mentions(root, fact_name, limit=3):
+    """Tracked files that name a fact's subject (ENV_GROUPS -> ENV_GROUP), so a "none" default gets checked."""
+    term = fact_name[:-1] if fact_name.endswith("S") else fact_name
+    if len(term) < 6:
+        return []
+    out = git_out(root, "grep", "-l", "-I", "-i", "-F", term, "--", ".", ":!.claude", ":!CLAUDE.md", ":!AGENTS.md")
+    return (out or "").splitlines()[:limit]
+
+
 SYNTHETIC_RE = re.compile(r"\b((?:is_)?synthetic)\b\s+(?:boolean|bool)\b", re.I)
 
 
@@ -3157,7 +3166,12 @@ def draft(kit, target, fresh=False):
         if name in found:
             facts[name] = found[name]
         elif "default" in f and "{{" not in str(f["default"]) and name not in judged:
-            facts[name] = {"value": f["default"], "source": "default", "evidence": "the kit default"}
+            hits = mentions(wt, name) if str(f["default"]).strip().lower() in ("none", "") else []
+            if hits:  # "none" by default, yet the project talks about it: check it, don't trust the default
+                facts[name] = {"value": f["default"], "source": "guess", "evidence": f"the kit default is "
+                               f"{f['default']!r}, but the project mentions it in {', '.join(hits)}: check it"}
+            else:
+                facts[name] = {"value": f["default"], "source": "default", "evidence": "the kit default"}
         elif "default" in f and "{{" not in str(f["default"]):
             facts[name] = {"value": f["default"], "source": "guess", "evidence": judged[name]}
         else:
