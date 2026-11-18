@@ -211,3 +211,39 @@ upgrades follow them without asking again.
   with the owner's yes) and carry over what it did.
 - **Pro:** one set of guards that agree. **Con:** an owner who relied on the old hook's exact behavior must check
   the kit's.
+
+### local-verification: Checking a change locally when local is production
+
+- **Kit:** `/verify` runs locally only what `docs/agent/verify-map.md` proves safe, each with the `file:line` that
+  shows it reaches nothing outside. A surface with no safe local check is `🕒 DEFERRED`: the owner is told at the
+  merge question, and the proof is the after-merge log line and a read-only query.
+- **Protects against:** a "local check" that sends a customer a real message, alerts the on-call channel, drains a
+  live job, or rotates a shared token, because the local `.env` points at production.
+- **Check:** where the project's local `.env` points (database host, provider accounts), by key names and docs only,
+  never values. Read the project's existing "run it locally" instructions and follow each one's code path.
+- **Recommend:** `kit` when local reaches production: a short safe list, everything else after merge. `project`
+  only when the project has a separate local or staging database and test provider accounts, and its recipes use
+  them.
+- **Pro:** ends the class of defect instead of patching each recipe. **Con:** more surfaces wait until after merge
+  for their check, so a defect there shows up in production logs, not before the merge.
+
+### secret-files: Local credential files the secret guard doesn't know
+
+- **Kit:** the secret guard blocks agents from opening `.env` files, private keys and a few known credential files.
+  A project adds its own to `docs/agent/secret-files.md`.
+- **Protects against:** a live token printed into a conversation, a transcript or a log by one file read.
+- **Check:** `preflight` lists gitignored files that hold credentials but aren't on the guard's list. It judges by
+  JSON key names (`private_key`, `refresh_token`, `client_secret`, …), by credential-like names (OAuth, token,
+  service account), and, for `.mcp.json`, by a server holding a literal value instead of a `${ENV}` reference. It
+  never shows a value.
+- **Recommend:** `kit`. Add every listed file to `docs/agent/secret-files.md`, `.mcp.json` included when it holds
+  literal credentials. Use the exact path for a single file: a `*` also matches across `/` and can block whole
+  folders. Confirm which key is live before naming it (old, unused keys often sit next to the live one). Then propose a follow-up ticket that moves those values to environment variables
+  (`"Authorization": "Bearer ${RENDER_API_KEY}"`), so `.mcp.json` holds none.
+- **Claude settings files are the exception:** blocking `.claude/settings.local.json` stops agents editing settings.
+  When it holds a key, recommend moving the key into the environment, as a follow-up ticket, rather than blocking
+  the file. Check where the project's env files come from first: some projects rebuild `.env` from their host on
+  every sync, so a key written there is wiped. Use the file the sync leaves alone (often `.env.local`), or the host's
+  env settings.
+- **Pro:** no session can leak those tokens. Scripts that read the files in their own process keep working. **Con:**
+  agents can't open the file to inspect it. They read server names through the installer, or ask the owner.

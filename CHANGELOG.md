@@ -4,6 +4,59 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.10.2 — 2026-11-18
+
+- **An existing project's `docs/agent/*.md` are filled during the install,** from the project's own commands, rules
+  and `CLAUDE.md`, before those are renamed `.pre-agent-kit`. A real install ended with blank templates, so the kit's
+  gates checked only the basics.
+- **The install report names every project file changed beyond the kit's own** (repointed tests, changed constants,
+  condensed docs), with why. Those are the lines in the PR the owner should read.
+
+- **Unguarded credential files are found during the install.**
+  - `preflight` and `draft` list gitignored files that hold credentials but aren't on the secret guard's built-in
+    list. The checks: JSON key names (`private_key`, `refresh_token`, `client_secret`, …), credential-like file
+    names, and `.mcp.json` servers holding a literal token in `env`, in `headers` (including `Bearer <token>`) or in
+    a URL query, instead of a `${ENV}` reference.
+  - Names and reasons only; no value is ever shown.
+  - A new guide entry, `secret-files`, recommends adding them to `docs/agent/secret-files.md`, plus a ticket to move
+    the `.mcp.json` values into environment variables.
+  - On a real project it found a service-account key that a manual review had missed.
+- **A "none" default the project contradicts becomes a guess.** When a fact defaults to `none` but the project's
+  tracked files name it (`ENV_GROUPS` → `RENDER_ENV_GROUP_ID` in a script), `draft` marks it `guess`, with where,
+  instead of accepting the default. A real install had recorded `none` for a Render env group that existed.
+- **The credential scan also reads config files:** TOML, YAML and INI (`.codex/config.toml`), plus env-style key
+  names with literal values in any JSON (`"GOOGLE_API_KEY": …`). For a Claude settings file, it recommends moving
+  the key into the environment rather than blocking the file.
+- **"Dry-run" is a claim, not a fact.** `verify-map.md` gets a "checked side-effect free (file:line)" column, and
+  `INSTALL.md` requires reading a command's code path before writing it down as safe. A real fill listed a
+  `--dry-run` that could rotate a shared production token, and "run the worker locally", which would have started
+  production jobs.
+- **Secret-file globs:** the template and the guide warn that `*` also matches across `/`, and recommend an exact
+  path for a single file.
+- **Tickets the install replaces are closed by the agent,** with a comment linking the install PR. After the merge,
+  the agent moves the checkout to the main branch if it was parked on a replaced branch.
+- **When local is production, local checks come only from a proven-safe list.** `verify-map.md` now starts with
+  "where a local run lands" and "safe to run locally" (each action with its `file:line` proof, dynamic imports and
+  job queues followed). Each surface row names a local check, or `none`, and an after-merge check.
+  - `/verify` runs nothing locally that isn't on the list. A surface with `Local check: none` gets the new verdict
+    `🕒 DEFERRED`.
+  - `/ship` accepts it, names it in the merge question, and runs the after-merge log line and read-only query as the
+    change's proof.
+  - A new guide entry, `local-verification`. A real docs fill spent two review rounds patching local recipes; each
+    fix uncovered another path to the live provider, the ops alerts or a token save.
+- **The cleanup SQL deletes a child table without the marker only through a marked parent.**
+- **The secret guard checks the Grep tool by what it really reads.**
+  - Before, a project glob for one JSON credential refused every `*.json` search. A search started inside the
+    credential's folder still read it.
+  - Now, a names-only Grep (the default) passes. A content Grep is refused when a secret file under its path is
+    selected by its glob, or isn't gitignored, or when the glob singles out a built-in secret shape (`.env*`).
+- **The settings-file advice checks the project's env sync first:** some projects rebuild `.env` from their host,
+  so a key moved there is wiped.
+
+**Upgrade touches:** `.claude/hooks/guard-secrets.py`, `.claude/commands/verify.md`, `.claude/commands/ship.md`. An
+installed project's `docs/agent/verify-map.md` is its own: add the two new sections and the `Local check` and
+`After-merge check` columns by hand, or ask the agent to.
+
 ## 1.10.1 — 2026-11-18
 
 - **Starting an install over takes no git commands.** `preflight` reports an earlier, unfinished install attempt,

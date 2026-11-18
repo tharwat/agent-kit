@@ -20,8 +20,8 @@ never replaces the first:
 - **Post-merge (the confirmation):** after `/ship` merges, confirm the deploy is live and the change shows in the
   logs.
 
-`docs/agent/verify-map.md` holds the surface map (changed path → how to drive it), dry-run entry points, seed
-commands, protected fixtures, test-account env var names and the irreversible side effects that never run as a test.
+`docs/agent/verify-map.md` holds where a local run lands, the actions proven safe to run locally, the surface map
+(changed path → local check and after-merge check), seed commands, protected fixtures, test-account env var names and the irreversible side effects that never run as a test.
 `docs/agent/integrations.md` says how each webhook is signed.
 
 ---
@@ -42,6 +42,11 @@ Packs may add checks here: see the section for this command in each installed `.
 
 Start the app with `<DEV_SERVER_COMMAND>` when the surface needs it, then exercise the **changed** path, including
 the failure path the ticket fixed. Real requests and real responses, not a description of what would happen.
+
+- **Only what the map proves safe.** When `verify-map.md` says a local run reaches production, run only actions on
+  its safe list. A surface whose `Local check` is `none` is not driven locally: the verdict is `🕒 DEFERRED`, and
+  Step 3 is the proof. Never improvise a local recipe; one that isn't on the list, with its `file:line` proof, is
+  how a "check" sends a real message or rotates a live token.
 
 - **Authenticated routes:** log in through the app's login route with a test account (env var names from
   `verify-map.md`) and reuse the real session. Calling an internal function directly verifies the function, not
@@ -65,6 +70,8 @@ Driving a flow against the real database writes real rows. They must never look 
 - **Tear down at the end** by the explicit IDs you recorded, never by a pattern: matching on user-controlled text
   is how a cleanup deletes a customer. For example
   `DELETE FROM <table> WHERE id IN (<ids you created>) AND <SYNTHETIC_MARKER> = true`, children before parents.
+  A child table without the marker is deleted only through a marked parent:
+  `WHERE <parent_id> IN (SELECT id FROM <parent> WHERE id IN (<ids>) AND <SYNTHETIC_MARKER> = true)`.
   Then confirm the count of marked rows from this run is zero.
 - A table `/verify` must write to that has no marker column → stop and report it. Adding the column is a schema
   change for its own ticket.
@@ -84,6 +91,8 @@ Confirm the effect, not just the run:
   service built from it.
 - **Logs:** read them from `<LOG_SINK>` and find the change's log line. `<LOG_SINK>` is `none` → record
   `logs — no sink configured`.
+- **`🕒 DEFERRED` runs its after-merge check now,** from the map's row: the log line, then the read-only query.
+  Not seen, or wrong → `❌ FAILS` after merge: say so at once, and open the fix ticket.
 - A failed build or failed update means the merge broke `<MAIN_BRANCH>`. Say so at once and loudly, and don't start
   other work.
 
@@ -104,6 +113,7 @@ Post-merge:   <service — deploy <id> live at <time>; log line seen> | pending 
 
 Verdict: ✅ VERIFIED — behaviour observed
          ⚠️ PARTIAL — <exactly what is unverified, and why>
+         🕒 DEFERRED — no safe local check (verify-map row <path>); after-merge check: <log line + query>
          ❌ FAILS — <what was observed instead>
          ⏭️ SKIPPED — no runtime surface
 ```
@@ -117,10 +127,12 @@ Packs may add verdicts here: see the section for this command in each installed 
 
 - **Paste the evidence.** "It should work" isn't a verdict, and neither is a green test suite.
 - **Never fabricate output.** A path that can't be exercised is `⚠️ PARTIAL`, said plainly.
-- `⚠️ PARTIAL` isn't a pass. `/ship` merges on `✅ VERIFIED`, `⏭️ SKIPPED`, or a pack verdict
+- `🕒 DEFERRED` is allowed only when the map's row already says `Local check: none`. A surface that has a local
+  check, or no row, can't be deferred: add the row (with its proof) first.
+- `⚠️ PARTIAL` isn't a pass. `/ship` merges on `✅ VERIFIED`, `⏭️ SKIPPED`, `🕒 DEFERRED` (owner told, at G3), or a pack verdict
   that the pack's `## /verify` section declares passing (for example a deferred mobile build). Nothing else.
 
 ## Completion status
 
-End with **DONE** (✅ or ⏭️, with evidence) · **DONE_WITH_CONCERNS** (⚠️ PARTIAL, gaps listed) · **BLOCKED**
+End with **DONE** (✅, ⏭️ or 🕒, with evidence) · **DONE_WITH_CONCERNS** (⚠️ PARTIAL, gaps listed) · **BLOCKED**
 (❌ FAILS, or it can't be driven; say why) · **NEEDS_CONTEXT**.

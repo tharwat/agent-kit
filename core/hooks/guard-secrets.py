@@ -542,6 +542,34 @@ def check_recursive_search(prog, args, files, cwd, project, globs):
                           % (prog, os.path.relpath(top, cwd), os.path.relpath(hit[0], cwd), hit[1], pattern, pattern))
 
 
+def check_grep(ti, cwd, project, globs):
+    """The Grep tool (ripgrep). Only `output_mode: content` prints file text; the default lists names. A content search
+    is checked by what it would really read: the secret files under its path that its glob selects (an rg glob reads
+    a gitignored file too) or that git doesn't ignore. A glob that singles out a default secret shape (`.env*`) is
+    refused anywhere. A search started inside a credential folder is walked like any other, so it is caught too."""
+    path = ti.get("path") or ""
+    if path:
+        check_path(path, project, globs, "search")
+    if (ti.get("output_mode") or "files_with_matches") != "content":
+        return
+    pattern = ti.get("glob") or ""
+    if pattern and glob_targets_secrets(pattern, project, DEFAULT_GLOBS):
+        raise Blocked("the glob `%s` selects secret files; agents never read one" % pattern)
+    top = os.path.normpath(os.path.join(cwd, os.path.expanduser(path))) if path else cwd
+    if not os.path.isdir(top):
+        return
+    filters = [("include", g) for g in brace_alternatives(pattern) if g] if pattern else []
+    spec = {"tool": "rg", "filters": filters, "dir_excludes": [], "follow": False, "hidden": True,
+            "vcs_ignore": True}
+    hit = first_secret_in_tree(top, project, globs, spec,
+                               {"files": 0, "deadline": time.monotonic() + WALK_SECONDS})
+    if hit:
+        raise Blocked("this Grep shows the lines of %s (%s), a secret file under %s%s. Search a narrower path, use "
+                      "`output_mode: files_with_matches` (names only), or name the variable instead"
+                      % (os.path.relpath(hit[0], project), hit[1], os.path.relpath(top, project),
+                         " that the glob `%s` selects" % pattern if pattern else ""))
+
+
 TRACE_OPTS = {"xtrace", "verbose"}
 
 
@@ -696,12 +724,7 @@ def check_event(event):
         check_path(path, project, globs, "edit")
         scan_text(ti.get("new_source") or "", os.path.basename(path) or "the notebook")
     elif tool == "Grep":
-        path = ti.get("path") or ""
-        if path:
-            check_path(path, project, globs, "search")
-        pattern = ti.get("glob") or ""
-        if pattern and glob_targets_secrets(pattern, project, globs):
-            raise Blocked("the glob `%s` selects secret files; agents never read one" % pattern)
+        check_grep(ti, cwd, project, globs)
     elif tool == "Bash":
         if kit_shell is None:
             raise ImportError("kit_shell.py is missing")

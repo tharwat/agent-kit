@@ -199,6 +199,22 @@ tests run there as they do in the checkout.
    only on failures **not** in this baseline.
 2. **Do the approved hand work in `<wt>`:** write the merged files, retire clashing hooks, and repoint or retire
    tests as the decisions say.
+   - **An existing project: fill `docs/agent/*.md` now, from the files being replaced.** The project's old
+     commands, rules and `CLAUDE.md` hold its specifics: source layout, sibling paths, verify steps, integrations,
+     PII fields, copy rules, the docs map. Copy each into the matching `docs/agent/` file before the old file is
+     renamed `.pre-agent-kit`. The kit's gates read those files, and blank ones make them check only the basics.
+     Leave a section blank only when the project has nothing for it, and say so in the report.
+   - **A command written down as safe must be proven safe.** A dry-run flag or a "run it locally" instruction in
+     `verify-map.md` or `source-layout.md` is a claim until you read its code path. Check for database writes,
+     external calls, token refreshes or rotations, messages sent, and scheduled jobs started. Record the
+     `file:line` that shows it. Follow dynamic imports, queue handlers and what a job does when real work is
+     waiting. A real install listed a `--dry-run` that could rotate a shared production token, and "run the worker
+     locally", which would have started every production job against the live database.
+   - **When a local run reaches production** (the local `.env` points at the live database and provider accounts),
+     write `verify-map.md` as a short safe list, not a recipe per area. Only actions proven side-effect free go on
+     it. Every other row says `Local check: none` and names its after-merge check: a log line and a read-only query.
+     `/verify` then reports `🕒 DEFERRED` for those surfaces. Patching recipe after recipe doesn't converge: each fix
+     uncovers the next path to production.
 3. **Then apply:**
 
 ```bash
@@ -268,10 +284,11 @@ Tell the owner:
 1. **Installed:** core plus the packs, the number of files, and the commands now available (`/triage`, `/operate`,
    `/post-op`, `/peer-review`, `/ship`, `/verify`, `/test`, …).
 2. **Skipped or renamed**, and why. List every `.pre-agent-kit` file the owner may remove after checking.
+   **Name every project file the install changed beyond the kit's own** (tests repointed, a constant changed,
+   docs condensed), each with one line on why. Those are the lines in the PR the owner should actually read.
 3. **Credential and setup tasks**, as a checklist. These are env var names, plus steps like "authorize the
    Atlassian MCP on first use". The notify pack's bot setup is in `docs/agent/notify-telegram.md`.
-4. **Project docs to fill in** under `docs/agent/` (source layout, docs map, verify map, integrations, copy rules,
-   PII, sibling paths). The commands read them, and empty ones make the gates check only the basics.
+4. **Project docs:** which `docs/agent/` files were filled, and from what. List any left blank, and why.
 5. **Next step:**
    1. Commit in `<wt>`, push `agent-kit/install` and open the PR (the page's approval covers this). Merge it **only
       on the owner's yes, and between tickets**: the preflight's work-in-flight list says what's open. Ticket branches
@@ -280,8 +297,13 @@ Tell the owner:
    2. After the merge, every lane picks the kit up from `<MAIN_BRANCH>`. Worktrees sync on their next prompt (with
       the worktrees pack), and the checkout needs `git pull`. `<wt>` can then be removed by the owner with
       `git worktree remove <wt>`.
-   3. Create the open-items ticket if the page said so.
-   4. Try `/triage <ticket>` on a real ticket.
+   3. Create the open-items ticket if the page said so. **Close any ticket the install replaces** (an in-flight
+      ticket that was changing the project's own workflow), with ticket op **comment** linking the install PR, then
+      ticket op **close**. Never leave it open for the owner. Any paused branch it had stays as it is.
+   4. After the merge, switch the checkout to `<MAIN_BRANCH>` and pull, if it's on a branch the install replaced.
+      Untracked files stay as they are.
+   5. Try `/triage <ticket>` on a real ticket. For an existing project, filling any `docs/agent/` file left blank
+      makes a good first one.
 
 ## answers.json
 

@@ -251,6 +251,65 @@ class Guided(TempDirs, unittest.TestCase):
         self.assertFalse(os.path.isfile(os.path.join(old, agent_kit.LOCK_PATH)))  # the new attempt starts clean
         self.assertEqual(git(old, "rev-parse", "--abbrev-ref", "HEAD"), agent_kit.INSTALL_BRANCH)
 
+    def test_unguarded_credential_files_are_listed_by_name_never_by_value(self):
+        literal = "lit" + "eralvalue" * 4  # a fake credential, built so no scanner mistakes it for a real one
+        write(os.path.join(self.top, ".gitignore"), ".mcp.json\n.env\n.claude/worktrees/\n.gdrive-token.json\n"
+              "sa-key.json\n.gdrive-oauth-client.json\n")
+        write(os.path.join(self.top, ".gdrive-token.json"), json.dumps({"refresh_token": literal}))
+        write(os.path.join(self.top, "sa-key.json"), json.dumps({"type": "service_account", "private_key": literal}))
+        write(os.path.join(self.top, ".gdrive-oauth-client.json"), "not json at all")
+        write(os.path.join(self.top, ".codex", "config.toml"), '[mcp.env]\nN8N_API_KEY = "' + literal + '"\nmodel = "x"\n')
+        write(os.path.join(self.top, ".claude", "settings.local.json"),
+              json.dumps({"env": {"GOOGLE_API_KEY": literal, "LOG_LEVEL": "debug"}}))
+        write(os.path.join(self.top, ".gitignore"), read(os.path.join(self.top, ".gitignore")) +
+              ".codex/\n.claude/settings.local.json\n")
+        servers = json.loads(read(os.path.join(self.top, ".mcp.json")))
+        servers["mcpServers"]["proj_supabase"]["headers"] = {"Authorization": "Bearer " + literal}
+        servers["mcpServers"]["proj_cal"] = {"type": "http", "url": "https://example.invalid/mcp?access_token=" + literal}
+        write(os.path.join(self.top, ".claude", "state", "feature-abc-9-oauth-token.upstream"), "origin/main\n")
+        servers["mcpServers"]["proj_x_jira"]["headers"] = {"Authorization": "Bearer ${JIRA_TOKEN}"}
+        write(os.path.join(self.top, ".mcp.json"), json.dumps(servers))
+        path, d = self.draft()
+        found = {c["file"]: c["why"] for c in d["notes"]["credential_files"]}
+        self.assertIn("refresh_token", found[".gdrive-token.json"])
+        self.assertIn("private_key", found["sa-key.json"])
+        self.assertIn("credential-like name", found[".gdrive-oauth-client.json"])
+        self.assertIn("proj_supabase", found[".mcp.json"])  # "Bearer <token>"
+        self.assertIn("proj_cal", found[".mcp.json"])       # ?access_token=<token>
+        self.assertFalse(any(f.startswith(".claude/state/") for f in found))  # the kit's own state, not secrets
+        self.assertNotIn("proj_x_jira", found[".mcp.json"])  # an ${ENV} reference holds no secret
+        self.assertNotIn(".env", found)                       # already on the guard's built-in list
+        self.assertIn("N8N_API_KEY", found[".codex/config.toml"])                     # TOML config
+        self.assertIn("GOOGLE_API_KEY", found[".claude/settings.local.json"])         # an env-style key name
+        self.assertIn("move the value into the environment", found[".claude/settings.local.json"])
+        self.assertNotIn("LOG_LEVEL", found[".claude/settings.local.json"])
+        rc, out, _e = run(["preflight", "--target", self.top, "--answers", path])
+        self.assertIn("credential files the guard doesn't block", out)
+        self.assertNotIn(literal, out + read(path))
+
+    def test_a_none_default_the_project_contradicts_becomes_a_guess(self):
+        write(os.path.join(self.top, "scripts", "sync-env.mjs"), "const id = process.env.RENDER_ENV_GROUP_ID;\n")
+        git(self.top, "add", "-A")
+        git(self.top, "commit", "-q", "-m", "ABC-21: sync env")
+        git(self.top, "push", "-q", "origin", "main")
+        out = os.path.join(self.tmp(), "d.json")
+        rc, stdout, err = run(["draft", "--target", self.top, "--out", out])
+        self.assertEqual(rc, 0, stdout + err)
+        d = json.loads(read(out))
+        wt = d["notes"]["install_worktree"]
+        self.assertEqual(agent_kit.mentions(wt, "ENV_GROUPS"), ["scripts/sync-env.mjs"])  # ENV_GROUP, any case
+        self.assertEqual(agent_kit.mentions(wt, "WEB_QA_URL"), [])
+        # The draft applies it to every "none" default: LOG_SINK is one, and a file naming it turns it into a guess.
+        write(os.path.join(self.top, "ops.md"), "Logs: see LOG_SINK in the runbook.\n")
+        git(self.top, "add", "-A")
+        git(self.top, "commit", "-q", "-m", "ABC-22: ops note")
+        git(self.top, "push", "-q", "origin", "main")
+        git(wt, "merge", "-q", "--ff-only", "origin/main")
+        rc, stdout, err = run(["draft", "--target", self.top, "--out", out])
+        f = json.loads(read(out))["facts"]["LOG_SINK"]
+        self.assertEqual(f["source"], "guess")
+        self.assertIn("ops.md", f["evidence"])
+
 class Decisions(TempDirs, unittest.TestCase):
     """Every clash carries its advice; the owner's answers, exceptions and budget are kept and written down."""
 

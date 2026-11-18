@@ -44,7 +44,7 @@ class HookCase(unittest.TestCase):
             "nest/inner/.env": "API_KEY=x\n", "nest/inner/a.ts": "ok\n",
             "app/.env": "API_KEY=x\n", "app/.env.example": "API_KEY=\n", "app/main.ts": "ok\n",
             "lib/index.ts": "ok\n", "lib/node_modules/pkg/test/key.pem": "x\n",
-            "config/credentials.yml": "x\n", "prod.tfvars": "x\n", "keys/id_rsa": "x\n", "keys/id_rsa.pub": "x\n", "key.pem": "x\n",
+            "config/credentials.yml": "x\n", "creds/service-account.json": "{}\n", "src/package.json": "{}\n", "prod.tfvars": "x\n", "keys/id_rsa": "x\n", "keys/id_rsa.pub": "x\n", "key.pem": "x\n",
         }.items():
             path = os.path.join(cls.project, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -115,13 +115,26 @@ class SecretFiles(HookCase):
         self.assertBlocked("Write", {"file_path": self.p(".env"), "content": "API_KEY=\n"}, "overwrite")
 
     def test_grep(self):
+        c = {"output_mode": "content"}
         self.assertBlocked("Grep", {"pattern": "KEY", "path": self.p(".env")})
-        self.assertBlocked("Grep", {"pattern": "KEY", "glob": ".env*"})
-        self.assertBlocked("Grep", {"pattern": "KEY", "glob": "*.{pem,key}"})
-        self.assertAllowed("Grep", {"pattern": "KEY", "glob": "*.ts"})
+        self.assertBlocked("Grep", dict(c, pattern="KEY", glob=".env*"))
+        self.assertBlocked("Grep", dict(c, pattern="KEY", glob="*.{pem,key}"))
+        self.assertAllowed("Grep", dict(c, pattern="KEY", glob="*.ts"))
+        self.assertAllowed("Grep", dict(c, pattern="\\.env", path=self.p("src")))
+        self.assertBlocked("Grep", dict(c, pattern="password", glob="*.tfvars"))  # a project-listed glob, on disk
+        # names only (the Grep default) prints no file text
+        self.assertAllowed("Grep", {"pattern": "KEY", "glob": ".env*"})
         self.assertAllowed("Grep", {"pattern": "KEY", "glob": "*"})
-        self.assertAllowed("Grep", {"pattern": "\\.env", "path": self.p("src")})
-        self.assertBlocked("Grep", {"pattern": "password", "glob": "*.tfvars"})  # a project-listed glob
+
+    def test_grep_reads_what_is_on_disk(self):
+        """A project glob listing one JSON credential doesn't refuse every `*.json` search, and a search started
+        inside the credential's folder is still caught."""
+        c = {"output_mode": "content"}
+        self.assertAllowed("Grep", dict(c, pattern="name", glob="*.json", path=self.p("src")))
+        self.assertBlocked("Grep", dict(c, pattern="key", glob="*.json", path=self.p("creds")), "service-account.json")
+        self.assertBlocked("Grep", dict(c, pattern="key", path=self.p("creds")), "service-account.json")
+        self.assertBlocked("Grep", dict(c, pattern="key", path="creds", glob="*.json"), "service-account.json")
+        self.assertAllowed("Grep", dict(c, pattern="key", glob="*.yml", path=self.p("src")))
 
     def test_project_list_missing_uses_defaults(self):
         with tempfile.TemporaryDirectory() as d:
