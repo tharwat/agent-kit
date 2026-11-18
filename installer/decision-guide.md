@@ -60,6 +60,12 @@ upgrades follow them without asking again.
 
 ### refactoring: Refactoring code while working a ticket
 
+- **Words first:**
+  - a **refactor** changes how the code is organized, while it does exactly the same thing: renaming, moving,
+    splitting a long function, merging duplicate code;
+  - a **redesign** changes how it works, such as storing a status instead of working it out from several fields.
+
+  A project rule that says "refactor freely" often means redesign. Ask which, in the decision's `found`.
 - **Kit:** refactor and simplify the code the ticket changes (`/operate` has a simplify step). Redesign when review
   findings keep coming (the spiral rule requires it). Don't broadly refactor, rename or move code the ticket doesn't
   touch, unless asked.
