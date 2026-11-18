@@ -18,20 +18,32 @@ project, asks only what it can't work out itself, shows you a plan, and writes n
 
 ## Install
 
-Open Claude Code (or Codex) in your project and paste:
+Open Claude Code (or Codex) **in your real project folder**, not a fresh clone, and paste:
 
 > Read https://github.com/tharwat/agent-kit/blob/main/INSTALL.md and follow it for this project.
 
-The agent then:
+You do three things: start it, approve **one review page**, and say when to merge the PR. The agent:
 
-1. Clones the kit into a scratch folder. Nothing of the kit is copied into your repo except what you approve.
-2. Scans your project: stack, package manager, test and build commands, CI, existing `CLAUDE.md` / `AGENTS.md` /
-   `.claude/`, hooks and MCP servers.
-3. Asks you a few questions, one at a time, each option with a pro and a con. It asks which packs you want, and for
-   any Project fact it couldn't detect.
-4. Shows a **plan table**: every file it would add, skip, merge or treat as a conflict, with a reason for each.
-   **It stops until you approve.**
-5. Installs on a new branch, runs the checks, and reports what it did and what's left for you.
+1. **Checks for blockers first** (git, tools, MCP servers, work in flight) and reports them all at once, each with
+   its fix.
+2. **Finds the answers itself:**
+   - your ticket prefix, from branch names and commits;
+   - the MCP servers you already use, mapped by name;
+   - your worktree lanes and env files;
+   - test commands, and the open-items ticket from your docs;
+   - a proposal for the few judgment facts.
+3. **Shows one review page:**
+   - blockers;
+   - every answer, with where it came from;
+   - what happens to each of your files;
+   - what gets added;
+   - what's left after the merge.
+
+   You correct anything in plain words. It asks only what it truly couldn't find. **Nothing is written until you
+   approve.**
+4. **Installs in its own git worktree,** on branch `agent-kit/install`. Your checkout and your other worktrees are
+   never written. It runs the checks and your tests there, then opens the PR.
+5. **You merge between tickets.** Every lane then picks the kit up from `main`.
 
 It **never deletes anything**. A file it replaces is renamed `<file>.pre-agent-kit` and kept. Your own `CLAUDE.md`
 content is kept, and the kit's rules go in a separate `CLAUDE.kit.md` that `CLAUDE.md` imports.
@@ -250,7 +262,8 @@ is missing, stale or hand-copied, if `AGENTS.md` drifts from the rules it restat
 
 ## Upgrading
 
-Run the same one-line install prompt again. The agent compares each installed file against the hash in
+Run the same one-line install prompt again. It follows the same path (preflight, one review page that adds what
+changed in the kit, the install worktree, a PR) and compares each installed file against the hash in
 `.claude/agent-kit.lock.json`:
 
 - Files you haven't customized are updated.
@@ -269,12 +282,15 @@ The installer is one stdlib Python script, and the agent drives it through these
 from a clone of this repo:
 
 ```
-python3 installer/agent_kit.py scan    --target <project>                          # what's there, suggested facts
-python3 installer/agent_kit.py plan    --target <project> --answers answers.json   # the plan table; writes nothing
-python3 installer/agent_kit.py apply   --target <project> --answers answers.json   # install
-python3 installer/agent_kit.py verify  --target <project>                          # run the installed checks
-python3 installer/agent_kit.py upgrade --target <project>                          # a later kit version
+python3 installer/agent_kit.py preflight --target <project>                           # every blocker, up front
+python3 installer/agent_kit.py draft     --target <project> --out answers.json        # answers found, with sources
+python3 installer/agent_kit.py review    --target <project> --answers answers.json    # the one page; makes the worktree
+python3 installer/agent_kit.py apply     --target <project> --answers answers.json --worktree   # install there
+python3 installer/agent_kit.py verify    --target <install worktree>                  # run the installed checks
+python3 installer/agent_kit.py upgrade   --target <project> --worktree                # a later kit version
 ```
+
+Edit `answers.json` between `draft` and `review`: fill every fact marked `ask`, check every `guess`.
 
 `answers.json` holds your facts, chosen packs and conflict resolutions; `INSTALL.md` documents its format. Run each
 subcommand with `-h` for its options.
@@ -287,7 +303,7 @@ manifest.json    units, global questions, checks
 core/            the always-installed unit: commands, rules, templates, hooks, scripts, workflows
 packs/<name>/    opt-in units, each with a pack.json
 sync/            Claude↔Codex wrapper generator and checker
-installer/       agent_kit.py: scan / plan / apply / upgrade / verify (stdlib Python)
+installer/       agent_kit.py: preflight / draft / review / scan / plan / apply / upgrade / verify (stdlib Python)
 schemas/         JSON schemas for manifest.json and pack.json
 tests/           the kit's own tests
 ```

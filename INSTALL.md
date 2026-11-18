@@ -2,107 +2,119 @@
 # Installing agent-kit into a project
 
 You are an AI agent (Claude Code or Codex), and the owner asked you to install **agent-kit** into the project in
-your current working directory. Follow these steps in order. The kit's installer script does every file write.
-Your job is the judgment: scan, ask, show the plan, and resolve conflicts with the owner.
+your current working directory. The kit's installer script does every file write and finds every answer it can.
+Your job is the judgment: fill in what only reading the project can tell, propose a resolution for each clash, and
+put **one review page** in front of the owner.
+
+**The owner has three touch points, no more:**
+1. They start the install from their real project folder.
+2. They read **one review page** and approve it. They answer only what the page marks `ask`.
+3. They say when to merge the install PR.
 
 Rules for the whole install:
-- **Ask the owner one question at a time**, in plain language, and give every option a pro and a con. Never ask what
-  the scan already answered.
-- **Change nothing** in the project until the owner approves the plan in Step 4.
-- **Delete nothing, ever.** A replaced file is renamed to `<file>.pre-agent-kit`, and the owner removes it later.
-  Don't run `rm`, `git clean`, `git reset --hard` or anything like them, and don't write them into any file.
-- **Never read or copy a secret value.** For `.mcp.json`, `.env*` and settings files, look at key names only.
+- **Never ask what the project already answers.** `draft` reads the branches, commits, docs, `.mcp.json` server
+  names and worktrees. Put what you find on the page with its evidence; don't turn it into a question.
+- **Run from the real checkout, never from a fresh clone.** A clone lacks the local-only files (`.mcp.json`,
+  `.env*`, `settings.local.json`) the install needs to read. The installer builds the install in its own git
+  worktree, so the owner's checkout and lanes are never written.
+- **Every blocker first.** Run `preflight` before anything else and report every blocker in one message, each
+  with its fix. Never discover a blocker halfway through.
+- **Change nothing** in the project until the owner approves the review page. **Delete nothing, ever:** a
+  replaced file is renamed `<file>.pre-agent-kit`. Don't run `rm`, `git clean`, `git reset --hard` or anything like
+  them, and don't write them into any file.
+- **Never read or copy a secret value.** For `.mcp.json`, `.env*` and settings files, use key names only.
   Credentials become owner tasks, written as env var names.
-- **Work on a branch.** Before Step 5, create `agent-kit/install` (or `agent-kit/upgrade-<version>`) from the
-  project's main branch. Commit only when the owner says so.
+- **Questions, when one is truly needed:** one at a time, in plain language, each option with a pro and a con.
+  **One pack per choice**: never bundle two packs into one option. When the project already has what a pack adds
+  (a status line, a notify script, a worktree manager), the option says so, and says what choosing the pack would
+  do.
 
 ## Step 0: Get the kit
 
-Clone the kit into your scratch directory, never into the project. Use the session scratchpad if you have one,
+Clone the **kit** into your scratch directory, never into the project. Use the session scratchpad if you have one,
 otherwise a new temp dir:
 
 ```bash
 git clone --depth 1 --branch main https://github.com/tharwat/agent-kit "<scratch>/agent-kit"
 ```
 
-`--branch main` installs the latest kit. Use a tag (`--branch v1.0.0`) when the owner names a version. From here on, `<kit>` means that clone and `<project>` means the project root
-(`git rev-parse --show-toplevel`).
+`--branch main` installs the latest kit. Use a tag (`--branch v1.9.0`) when the owner names a version. From here on,
+`<kit>` means that clone, and `<project>` means the project's real checkout (`git rev-parse --show-toplevel`).
+Started inside one of the project's worktrees? The installer finds the main checkout itself.
 
-Read `<kit>/manifest.json`, `<kit>/core/pack.json` and every `<kit>/packs/*/pack.json`. Python 3.9+ and Node 18+
-must be available. If they aren't, tell the owner and stop.
-
-## Step 1: Scan
+## Step 1: Preflight
 
 ```bash
-python3 <kit>/installer/agent_kit.py scan --target <project>
+python3 <kit>/installer/agent_kit.py preflight --target <project>
 ```
 
-The scan is read-only. It reports:
-- package manifests and dependencies;
-- framework files;
-- the git remote host and default branch;
-- existing `CLAUDE.md`, `AGENTS.md`, `.claude/commands`, `.agents/skills`;
-- `.mcp.json` server **names**;
-- `.github/workflows`;
-- which packs' detection rules matched;
-- whether `.claude/agent-kit.lock.json` exists.
+It only reads. It reports:
+- git: the origin, the default branch, uncommitted changes and worktree lanes (left untouched), and unmerged
+  branches (work in flight: merge the install only between tickets);
+- tools: Python 3.9+, Node 18+, `gh` logged in;
+- local-only files: `.mcp.json` and whether git ignores it, `settings.local.json` hooks, `.env*` names;
+- the MCP server each chosen pack needs (present, mapped, or added by the kit).
 
-**If the lock file exists, this is an upgrade. Go to "Upgrading" at the end.**
+Then do its **agent checks**: one read call through each MCP server it names (for Jira, fetch any issue). A server
+that isn't authorized is a blocker. **BLOCKED:** send the owner every blocker with its fix, in one message, and
+stop. **If the lock file exists, this is an upgrade: go to "Upgrading" at the end.**
 
-Then read the project's own `CLAUDE.md`, `AGENTS.md`, `.claude/commands/*`, `.claude/rules/*` and `.agents/skills/*`
-so you understand what's already there. You'll need it for conflicts.
-
-**Empty project** (no code yet, even if docs or old agent files exist): ask what will be built and with what
-(language, framework, database, hosting, mobile or web). Pick the packs from those answers.
-
-**Requirements to check now, and tell the owner about up front:**
-- **`/ship` needs a git remote named `origin` on GitHub, with `gh` authenticated** in v1. Without one, the kit still
-  installs, but the owner opens and merges PRs by hand.
-- **The kit assumes one long-lived branch.** If the project uses a `qa` or `develop` branch, say so plainly. The
-  installed commands work against `<MAIN_BRANCH>` only, and the owner adapts them for extra branches.
-- **If `.mcp.json` is gitignored**, the MCP entries the kit adds stay local to this machine. Say so.
-
-## Step 2: Ask
-
-Collect `answers.json` (format below). Ask only what the scan didn't settle, one question at a time:
-
-1. **Packs.** Propose the ones the scan matched, each with one line on what it adds. Then ask each pack's
-   `detect.ask` question (worktrees, ticket trains, hardening, notify-telegram, extras). The ticket pack isn't
-   asked for: it follows the `TICKET_SYSTEM` fact (v1 supports `jira`), and a ticket system is required.
-   - **One pack per choice.** Every pack is independent: never put two packs in one option (such as "hardening plus
-     statusline"), even when a question tool limits the number of options. Ask in more than one question instead,
-     or let the owner pick several from a multi-select list where each option is one pack.
-   - **Say what is already there.** When the scan finds the project already has what a pack adds (a status line, a
-     notify script, a worktree manager), say so in that pack's option. Then give what choosing it would do: keep
-     theirs, add alongside it, or take over.
-2. **Core facts** from `core/pack.json` `facts`, in its order. Each has an `ask` and maybe a `default`. Offer the
-   default, or the value the scan suggests (`suggested_facts`, e.g. `TEST_COMMANDS` from `package.json` scripts,
-   `MAIN_BRANCH` from git), and let the owner confirm or change it. If a required fact has no default and the
-   project has no evidence for it yet (no `eas.json`, no test runner), ask the owner. If they don't know, use the
-   pack's example value and add an owner task to revisit it. Two need care:
-   - `CRITICAL_DOMAIN`: "the one area of logic that must never be wrong here" (it is severity class S3). Give an
-     example from the project's own domain.
-   - `OPEN_ITEMS_TICKET`: offer to create the standing tracker ticket after install, through the ticket pack.
-   - `MCP_PREFIX`: suggest the project's short name plus `_` (`acme_` installs `acme_jira`, `acme_supabase`).
-     It keeps one project's agent from calling another project's Jira or database when several projects share a
-     machine or an Atlassian site. Every kit permission and tool reference follows the installed names.
-3. **Each chosen pack's facts** from its `pack.json`.
-4. **GitHub:** does the project live on GitHub? The scan usually answers this (`origin_is_github`). If yes, the
-   skill-link CI workflow is added. That workflow is CI, so also confirm `HAS_CI`: true only when merges must wait
-   for required checks.
-
-The kit assumes **one main branch plus feature branches**, with no QA branch. If the scan lists
-`extra_long_lived_branches`, say so: the owner adapts the installed commands themselves.
-
-## Step 3: Resolve what already exists
-
-Run the plan to see conflicts:
+## Step 2: Draft the answers
 
 ```bash
-python3 <kit>/installer/agent_kit.py plan --target <project> --answers <scratch>/answers.json
+python3 <kit>/installer/agent_kit.py draft --target <project> --out <scratch>/answers.json
 ```
 
-For every row marked `conflict`, decide with the owner, one at a time:
+Every fact comes back as `{value, source, evidence}`:
+- `found` came from the project;
+- `default` is the kit's;
+- `guess` needs a check;
+- `ask` needs the owner.
+
+The draft also fills `packs` (scan matches plus worktrees, when the checkout has any) and `mcp_map` (the kit's
+servers mapped to the project's own, by name). `notes.packs_to_ask` lists the choice-only packs, and
+`notes.optional_extras` lists the niche ones.
+
+Then do the judgment, writing your answers into the same file:
+1. **Read the project's own `CLAUDE.md`, `AGENTS.md`, README, `.claude/commands/*`, `.claude/rules/*` and
+   `.agents/skills/*`.**
+2. **Fill the judgment facts as `guess`, with your evidence:** `PROJECT_SUMMARY` (one line), `CRITICAL_DOMAIN`
+   (the one area of logic that must never be wrong, which is severity S3), and `CRITICAL_SYSTEMS`. A proposal the
+   owner can correct beats a blank they must write.
+3. **Propose each choice-only pack, yes or no, with a one-line reason:** worktrees, ticket trains, hardening,
+   notify-telegram, statusline. Record it in `packs` and say why in `notes`.
+4. **Empty project** (no code yet): propose the stack packs from the ticket or the owner's stated plan, marked
+   `guess`.
+5. **Requirements to flag on the page:**
+   - `/ship` needs an `origin` on GitHub with `gh` logged in. Without one, the owner merges PRs by hand.
+   - The kit assumes **one main branch plus feature branches**. If the scan lists `extra_long_lived_branches`
+     (`qa`, `develop`), say so: the owner adapts the commands for those.
+   - Facts you can't find and can't reasonably propose stay `ask`.
+
+## Step 3: The review page. STOP for one approval.
+
+Propose a resolution for every clash **before** rendering the page, so the page shows a decision to approve, not a
+question. Use the table below. Write each one into `resolutions`, and keep the reason for the page.
+
+```bash
+python3 <kit>/installer/agent_kit.py review --target <project> --answers <scratch>/answers.json --out <scratch>/agent-kit-review.md
+```
+
+It creates the install worktree (branch `agent-kit/install`, made from `origin/<MAIN_BRANCH>`, in `WORKTREE_DIR`
+when set), plans the install there, and writes one page:
+- **A. Blockers.**
+- **B. Answers**, with source and evidence.
+- **C. What happens to each of the owner's files.**
+- **D. What gets added.**
+- **E. After the merge.**
+
+Show the owner the whole page. They reply in plain words ("critical domain should say…", "keep my ship.md").
+Update the answers, re-render, and ask only the `ask` items they left open, one at a time. **Wait for one explicit
+approval of the page.** Silence, or "looks interesting", is not approval.
+
+### Proposing resolutions
+
+For every row marked `conflict` on the page, propose:
 
 | Situation | Default |
 |---|---|
@@ -116,8 +128,8 @@ For every row marked `conflict`, decide with the owner, one at a time:
 | Existing hook on the same event | Added alongside it; nothing is replaced. **Read every existing hook.** If one clashes with the kit (an old main-branch guard that blocks `git fetch origin main`, a second worktree manager), show the owner and offer to retire it: with their yes, rename the script to `.pre-agent-kit` and remove its entry from `.claude/settings.json`. **Carry over what it did** that the owner still wants (for example env files it linked → `WORKTREE_ENV_FILES`) |
 | An existing `AGENTS.md` holding project rules, and no `CLAUDE.md` | Claude Code doesn't read `AGENTS.md`. The new `CLAUDE.md` gets a note pointing at it. After `apply`, offer to copy the project-specific rules into `CLAUDE.md`'s "Project rules" section instead, condensed, since they count toward the word budget. If all of them are copied, remove the pointer note |
 
-**Contradiction checklist.** Before Step 4, compare the project's own `CLAUDE.md`, `AGENTS.md`, rules and hooks
-against the kit. Raise each clash as one question, and record the answer in the project's own text:
+**Contradiction checklist.** Compare the project's own `CLAUDE.md`, `AGENTS.md`, rules and hooks against the kit.
+Put each clash on the review page with your proposal, and record the owner's answer in the project's own text:
 - branch model (talk of `qa`/`develop`, "never touch main");
 - who may merge (the kit: the owner's yes, gate G3);
 - schema changes and the migration tool;
@@ -127,62 +139,49 @@ against the kit. Raise each clash as one question, and record the answer in the 
 - destructive commands in the project's own docs or hooks;
 - pre-allowed write tools in the old settings.
 
-## Step 4: Show the plan. STOP.
+## Step 4: Install, in the install worktree
 
-Re-run `plan` with the final answers and show the owner the whole output:
-- every file, with `pull` / `skip` / `conflict` / `unchanged` / `merge` and its reason;
-- MCP entries;
-- settings hooks and permissions;
-- `.gitignore` lines;
-- third-party skills, with source and pinned commit;
-- the credential and setup tasks.
-
-**Wait for the owner's explicit approval.** Don't continue on silence or on "looks interesting".
-
-## Step 5: Install
+`<wt>` is the install worktree that `review` printed. Do the approved hand work **in `<wt>`**: write the merged
+files, and retire clashing hooks. Then:
 
 ```bash
-git -C <project> switch -c agent-kit/install <MAIN_BRANCH>
+python3 <kit>/installer/agent_kit.py apply --target <project> --answers <scratch>/answers.json --worktree
 ```
 
-Now, on the install branch and before `apply`, do the approved hand work: write the merged files, and retire
-clashing hooks. Then:
-
-```bash
-python3 <kit>/installer/agent_kit.py apply --target <project> --answers <scratch>/answers.json
-```
-
-`apply` writes exactly what the plan showed:
+`apply --worktree` writes exactly what the page showed, and only inside `<wt>`:
 - the files, with `{{FACTS}}` filled;
-- the merged `.claude/settings.json` and `.mcp.json` (`${ENV_VAR}` references only);
+- the merged `.claude/settings.json`;
 - `.claude/packs/*.md`;
 - `.gitignore` lines;
 - the `.agents/skills/*` Codex links;
 - `.claude/agent-kit.lock.json`.
 
-It refuses if a conflict is unresolved or a required fact is missing. It never deletes anything.
+The one exception is a local-only `.mcp.json` (gitignored). Servers mapped through `mcp_map` need no change. A
+server the kit must add is written to the **checkout's** `.mcp.json`, because that is the only copy that exists, and
+only when the page listed it. `apply` refuses if a conflict is unresolved or a fact is still `ask`. It never
+deletes anything.
 
 **Third-party skills** (extras): `apply` doesn't fetch them. For each `third_party` entry of a chosen pack, clone
 its `source` at its `ref` into scratch, then:
 
 ```bash
-python3 <kit>/installer/agent_kit.py third-party --target <project> --name <entry name> --from <fetched skill dir>
+python3 <kit>/installer/agent_kit.py third-party --target <wt> --name <entry name> --from <fetched skill dir>
 ```
 
 It checks the tree's hash before copying anything in. A mismatch or a pending pin (`ref: null`) is refused. Report
 it and move on.
 
-## Step 6: Verify
+## Step 5: Verify
 
 ```bash
-python3 <kit>/installer/agent_kit.py verify --target <project>
+python3 <kit>/installer/agent_kit.py verify --target <wt>
 ```
 
 This checks for unfilled placeholders, leaked source-project facts, missing lock files and the Claude↔Codex links
 (`check_skill_links.py --require-restated`).
 
-**Then run each command in the printed `TEST_COMMANDS`, exactly as written,** so the project's own tests show
-nothing broke. Always do this, even when verify passed. Report what you ran and what it printed. Never claim a
+**Then, in `<wt>`, install the project's dependencies (its lockfile command, such as `npm ci`) and run each command
+in the printed `TEST_COMMANDS`, exactly as written,** so the project's own tests show nothing broke. Always do this, even when verify passed. Report what you ran and what it printed. Never claim a
 check passed without its output.
 
 **If it fails because of the project's own text**, never edit that text without the owner. Show the owner what
@@ -194,7 +193,7 @@ failed and offer the fix:
 - **A `<!-- codex-restate -->` tag whose line isn't restated in `AGENTS.md`, or a rule file missing from AGENTS.md's
   rule table:** re-run `apply`. It regenerates both. Do the same after adding any new `.claude/rules/*.md`.
 
-## Step 7: Report
+## Step 6: Report
 
 Tell the owner:
 1. **Installed:** core plus the packs, the number of files, and the commands now available (`/triage`, `/operate`,
@@ -205,13 +204,14 @@ Tell the owner:
 4. **Project docs to fill in** under `docs/agent/` (source layout, docs map, verify map, integrations, copy rules,
    PII, sibling paths). The commands read them, and empty ones make the gates check only the basics.
 5. **Next step:**
-   1. Commit the install branch and open a PR (when the owner says so), then **merge it before starting ticket
-      work**. Ticket branches start from `<MAIN_BRANCH>` once the kit is on it. Otherwise every review fingerprints
-      the whole kit as part of the ticket. The helper also refuses untracked files, so commit everything the
-      project wants tracked.
-   2. **A git remote named `origin`** is needed beyond `/ship`: the review fingerprints compare against
-      `origin/<MAIN_BRANCH>`. If the project has none, add one before the first ticket.
-   3. Create the open-items ticket if it doesn't exist.
+   1. Commit in `<wt>`, push `agent-kit/install` and open the PR (the page's approval covers this). Merge it **only
+      on the owner's yes, and between tickets**: the preflight's work-in-flight list says what's open. Ticket branches
+      start from `<MAIN_BRANCH>` once the kit is on it. Otherwise every review fingerprints the whole kit as part of
+      the ticket.
+   2. After the merge, every lane picks the kit up from `<MAIN_BRANCH>`. Worktrees sync on their next prompt (with
+      the worktrees pack), and the checkout needs `git pull`. `<wt>` can then be removed by the owner with
+      `git worktree remove <wt>`.
+   3. Create the open-items ticket if the page said so.
    4. Try `/triage <ticket>` on a real ticket.
 
 ## answers.json
@@ -237,7 +237,10 @@ Tell the owner:
 ```
 
 - **Fact values** are a string, a boolean, or a list (written one item per line). A missing optional fact takes its
-  default.
+  default. A draft's `{value, source, evidence}` form is accepted as is. A fact still `ask` with no value refuses
+  the install.
+- **`notes`** holds the draft's evidence (packs found, packs to ask about, local-only files). The installer ignores
+  it.
 - **`resolutions`** map an installed path to `keep-theirs`, `take-kit` or `kit-renamed`. An MCP server conflict is
   keyed `".mcp.json#<server>"` and takes `keep-theirs` or `take-kit`. Resolutions are never stored in the lock.
 - **Upgrades:** once the lock exists, `--answers` is optional. The lock's answers are the base, and a file you pass
@@ -246,18 +249,18 @@ Tell the owner:
 
 ## Upgrading
 
-The lock file is present, so the kit was installed before:
+The lock file is present, so the kit was installed before. It's the same path, with no draft:
 
-1. Clone the new kit version (Step 0).
-2. Run `plan --upgrade --target <project>` (add `--answers` only for changed facts or new packs).
+1. Clone the new kit version (Step 0), and run `preflight` (Step 1).
+2. Run `review --target <project>`. Add `--answers` only for changed facts, new packs or resolutions. The page
+   adds **F. What changed in the kit** since the installed version.
    - A file whose content still matches its installed hash wasn't customized, so it is updated.
-   - A customized file is a **conflict**: resolve it as in Step 3. **The upgrade is all or nothing.** While any
-     conflict is unresolved, nothing is written, not even the clean updates. `plan --upgrade` prints a
-     `resolutions` JSON to fill in.
+   - A customized file is a **conflict**: propose a resolution as in Step 3. **The upgrade is all or nothing.**
+     While any conflict is unresolved, nothing is written, not even the clean updates.
    - Project-owned files (`docs/agent/*`, `.agents/claude-only.txt`) are never touched.
    - Files the new kit no longer ships are reported as `orphaned` and left in place.
-3. Show the plan, plus the `CHANGELOG.md` entries since the installed version. **STOP for approval.**
-4. Run `upgrade --target <project> --answers <file with resolutions>`, then Steps 6 and 7.
+3. **STOP for one approval of the page.**
+4. Run `upgrade --target <project> --worktree` (with `--answers <file>` if you made one), then Steps 5 and 6.
 
 Running the install again with no kit change and the same answers changes nothing. Every row reads `unchanged`,
 or `skip` for project-owned files and files kept as theirs.

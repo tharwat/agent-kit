@@ -7,6 +7,11 @@ The installing agent does the judgment (scanning the stack with this tool's help
 asking the owner, choosing conflict resolutions) and records it in answers.json.
 This script turns the kit plus those answers into files, the same way every time:
 
+  preflight --target DIR [--answers FILE]      every blocker before the first question (read-only)
+  draft    --target DIR --out FILE              answers found in the project, each with its source (read-only)
+  review   --target DIR --answers FILE [--out FILE]
+                                                the one page the owner approves: blockers, answers, plan, after-merge
+                                                steps (creates the install worktree; writes no project file)
   scan     --target DIR                         detection signals as JSON (read-only)
   plan     --target DIR [--answers FILE] [--json]   what apply/upgrade would do (read-only)
   apply    --target DIR [--answers FILE]        install exactly what plan shows
@@ -16,6 +21,10 @@ This script turns the kit plus those answers into files, the same way every time
                                                 verify a fetched third-party tree against its pin, copy it in
 
 Common option: --kit DIR (default: the kit this script lives in).
+--worktree (plan, apply, upgrade): DIR is the project's real checkout. The install goes into a separate git
+worktree on branch agent-kit/install, made from origin/<MAIN_BRANCH>; the checkout and its other worktrees are
+never written. Local-only files (a gitignored .mcp.json) are read from the checkout, and a change the plan shows
+for one is written there.
 --answers is required unless .claude/agent-kit.lock.json exists; then the lock's
 answers are the base and the file (if given) overrides them.
 
@@ -31,11 +40,13 @@ exits 0; a skill-link generator error after that is printed as a warning.
 Python 3.9+, standard library only.
 """
 import argparse
+import contextlib
 import copy
 import fnmatch
 import glob
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -292,7 +303,8 @@ class Kit:
 # ---------------------------------------------------------------------------
 # Answers
 # ---------------------------------------------------------------------------
-ANSWER_KEYS = {"facts", "packs", "options", "mcp_map", "resolutions", "claude_only"}
+ANSWER_KEYS = {"facts", "packs", "options", "mcp_map", "resolutions", "claude_only", "notes"}
+DRAFT_SOURCES = ("found", "default", "guess", "ask")
 MCP_KEY_PREFIX = ".mcp.json#"   # resolutions key for one server: ".mcp.json#<server>"
 CLAUDE_ONLY_PATH = ".agents/claude-only.txt"
 CMD_NAME_RE = re.compile(r"^\.claude/commands/([^/]+)\.md$")
@@ -317,7 +329,7 @@ def load_answers(path, lock):
             if k in data:
                 if not isinstance(data[k], dict):
                     raise KitError(f"answers: {k} must be an object")
-                base[k].update(data[k])
+                base[k].update(unwrap_facts(data[k]) if k == "facts" else data[k])
         if "packs" in data:
             if not isinstance(data["packs"], list) or not all(isinstance(p, str) for p in data["packs"]):
                 raise KitError("answers: packs must be a list of pack names")
@@ -338,6 +350,25 @@ def load_answers(path, lock):
             raise KitError(f"answers: mcp_map.{k} must be the name of an existing server")
     base["packs"] = [p for p in dict.fromkeys(base["packs"]) if p != "core"]
     return base
+
+
+def unwrap_facts(facts):
+    """Facts from a draft (`{value, source, evidence}`) or plain values. A fact still marked `ask` with no value
+    refuses: the owner hasn't answered it yet."""
+    out, still = {}, []
+    for name, v in facts.items():
+        if isinstance(v, dict):
+            if "value" not in v or v.get("source") not in DRAFT_SOURCES:
+                raise KitError(f"answers: facts.{name} is an object; it needs `value` and a `source` of "
+                               f"{', '.join(DRAFT_SOURCES)}")
+            if v["source"] == "ask" and v["value"] in (None, "", []):
+                still.append(name)
+                continue
+            v = v["value"]
+        out[name] = v
+    if still:
+        raise KitError("answers: still to answer (source `ask`, no value): " + ", ".join(sorted(still)))
+    return out
 
 
 def fact_value(v):
@@ -599,6 +630,7 @@ class Row:
         self.options = kw.get("options", ())      # resolutions allowed when this is a conflict
         self.executable = kw.get("executable", False)
         self.renamed_from = None                  # the original dest when the kit's file went to <name>-kit
+        self.root = None                          # where the row writes when not the target (a local-only file)
 
     def to_dict(self):
         d = {"unit": self.unit, "src": self.src, "dest": self.dest, "action": self.action, "reason": self.reason}
@@ -763,7 +795,7 @@ def owner_task_applies(task, values):
     return values.get(when.get("fact")) == fact_value(when.get("equals"))
 
 
-def build_plan(kit, target, answers_path, upgrade=False):
+def build_plan(kit, target, answers_path, upgrade=False, local_from=None):
     target = os.path.abspath(target)
     if not os.path.isdir(target):
         raise KitError(f"target {target} is not a directory")
@@ -961,7 +993,7 @@ def build_plan(kit, target, answers_path, upgrade=False):
                                    plan, values, names, lock_files.get(".claude/settings.json")))
     produced.add(".claude/settings.json")
     plan.rows.append(plan_mcp(kit, target, units, answers["mcp_map"], plan, values, missing,
-                              lock_files.get(".mcp.json"), resolutions))
+                              lock_files.get(".mcp.json"), resolutions, local_from))
     produced.add(".mcp.json")
     plan.rows.append(plan_gitignore(kit, target, plan, units))
     produced.add(".gitignore")
@@ -1506,13 +1538,17 @@ def rename_mcp_json(obj, names):
     return obj
 
 
-def plan_mcp(kit, target, units, mcp_map, plan, values=None, missing=(), lock_entry=None, resolutions=None):
+def plan_mcp(kit, target, units, mcp_map, plan, values=None, missing=(), lock_entry=None, resolutions=None,
+             local_from=None):
     """Add, update or keep each kit MCP server. Servers the kit installed are recorded in the lock (with a hash of
     the entry): an unchanged one follows the kit, an edited one is a conflict. A server the kit never installed is
     the project's and is left alone."""
     rel = ".mcp.json"
     values, resolutions = values or {}, resolutions or {}
-    raw, cur = _merge_json_target(target, rel, plan)
+    root = None
+    if local_from and not os.path.isfile(tpath(target, rel)) and os.path.isfile(tpath(local_from, rel)):
+        root = os.path.abspath(local_from)  # a worktree install: the local-only .mcp.json lives in the checkout
+    raw, cur = _merge_json_target(root or target, rel, plan)
     if cur is False:
         return Row("core", "(pack mcp)", rel, "skip", "invalid JSON; not touched")
     cur_servers = (cur or {}).get("mcpServers") or {}
@@ -1615,12 +1651,16 @@ def plan_mcp(kit, target, units, mcp_map, plan, values=None, missing=(), lock_en
                 "no MCP servers to add" if not plan.mcp else "nothing new to add or update")
         if cur is not None and plan.mcp:
             r.lock = dict(lock, sha256_as_installed=sha256(raw.encode("utf-8")))
+        r.root = root
         return r
     text = dump_json(new)
     r = Row("core", "(pack mcp)", rel, "merge" if cur is not None else "pull",
             "adds or updates kit servers; the project's servers untouched" if cur is not None else "new file",
             content=text.encode("utf-8"), backup=backup)
+    if root:
+        r.reason += f" (written in the checkout {root}: the file is local-only)"
     r.lock = dict(lock, sha256_as_installed=sha256(text.encode("utf-8")))
+    r.root = root
     return r
 
 
@@ -1939,7 +1979,8 @@ def apply_plan(kit, target, plan):
     for r in plan.rows:
         if r.content is None:
             continue
-        path = tpath(target, r.dest)
+        root = r.root or target
+        path = tpath(root, r.dest)
         if os.path.isfile(path) and read_bytes(path) == r.content:
             if r.executable and not is_executable(path):
                 mode = os.stat(path).st_mode
@@ -1947,10 +1988,10 @@ def apply_plan(kit, target, plan):
                 log.append(f"set the executable bit on {r.dest}")
             continue
         if r.backup == "rename" and os.path.lexists(path):
-            rename_aside(target, r.dest, log)
+            rename_aside(root, r.dest, log)
         elif r.backup == "copy" and os.path.isfile(path):
-            copy_aside(target, r.dest, log)
-        write_file(target, r.dest, r.content, log, executable=r.executable)
+            copy_aside(root, r.dest, log)
+        write_file(root, r.dest, r.content, log, executable=r.executable)
     sync_rc = run_skill_links(kit, target, log)
     lock_text = dump_json(plan.new_lock).encode("utf-8")
     lock_path = tpath(target, LOCK_PATH)
@@ -2569,17 +2610,543 @@ def verify(kit, target):
 
 
 # ---------------------------------------------------------------------------
+# Guided install: preflight, draft, review, --worktree
+#
+# The owner's three touch points: start the install from the real checkout, approve one review page, merge the PR.
+# preflight and draft only read. review creates the install worktree (a separate folder and branch) and writes the
+# page to --out; apply/upgrade --worktree write only inside that worktree, plus a local-only file the plan shows.
+# ---------------------------------------------------------------------------
+INSTALL_BRANCH = "agent-kit/install"
+KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9})-[0-9]+\b")
+BRANCH_KEY_RE = re.compile(r"^(?P<prefix>(?:[A-Za-z0-9._-]+/)*)(?P<key>[a-zA-Z][a-zA-Z0-9]{1,9})-[0-9]+(?:-|$)")
+OPEN_ITEMS_RE = re.compile(r"open[ _-]items", re.I)
+JIRA_HOST_RE = re.compile(r"\b([a-z0-9][a-z0-9-]*\.(?:atlassian\.net|jira\.com))\b", re.I)
+DOC_SCAN_MAX = 400_000  # bytes per file read while drafting
+
+
+def git_run(target, *args, timeout=120):
+    """(returncode, stdout, stderr) of a git command that may take longer than git_out allows (fetch, worktree)."""
+    try:
+        p = subprocess.run(["git", "-C", target] + list(args), capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout.strip(), p.stderr.strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 1, "", str(exc)
+
+
+def worktrees(target):
+    """[{path, branch}] from `git worktree list --porcelain`; the first is the main checkout."""
+    out, cur = [], None
+    for line in (git_out(target, "worktree", "list", "--porcelain") or "").splitlines():
+        if line.startswith("worktree "):
+            cur = {"path": os.path.realpath(line[len("worktree "):]), "branch": None}
+            out.append(cur)
+        elif line.startswith("branch ") and cur is not None:
+            cur["branch"] = line[len("branch "):].replace("refs/heads/", "", 1)
+    return out
+
+
+def main_checkout(target):
+    wts = worktrees(target)
+    return wts[0]["path"] if wts else os.path.realpath(target)
+
+
+def tool_version(cmd):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return (p.stdout or p.stderr).strip() if p.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def mcp_server_names(path):
+    """Server names in a .mcp.json (names only, never values); None when absent, "unreadable" when bad."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            servers = json.load(fh).get("mcpServers", {})
+        return sorted(servers) if isinstance(servers, dict) else []
+    except (OSError, ValueError, AttributeError):
+        return "unreadable"
+
+
+def match_mcp(kit_name, existing):
+    """The existing server a kit server should map to: exact, `<prefix><kit>`, then `<anything>_<kit>`."""
+    if kit_name in existing:
+        return kit_name, "exact"
+    ends = [n for n in existing if n.endswith("_" + kit_name) or n.endswith(kit_name)]
+    if len(ends) == 1:
+        return ends[0], "suffix"
+    return (None, "ambiguous: " + ", ".join(ends)) if ends else (None, "none")
+
+
+def env_files(target):
+    """Local env files present in the checkout and ignored by git (names only; contents are never read)."""
+    out = []
+    for f in sorted(os.listdir(target)):
+        if f.startswith(".env") and os.path.isfile(os.path.join(target, f)) and not f.endswith(
+                (".example", ".sample", ".template", ".bak", ".orig", ".old", "~")):
+            if git_out(target, "check-ignore", "-q", f) is not None:
+                out.append(f)
+    return out
+
+
+def doc_files(target):
+    """CLAUDE.md, AGENTS.md, README.md and Markdown under docs/ (3 levels), for the draft's text searches."""
+    found = [f for f in ("CLAUDE.md", "AGENTS.md", "README.md") if os.path.isfile(os.path.join(target, f))]
+    base = os.path.join(target, "docs")
+    for dirpath, dirs, files in os.walk(base):
+        if dirpath[len(base):].count(os.sep) >= 3:
+            dirs[:] = []
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_NAMES and not d.startswith("."))
+        found += [os.path.relpath(os.path.join(dirpath, f), target) for f in sorted(files) if f.endswith(".md")]
+    return found
+
+
+def doc_lines(target):
+    for rel in doc_files(target):
+        try:
+            with open(os.path.join(target, rel), encoding="utf-8", errors="replace") as fh:
+                text = fh.read(DOC_SCAN_MAX)
+        except OSError:
+            continue
+        for i, line in enumerate(text.split("\n"), 1):
+            yield posix(rel), i, line
+
+
+def ticket_prefix_evidence(target, main_branch):
+    """(prefix, branch prefix, evidence) from branch names and `KEY-123:` commit subjects."""
+    keys, prefixes = {}, {}
+    refs = git_out(target, "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes/origin") or ""
+    for ref in refs.splitlines():
+        name = ref[len("origin/"):] if ref.startswith("origin/") else ref
+        m = BRANCH_KEY_RE.match(name)
+        if m:
+            keys[m.group("key").upper()] = keys.get(m.group("key").upper(), 0) + 1
+            prefixes[m.group("prefix")] = prefixes.get(m.group("prefix"), 0) + 1
+    subjects = git_out(target, "log", "-300", "--format=%s", f"origin/{main_branch}") or \
+        git_out(target, "log", "-300", "--format=%s") or ""
+    commit_keys = {}
+    for subj in subjects.splitlines():
+        m = re.match(r"^([A-Z][A-Z0-9]{1,9})-[0-9]+\b", subj)
+        if m:
+            commit_keys[m.group(1)] = commit_keys.get(m.group(1), 0) + 1
+    total = {k: keys.get(k, 0) + commit_keys.get(k, 0) for k in set(keys) | set(commit_keys)}
+    if not total:
+        return None, None, "no ticket keys in branch names or commit subjects"
+    prefix = max(total, key=lambda k: (total[k], k))
+    ev = f"{keys.get(prefix, 0)} branch name(s) and {commit_keys.get(prefix, 0)} commit subject(s) use {prefix}-<n>"
+    others = sorted(k for k in total if k != prefix)
+    if others:
+        ev += f" (also seen: {', '.join(others)})"
+    bp = max(prefixes, key=lambda k: (prefixes[k], k)) if prefixes else None
+    return prefix, bp, ev
+
+
+def draft(kit, target):
+    """Answers the installer can find in the project, each `{value, source, evidence}`. Read-only."""
+    target = main_checkout(os.path.abspath(target))
+    sc = scan(kit, target)
+    main_branch = sc["git"]["default_branch"] or "main"
+    found = {}
+
+    def put(name, value, source, evidence):
+        found[name] = {"value": value, "source": source, "evidence": evidence}
+
+    put("MAIN_BRANCH", main_branch, "found" if sc["git"]["default_branch"] else "default",
+        "origin's default branch" if sc["git"]["default_branch"] else "no origin HEAD; the kit default")
+    prefix, branch_prefix, ev = ticket_prefix_evidence(target, main_branch)
+    if prefix:
+        put("TICKET_PREFIX", prefix, "found", ev)
+        put("JIRA_PROJECT_KEY", prefix, "found", "the ticket prefix")
+    if branch_prefix is not None:
+        put("BRANCH_PREFIX", branch_prefix, "found", "the prefix most ticket branches use")
+    url = git_out(target, "remote", "get-url", "origin")
+    repo = re.sub(r"\.git$", "", (url or "").rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]) if url else None
+    if repo:
+        put("PROJECT_NAME", repo, "guess", f"the origin repository name ({repo}); use the name people call it")
+    for name, value in sc["suggested_facts"].items():
+        put(name, value, "found", "read from the project (package scripts, config files, git)")
+    # Open-items ticket and Jira site, from the project's own docs.
+    hits, hosts = {}, {}
+    for rel, i, line in doc_lines(target):
+        if OPEN_ITEMS_RE.search(line):
+            for m in KEY_RE.finditer(line):
+                if prefix and m.group(1) != prefix:
+                    continue
+                hits.setdefault(m.group(0), []).append(f"{rel}:{i}")
+        for h in JIRA_HOST_RE.findall(line):
+            hosts.setdefault(h.lower(), []).append(f"{rel}:{i}")
+    if len(hits) == 1:
+        key, where = next(iter(hits.items()))
+        put("OPEN_ITEMS_TICKET", key, "found", f"named on an open-items line at {', '.join(where[:3])}")
+    elif hits:
+        key = max(hits, key=lambda k: len(hits[k]))
+        put("OPEN_ITEMS_TICKET", key, "guess", "several keys on open-items lines: " +
+            "; ".join(f"{k} ({', '.join(v[:2])})" for k, v in sorted(hits.items())))
+    open_files = [f for f in doc_files(target) if OPEN_ITEMS_RE.search(os.path.basename(f))]
+    if len(hosts) == 1:
+        host, where = next(iter(hosts.items()))
+        put("JIRA_SITE", host, "found", f"in {', '.join(where[:3])}")
+    elif hosts:
+        put("JIRA_SITE", max(hosts, key=lambda h: len(hosts[h])), "guess",
+            "several Jira hosts in the docs: " + ", ".join(sorted(hosts)))
+    # Packs: the scan's matches, the ticket pack, and worktrees when the checkout has any.
+    notes = {"packs": {}, "packs_to_ask": [], "local_only": {}}
+    packs = [p["name"] for p in sc["packs"] if p["matched"] and p["kind"] != "ticket"]
+    for p in sc["packs"]:
+        if p["matched"] and p["kind"] != "ticket":
+            notes["packs"][p["name"]] = {"source": "found", "evidence": "; ".join(p["signals"])}
+    wts = worktrees(target)
+    if len(wts) > 1:
+        packs.append("worktrees")
+        parents = {os.path.dirname(w["path"]) for w in wts[1:]}
+        lanes = ", ".join(f"{os.path.relpath(w['path'], target)} ({w['branch'] or 'detached'})" for w in wts[1:])
+        notes["packs"]["worktrees"] = {"source": "found", "evidence": f"git worktree list: {lanes}"}
+        if len(parents) == 1:
+            put("WORKTREE_DIR", posix(os.path.relpath(parents.pop(), target)), "found",
+                "the folder the existing worktrees live in")
+        envs = env_files(target)
+        put("WORKTREE_ENV_FILES", envs or "none", "found" if envs else "default",
+            ("gitignored env files in the checkout: " + ", ".join(envs)) if envs else "no gitignored .env files")
+    settings = claude_settings(target)
+    have_status = [rel for rel, d in settings if "statusLine" in d]
+    have_notify = os.path.exists(os.path.join(target, ".claude", "scripts", "notify")) or any(
+        "Notification" in (d.get("hooks") or {}) for _rel, d in settings)
+    for p in sc["packs"]:
+        if p["matched"] or p["kind"] == "ticket" or p["name"] in packs or not p.get("ask"):
+            continue
+        det = kit.units[p["name"]].get("detect") or {}
+        if det.get("files") or det.get("package_deps") or det.get("package_json") or p["kind"] == "extra" and \
+                p["name"] != "statusline":
+            notes.setdefault("optional_extras", []).append({"pack": p["name"], "adds": p["description"]})
+            continue  # detectable and not found, or a niche extra: listed on the review page, never asked
+        item = {"pack": p["name"], "ask": p["ask"], "adds": p["description"]}
+        if p["name"] == "statusline" and have_status:
+            item["already"] = (f"you already have a status line ({', '.join(have_status)}); the project's is kept "
+                               "if it is in the project, but this pack replaces a personal one in this project")
+        if p["name"] == "notify-telegram" and have_notify:
+            item["already"] = "the project already has a notify script or Notification hook: keep one, not both"
+        notes["packs_to_ask"].append(item)
+    # MCP: map each kit server the chosen units ship to the project's own server.
+    mcp_path = os.path.join(target, ".mcp.json")
+    existing = mcp_server_names(mcp_path)
+    ticket_pack = found.get("TICKET_SYSTEM", {}).get("value") or "jira"
+    units = ["core"] + packs + ([ticket_pack] if ticket_pack in kit.units else [])
+    mcp_map, prefixes = {}, {}
+    notes["local_only"] = {".mcp.json": "absent" if existing is None else ("gitignored" if sc["mcp_json_gitignored"]
+                                                                            else "tracked"),
+                           "env_files": env_files(target),
+                           "settings.local.json hooks": sorted((dict(settings).get(".claude/settings.local.json") or {})
+                                                               .get("hooks", {}) or {})}
+    for u in units:
+        for kit_name in sorted(kit.units.get(u, {}).get("mcp", {}) or {}):
+            if not isinstance(existing, list):
+                continue
+            hit, how = match_mcp(kit_name, existing)
+            if hit and hit != kit_name:
+                mcp_map[kit_name] = hit
+                if hit.endswith(kit_name):
+                    prefixes[hit[: -len(kit_name)]] = prefixes.get(hit[: -len(kit_name)], 0) + 1
+            notes.setdefault("mcp", {})[kit_name] = {"maps_to": hit, "how": how}
+    other_prefixes = {}
+    for n in existing if isinstance(existing, list) else []:
+        m = re.match(r"^([a-z0-9]+_)", n)
+        if m:
+            other_prefixes[m.group(1)] = other_prefixes.get(m.group(1), 0) + 1
+    if other_prefixes:
+        p = max(other_prefixes, key=lambda k: (other_prefixes[k], k))
+        put("MCP_PREFIX", p, "found", f"{other_prefixes[p]} of the project's MCP servers start with {p}")
+    elif isinstance(existing, list):
+        put("MCP_PREFIX", "none", "guess", "the project's MCP servers have no shared prefix")
+    # Every other fact: the kit default, else asked. Judgment facts get a pointer to read the project first.
+    judged = {"PROJECT_SUMMARY": "read CLAUDE.md and README.md, then write one line",
+              "CRITICAL_DOMAIN": "the one area whose logic must never be wrong: read CLAUDE.md for the project's "
+                                 "safety and money rules",
+              "CRITICAL_SYSTEMS": "the kit default; check it against the areas CLAUDE.md treats as critical"}
+    if "OPEN_ITEMS_TICKET" not in found:
+        judged["OPEN_ITEMS_TICKET"] = (
+            f"no standing ticket found; the project keeps open items in {', '.join(open_files)} (a file). Name an "
+            "existing ticket, or the agent creates one after install" if open_files else
+            "no standing open-items ticket found in the docs. Name one, or the agent creates one after install")
+    facts = {}
+    for name, f in kit.facts(units).items():
+        if name in found:
+            facts[name] = found[name]
+        elif "default" in f and "{{" not in str(f["default"]) and name not in judged:
+            facts[name] = {"value": f["default"], "source": "default", "evidence": "the kit default"}
+        elif "default" in f and "{{" not in str(f["default"]):
+            facts[name] = {"value": f["default"], "source": "guess", "evidence": judged[name]}
+        else:
+            facts[name] = {"value": None, "source": "ask", "evidence": judged.get(name, ""), "ask": f.get("ask", "")}
+    return {"$comment": "Drafted by agent-kit from the project. `found` came from the project, `default` is the kit "
+                        "default, `guess` needs a check, `ask` needs the owner. review shows all of it on one page.",
+            "facts": facts, "packs": sorted(set(packs)), "mcp_map": mcp_map,
+            "options": {"github": bool(sc["github"])}, "resolutions": {}, "notes": notes}
+
+
+def preflight(kit, target, answers=None):
+    """Everything that would stop the install, before any question. Read-only."""
+    target = main_checkout(os.path.abspath(target))
+    items = []
+
+    def add(check, ok, detail, fix=None, blocker=True):
+        items.append({"check": check, "ok": ok, "detail": detail, "fix": fix, "blocker": blocker and not ok})
+
+    is_repo = git_out(target, "rev-parse", "--is-inside-work-tree") == "true"
+    add("git repository", is_repo, target if is_repo else "not a git repository", "run the install from the project's "
+        "git checkout")
+    if not is_repo:
+        return {"status": "BLOCKED", "target": target, "items": items}
+    url = git_out(target, "remote", "get-url", "origin")
+    add("origin remote", bool(url), remote_host(url) or "a local path" if url else "no remote named origin",
+        "add one: git remote add origin <url> (reviews compare against origin/<MAIN_BRANCH>)")
+    ref = git_out(target, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+    main_branch = (answers or {}).get("facts", {}).get("MAIN_BRANCH") or (ref.rsplit("/", 1)[-1] if ref else "main")
+    if isinstance(main_branch, dict):
+        main_branch = main_branch.get("value") or "main"
+    has_main = git_out(target, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{main_branch}") is not None
+    add("origin main branch", has_main, f"origin/{main_branch}", f"git fetch origin {main_branch}")
+    dirty = git_out(target, "status", "--porcelain") or ""
+    add("checkout changes", True, (f"{len(dirty.splitlines())} uncommitted change(s) in the checkout: left untouched"
+                                   if dirty else "clean"), blocker=False)
+    wts = worktrees(target)
+    for w in wts[1:]:
+        add("worktree lane", True, f"{w['path']} on {w['branch'] or 'detached HEAD'}: left untouched", blocker=False)
+    ahead = []
+    for b in (git_out(target, "for-each-ref", "--format=%(refname:short)", "refs/heads") or "").splitlines():
+        if b in (main_branch, INSTALL_BRANCH):
+            continue
+        n = git_out(target, "rev-list", "--count", f"origin/{main_branch}..{b}")
+        if n and n != "0":
+            ahead.append(f"{b} (+{n})")
+    add("work in flight", True, ("unmerged branches: " + ", ".join(ahead[:10]) +
+                                 ". Merge the install PR only between tickets") if ahead else "none", blocker=False)
+    py = sys.version_info
+    add("python3 ≥ 3.9", py >= (3, 9), f"{py.major}.{py.minor}", "install Python 3.9 or newer")
+    node = tool_version(["node", "--version"])
+    m = re.match(r"v(\d+)", node or "")
+    add("node ≥ 18", bool(m and int(m.group(1)) >= 18), node or "not found",
+        "install Node 18+ (the kit's helper script and review fingerprints need it)")
+    github = scan_github(target)
+    if github:
+        gh = tool_version(["gh", "auth", "status"]) is not None
+        add("gh logged in", gh, "yes" if gh else "gh missing or not logged in",
+            "run: gh auth login (needed to push the install branch and open its PR)")
+    names = mcp_server_names(os.path.join(target, ".mcp.json"))
+    ignored = mcp_json_gitignored(target, True)
+    add(".mcp.json", names != "unreadable", "absent" if names is None else (
+        "unreadable JSON" if names == "unreadable" else f"{len(names)} server(s), "
+        f"{'gitignored (local to this machine)' if ignored else 'tracked'}"), "fix the JSON in .mcp.json")
+    local = dict(claude_settings(target)).get(".claude/settings.local.json") or {}
+    if local.get("hooks"):
+        add("settings.local.json hooks", True, "hooks on " + ", ".join(sorted(local["hooks"])) +
+            ": checked against the kit's hooks on the review page", blocker=False)
+    envs = env_files(target)
+    if envs:
+        add("env files", True, ", ".join(envs) + " (names only; never read)", blocker=False)
+    # MCP servers the chosen packs need: present (exactly, by prefix or through mcp_map)?
+    ans = answers or draft(kit, target)
+    facts = unwrap_facts({k: v for k, v in ans.get("facts", {}).items()
+                          if not (isinstance(v, dict) and v.get("source") == "ask" and v.get("value") in (None, ""))})
+    ticket = facts.get(TICKET_FACT, "jira")
+    units = ["core"] + list(ans.get("packs", [])) + ([ticket] if ticket in kit.units else [])
+    mmap = ans.get("mcp_map", {})
+    prefix = mcp_prefix(facts)
+    needed = []
+    for u in dict.fromkeys(units):
+        for kit_name in sorted((kit.units.get(u) or {}).get("mcp", {}) or {}):
+            want = mmap.get(kit_name) or prefix + kit_name
+            have = isinstance(names, list) and want in names
+            needed.append(want)
+            if mmap.get(kit_name):
+                add(f"MCP server for {u}", have, f"the kit's {kit_name} uses your {want}" + (
+                    "" if have else ", which .mcp.json doesn't have"),
+                    f"add {want} to .mcp.json, or correct mcp_map.{kit_name}")
+            else:
+                add(f"MCP server for {u}", True, f"{want}: " + ("present" if have else
+                    "not in .mcp.json yet; the kit adds it with ${ENV} references only (listed on the review page)"),
+                    blocker=False)
+    status = "BLOCKED" if any(i["blocker"] for i in items) else "READY"
+    return {"status": status, "target": target, "items": items,
+            "agent_checks": [f"make one read call through {n} (ticket op get on any key) and record reachable or "
+                             "not authorized; not authorized is a blocker" for n in needed]}
+
+
+def preflight_markdown(pf):
+    out = [f"## A. Before anything is written: {pf['status']}", ""]
+    for i in pf["items"]:
+        mark = "✅" if i["ok"] else ("❌" if i["blocker"] else "⚠️")
+        line = f"- {mark} **{i['check']}**: {md_cell(i['detail'])}"
+        if not i["ok"] and i.get("fix"):
+            line += f". Fix: {md_cell(i['fix'])}"
+        out.append(line)
+    for c in pf.get("agent_checks", []):
+        out.append(f"- 🔌 The installing agent will {c}.")
+    return out
+
+
+def install_worktree(target, main_branch, worktree_dir=None):
+    """The install worktree on INSTALL_BRANCH, made from origin/<main_branch> (reused when it exists)."""
+    top = main_checkout(os.path.abspath(target))
+    for w in worktrees(top):
+        if w["branch"] == INSTALL_BRANCH:
+            return w["path"]
+    if worktree_dir and worktree_dir != "none" and os.path.isdir(os.path.join(top, worktree_dir)):
+        path = os.path.join(top, worktree_dir, "agent-kit-install")
+    else:
+        path = os.path.join(os.path.dirname(top), os.path.basename(top) + "-agent-kit-install")
+    if os.path.exists(path):
+        raise KitError(f"{path} exists and is not the {INSTALL_BRANCH} worktree; move it aside and run again")
+    rc, _o, err = git_run(top, "fetch", "origin", main_branch)
+    if rc:
+        raise KitError(f"git fetch origin {main_branch} failed: {err}")
+    exists = git_out(top, "rev-parse", "--verify", "--quiet", f"refs/heads/{INSTALL_BRANCH}") is not None
+    args = ["worktree", "add", path, INSTALL_BRANCH] if exists else \
+        ["worktree", "add", "-b", INSTALL_BRANCH, path, f"origin/{main_branch}"]
+    rc, _o, err = git_run(top, *args)
+    if rc:
+        raise KitError(f"git {' '.join(args)} failed: {err}")
+    return os.path.realpath(path)
+
+
+def answer_fact(answers_path, name, default=None):
+    if not answers_path:
+        return default
+    try:
+        v = load_json(answers_path, "answers").get("facts", {}).get(name, default)
+    except KitError:
+        return default
+    return (v.get("value") if isinstance(v, dict) else v) or default
+
+
+def review_markdown(kit, top, wt, answers, pf, plan):
+    out = ["# agent-kit install review", "",
+           f"Project: `{top}`. The install is built in `{wt}` on branch `{INSTALL_BRANCH}`. Your checkout and its "
+           "other worktrees are not touched. Nothing is written until you approve this page.", ""]
+    out += preflight_markdown(pf)
+    facts = answers.get("facts", {})
+    order = {"ask": 0, "guess": 1, "found": 2, "default": 3}
+    out += ["", "## B. Answers", "",
+            "`ask` needs you. `guess` needs a check. `found` came from your project. `default` is the kit's.", "",
+            "| Fact | Value | Source | Evidence |", "|---|---|---|---|"]
+    for name, v in sorted(facts.items(), key=lambda kv: (order.get((kv[1] or {}).get("source") if isinstance(
+            kv[1], dict) else "found", 9), kv[0])):
+        if isinstance(v, dict):
+            val, src, ev = v.get("value"), v.get("source"), v.get("evidence") or v.get("ask") or ""
+        else:
+            val, src, ev = v, "answered", ""
+        out.append(f"| `{name}` | {md_cell(fact_value(val) if val not in (None, '') else '—')} | {src} | "
+                   f"{md_cell(ev)} |")
+    notes = answers.get("notes", {})
+    out += ["", "**Packs:** " + (", ".join(answers.get("packs", [])) or "none")]
+    for name, n in sorted(notes.get("packs", {}).items()):
+        out.append(f"- `{name}`: {n.get('source')}: {md_cell(n.get('evidence', ''))}")
+    for q in notes.get("packs_to_ask", []):
+        line = f"- ❓ `{q['pack']}`: {md_cell(q['ask'])} ({md_cell(q['adds'])})"
+        if q.get("already"):
+            line += f". **Already:** {md_cell(q['already'])}"
+        out.append(line)
+    if notes.get("optional_extras"):
+        out.append("- Optional extras, not asked (add any by name): " +
+                   ", ".join(f"`{x['pack']}`" for x in notes["optional_extras"]))
+    if answers.get("mcp_map"):
+        out.append("- MCP: " + ", ".join(f"the kit's `{k}` uses your `{v}`" for k, v in sorted(answers["mcp_map"].items())))
+    out += ["", "## C. What happens to your files", ""]
+    mine = [r for r in plan.rows if r.action in ("conflict", "merge") or r.backup or r.resolution or r.root]
+    if mine:
+        out += ["| File | What happens | Why |", "|---|---|---|"]
+        for r in sorted(mine, key=lambda r: r.dest):
+            what = r.action + (f" ({r.resolution})" if r.resolution else "")
+            if r.backup == "rename":
+                what += "; yours is renamed *.pre-agent-kit"
+            if r.root:
+                what += f"; written in your checkout (local-only)"
+            out.append(f"| `{r.dest}` | {md_cell(what)} | {md_cell(r.reason)} |")
+    else:
+        out.append("None of your files change. The kit only adds files.")
+    if plan.unresolved or plan.mcp_unresolved:
+        out += ["", "**Decide each:** " + "; ".join(f"`{d}`: {o}" for d, o in plan.resolutions_template().items())]
+    added = [r for r in plan.rows if r.action == "pull"]
+    out += ["", "## D. What gets added", "", f"{len(added)} new file(s) across {', '.join(plan.units)}."]
+    if plan.settings.get("hooks"):
+        out.append("Hooks: " + "; ".join(md_cell(str(h)) for h in plan.settings["hooks"][:20]))
+    if plan.errors:
+        out += ["", "**Errors (the install refuses until fixed):**"] + [f"- {md_cell(e)}" for e in plan.errors]
+    if plan.missing_facts:
+        out += ["", "**Still missing:** " + ", ".join(m["name"] for m in plan.missing_facts)]
+    out += ["", "## E. After you approve", "",
+            f"1. The installer writes into `{wt}`, runs the kit's checks and your tests there, commits, pushes "
+            f"`{INSTALL_BRANCH}` and opens a PR.",
+            "2. You merge the PR between tickets. Each lane picks the kit up from main: worktrees sync on their next "
+            "prompt, and the checkout needs `git pull`."]
+    for e in plan.env:
+        out.append(f"3. Credential: set `{e['name']}` ({md_cell(e.get('purpose', ''))}).")
+    for t in plan.owner_tasks:
+        out.append(f"- Setup ({t['unit']}): {md_cell(t['task'])}")
+    for m in plan.mcp:
+        if m.get("action") in ("add", "update") and any(r.root for r in plan.rows if r.dest == ".mcp.json"):
+            out.append(f"- `.mcp.json` (local-only) gains `{m['server']}`; your copy is kept as `.mcp.json` "
+                       f"{BACKUP_SUFFIX} first only if an entry is replaced.")
+    out += ["", "Full file-by-file plan: run `plan --worktree` with the same answers.", ""]
+    return "\n".join(out)
+
+
+def review(kit, target, answers_path=None, out_path=None):
+    """The one page: preflight, answers, what happens to the project's files, what is added, after-merge steps.
+    An upgrade (the install worktree, made from origin/<main>, holds the lock) needs no answers file."""
+    top = main_checkout(os.path.abspath(target))
+    answers = load_json(answers_path, "answers") if answers_path else {}
+    ref = git_out(top, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+    main_branch = answer_fact(answers_path, "MAIN_BRANCH", ref.rsplit("/", 1)[-1] if ref else "main")
+    wt = install_worktree(top, main_branch, answer_fact(answers_path, "WORKTREE_DIR"))
+    lock = read_lock(wt)
+    if lock and not answers_path:
+        answers = {"facts": dict(lock.get("answers", {}).get("facts", {})),
+                   "packs": list(lock.get("answers", {}).get("packs", [])),
+                   "mcp_map": dict(lock.get("answers", {}).get("mcp_map", {}))}
+    pf = preflight(kit, top, answers)
+    try:
+        plan = build_plan(kit, wt, answers_path, upgrade=bool(lock), local_from=top)
+    except KitError as exc:
+        if "still to answer" not in str(exc) and "--answers is required" not in str(exc):
+            raise
+        plan = Plan()
+        plan.errors.append(str(exc))
+    text = review_markdown(kit, top, wt, answers, pf, plan)
+    if lock:
+        since = lock.get("kit", {}).get("version", "0.0.0")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print_changelog(kit, since)
+        text += f"\n## F. What changed in the kit since {since}\n\n" + buf.getvalue()
+    if out_path:
+        write_file(os.path.dirname(os.path.abspath(out_path)), os.path.basename(out_path), text.encode("utf-8"), [])
+    return text, pf, plan
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="agent_kit.py", description="agent-kit installer")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("scan", "plan", "apply", "upgrade", "verify", "third-party"):
+    for name in ("preflight", "draft", "review", "scan", "plan", "apply", "upgrade", "verify", "third-party"):
         p = sub.add_parser(name)
         p.add_argument("--target", required=True, help="the project directory")
         p.add_argument("--kit", default=DEFAULT_KIT, help="the kit root (default: this script's kit)")
+        if name in ("plan", "apply", "upgrade", "preflight"):
+            p.add_argument("--answers", help="answers.json or a draft (optional when a lock exists)")
         if name in ("plan", "apply", "upgrade"):
-            p.add_argument("--answers", help="answers.json (optional when a lock exists)")
+            p.add_argument("--worktree", action="store_true",
+                           help=f"--target is the real checkout; install into the {INSTALL_BRANCH} worktree")
+        if name == "draft":
+            p.add_argument("--out", required=True, help="where to write the draft answers (JSON)")
+        if name == "review":
+            p.add_argument("--answers", help="the draft or answers file (optional for an upgrade)")
+            p.add_argument("--out", help="also write the page here (Markdown)")
+        if name == "preflight":
+            p.add_argument("--json", action="store_true", help="print the result as JSON")
         if name == "third-party":
             p.add_argument("--name", required=True, help="the third_party entry's name")
             p.add_argument("--from", dest="src", required=True, help="the fetched tree (the source's path at ref)")
@@ -2594,6 +3161,31 @@ def main(argv=None):
         if args.cmd == "scan":
             print(json.dumps(scan(kit, args.target), indent=2))
             return 0
+        if args.cmd == "preflight":
+            pf = preflight(kit, args.target, load_json(args.answers, "answers") if args.answers else None)
+            print(json.dumps(pf, indent=2) if args.json else "\n".join(preflight_markdown(pf)))
+            return 0 if pf["status"] == "READY" else 1
+        if args.cmd == "draft":
+            d = draft(kit, args.target)
+            out = os.path.abspath(args.out)
+            write_file(os.path.dirname(out), os.path.basename(out), dump_json(d).encode("utf-8"), [])
+            asks = sorted(n for n, v in d["facts"].items() if v["source"] == "ask")
+            guesses = sorted(n for n, v in d["facts"].items() if v["source"] == "guess")
+            print(f"draft written: {out}")
+            print(f"found {sum(v['source'] == 'found' for v in d['facts'].values())}, "
+                  f"default {sum(v['source'] == 'default' for v in d['facts'].values())}, "
+                  f"guess {len(guesses)}, ask {len(asks)}")
+            if asks:
+                print("to ask: " + ", ".join(asks))
+            if guesses:
+                print("to check: " + ", ".join(guesses))
+            if d["notes"]["packs_to_ask"]:
+                print("packs to ask about: " + ", ".join(q["pack"] for q in d["notes"]["packs_to_ask"]))
+            return 0
+        if args.cmd == "review":
+            text, pf, plan = review(kit, args.target, args.answers, args.out)
+            sys.stdout.write(text)
+            return 0 if pf["status"] == "READY" and not plan.errors else 1
         if args.cmd == "third-party":
             for line in install_third_party(kit, args.target, args.name, args.src, args.replace) or ["unchanged"]:
                 print(f"- {line}")
@@ -2609,7 +3201,14 @@ def main(argv=None):
             print("\nverify: " + ("FAILED" if problems else "ok"))
             return 1 if problems else 0
         upgrade = args.cmd == "upgrade" or getattr(args, "upgrade", False)
-        plan = build_plan(kit, args.target, args.answers, upgrade=upgrade)
+        target, local_from = args.target, None
+        if getattr(args, "worktree", False):
+            local_from = main_checkout(os.path.abspath(args.target))
+            target = install_worktree(local_from, answer_fact(args.answers, "MAIN_BRANCH", "main"),
+                                      answer_fact(args.answers, "WORKTREE_DIR"))
+            print(f"install worktree: {target} (branch {INSTALL_BRANCH}); the checkout {local_from} is not written")
+        args.target = target
+        plan = build_plan(kit, target, args.answers, upgrade=upgrade, local_from=local_from)
         if args.cmd == "plan":
             if args.json:
                 print(json.dumps(plan.to_dict(), indent=2))
