@@ -96,7 +96,9 @@ project's tracked files there, so the branch the checkout is on doesn't matter. 
 `{value, source, evidence}`:
 - `found` came from the project;
 - `default` is the kit's;
-- `guess` needs a check;
+- `guess` needs a check. Confirm it first through a read-only call to the project's own MCP server or CLI, when one
+  can answer (a host's MCP server lists its services and env groups). Still a guess → its evidence names the exact
+  place the owner can check it in one look ("Render dashboard → Env Groups → <group> → Linked services");
 - `ask` needs the owner.
 
 The draft also fills `packs` (scan matches plus worktrees, when the checkout has any) and `mcp_map` (the kit's
