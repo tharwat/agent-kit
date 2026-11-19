@@ -115,10 +115,11 @@ Take the first `pending` ticket.
    `.claude/state/<ticket>/triage.md` (send the whole `contract` list). A row still `null` is not discharged: the
    ticket can't pass post-op, ship or close.
 5. **Own gates and review rounds: run `/post-op <ticket>`** (Before starting, gates 1–8, Step 1.5) under round rules
-   1–11, unattended (round rule 9). After each round, update `code_review` (`rounds`, `extra_round`, `redesign`,
+   1–11, unattended (round rule 9). After each round, update `code_review` (`rounds`, `redesign`,
    `end_state`, `self_review` = the record's fingerprint, every disposition appended). Then by end state:
    - `clean` → step 6.
-   - A spiral assessment (round rule 10) is an `escalate`: no edit until the owner answers.
+   - A `next` of `redesign` is applied without waiting (round rule 10), unless it would change behaviour, a
+     contract or scope: then it is an `escalate`, and no edit is made until the owner answers.
    - `escalate` → post-op has already posted its one escalation comment and notified (round rule 6). Preserve the
      work (below), add each open item to `open_findings`, add one `cr-e<n>` question (the items, a recommendation,
      options each with a pro and a con), block with `question cr-e<n>: <one line>`.

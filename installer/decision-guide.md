@@ -66,8 +66,8 @@ upgrades follow them without asking again.
   - a **redesign** changes how it works, such as storing a status instead of working it out from several fields.
 
   A project rule that says "refactor freely" often means redesign. Ask which, in the decision's `found`.
-- **Kit:** refactor and simplify the code the ticket changes (`/operate` has a simplify step). Redesign when review
-  findings keep coming (the spiral rule requires it). Don't broadly refactor, rename or move code the ticket doesn't
+- **Kit:** refactor and simplify the code the ticket changes (`/operate` has a simplify step). Redesign when the review's
+  verifiers vote that findings come from a design that keeps breaking. Don't broadly refactor, rename or move code the ticket doesn't
   touch, unless asked.
 - **Protects against:** wide diffs. Every untouched file in a diff is more readers and writers to miss, the top cause
   of review findings and of bugs added by fixes.
@@ -158,12 +158,13 @@ upgrades follow them without asking again.
 
 ### review-rounds: The project's own review loop
 
-- **Kit:** review rounds run until the code is clean. A second finding in one area stops the patching for a written
-  spiral assessment the owner decides on. A ticket never ends with known defects of its own, or with a fix no
-  reviewer read.
+- **Kit:** quality comes before review. Three agents build the dependency inventory before any code, every list
+  is derived from the source with a test, and every fix goes through the same step. Review rounds then check every
+  area of the change, and the verifiers vote on fix or redesign. No round counter, no cap, and the owner is asked
+  only for product decisions. A ticket never ends with known defects of its own, or with a fix no reviewer read.
 - **Check:** a round cap in the project's text ("stop at 3"), and whether leftover findings go to a tracker.
 - **Recommend:** `kit`. A fixed cap ends tickets with known bugs and fills the tracker.
-- **Pro:** defects get fixed, not filed. **Con:** a hard ticket can take more rounds, or reach the owner sooner.
+- **Pro:** defects are prevented or fixed, not filed. **Con:** more agents run before the code is written.
 
 ### branch-model: Long-lived branches besides main
 
@@ -222,8 +223,8 @@ upgrades follow them without asking again.
 - **Check:** where the project's local `.env` points (database host, provider accounts), by key names and docs only,
   never values. Read the project's existing "run it locally" instructions and follow each one's code path.
 - **Recommend:** `kit` when local reaches production: a short safe list, everything else after merge. Set
-  `DEV_SERVER_COMMAND` to `none` unless starting the app is itself on the safe list (its startup jobs, schedulers
-  and queue workers checked). `project`
+  `LOCAL_RUN` to `production`; starting the app goes on the safe list only with its startup jobs, schedulers and
+  queue workers checked. `project`
   only when the project has a separate local or staging database and test provider accounts, and its recipes use
   them.
 - **Pro:** ends the class of defect instead of patching each recipe. **Con:** more surfaces wait until after merge

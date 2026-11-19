@@ -149,15 +149,14 @@ record of what was decided, built, reviewed and verified.
    - a self-red-team pass and a contract audit;
    - eight gates: observability, security, API contract, migration guard, copy compliance, docs, tests and mock
      fidelity;
-   - a **consensus review round**: three reviewers with different lenses, and each finding checked by two
-     verifiers who try to refute it.
+   - a **consensus review round**: three reviewers with different lenses on every area of the change, and each
+     finding checked by two verifiers who try to refute it.
 
    Findings at severity S1–S4 must be fixed, and so must every real defect in code the ticket wrote, whatever its
-   severity. Only pre-existing, lower-severity defects go to the tracker. Rounds continue until the code is clean.
-   A second finding in one area, or a third round that still finds defects, stops the patching: it writes a spiral
-   assessment (origins, simplest approach, state, classification in code, a recommendation) for you to decide on.
-   It ends `clean` or `escalate`, never with known defects of its own or a fix no reviewer read. An escalation
-   tells you exactly what it needs from you.
+   severity. Only pre-existing, lower-severity defects go to the tracker. The verifiers also vote on what comes
+   next: `fix`, or `redesign` when the findings come from a design that keeps breaking. No round counter decides,
+   and you are asked only for a product decision or a change of what the feature does. It ends `clean` or
+   `escalate`, never with known defects of its own or a fix no reviewer read.
 4. **`/peer-review`** (optional) freezes the diff, then has it reviewed by a zero-context second Claude and by Codex.
    Both reviews are bound to the frozen snapshot's hash.
 5. **`/ship`** opens the PR to `main`, requires a passing `/verify`, and **asks for your yes before merging**. After

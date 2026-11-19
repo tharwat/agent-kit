@@ -40,12 +40,12 @@ Packs may add checks here: see the section for this command in each installed `.
 
 ## Step 1: Drive it locally
 
-Start the app with `<DEV_SERVER_COMMAND>` when the surface needs it (`none`: the app is never started locally, and
-surfaces that need it are `🕒 DEFERRED`), then exercise the **changed** path, including
+Start the app with `<DEV_SERVER_COMMAND>` when the surface needs it (with `<LOCAL_RUN>` = `production`, only when
+starting it is on the verify map's safe list; otherwise surfaces that need it are `🕒 DEFERRED`), then exercise the **changed** path, including
 the failure path the ticket fixed. Real requests and real responses, not a description of what would happen.
 
-- **Only what the map proves safe.** When `verify-map.md` says a local run reaches production, run only actions on
-  its safe list. A surface whose `Local check` is `none` is not driven locally: the verdict is `🕒 DEFERRED`, and
+- **Only what the map proves safe.** With `<LOCAL_RUN>` = `production`, run only actions on
+  `verify-map.md`'s safe list. A surface whose `Local check` is `none` is not driven locally: the verdict is `🕒 DEFERRED`, and
   Step 3 is the proof. Never improvise a local recipe; one that isn't on the list, with its `file:line` proof, is
   how a "check" sends a real message or rotates a live token.
 

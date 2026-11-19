@@ -96,7 +96,9 @@ project's tracked files there, so the branch the checkout is on doesn't matter. 
 `{value, source, evidence}`:
 - `found` came from the project;
 - `default` is the kit's;
-- `guess` needs a check;
+- `guess` needs a check. Confirm it first through a read-only call to the project's own MCP server or CLI, when one
+  can answer (a host's MCP server lists its services and env groups). Still a guess → its evidence names the exact
+  place the owner can check it in one look ("Render dashboard → Env Groups → <group> → Linked services");
 - `ask` needs the owner.
 
 The draft also fills `packs` (scan matches plus worktrees, when the checkout has any) and `mcp_map` (the kit's
@@ -218,9 +220,9 @@ tests run there as they do in the checkout.
    - **When a local run reaches production** (the local `.env` points at the live database and provider accounts),
      write `verify-map.md` as a short safe list, not a recipe per area. Only actions proven side-effect free go on
      it. Every other row says `Local check: none` and names its after-merge check: a log line and a read-only query.
-     `/verify` then reports `🕒 DEFERRED` for those surfaces. Set `DEV_SERVER_COMMAND` to `none` unless starting the
-     app is on the safe list: `npm start` often starts the schedulers and workers too. Patching recipe after recipe doesn't converge: each fix
-     uncovers the next path to production.
+     `/verify` then reports `🕒 DEFERRED` for those surfaces. Set the fact `LOCAL_RUN` to `production`. Starting the
+     app goes on the safe list only when its startup jobs, schedulers and workers are checked: `npm start` often
+     starts them too. Patching recipe after recipe doesn't converge: each fix uncovers the next path to production.
 3. **Then apply:**
 
 ```bash

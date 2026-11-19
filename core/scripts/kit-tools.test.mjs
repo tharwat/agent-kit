@@ -255,3 +255,31 @@ test("usage errors exit 2", () => {
   assert.equal(kit(dir, "nope").status, 2);
   assert.equal(kit(dir, "covered", "--hash", HASH).status, 2);
 });
+
+// ---------------------------------------------------------------------------------------------------------- areas
+
+test("areas: a small diff is one area; a large one is split by folder into at most --max areas, every file once", () => {
+  const { work } = repo();
+  editCode(work);
+  assert.deepEqual(JSON.parse(ok(kit(work, "areas", ...BASE))).map(a => a.name), ["whole branch"]);
+  const big = Array.from({ length: 200 }, (_, i) => `line ${i} `.repeat(8)).join("\n");
+  for (const dir of ["src/chat", "src/jobs", "docs/agent", "sites/_template", "scripts"]) {
+    mkdirSync(join(work, dir), { recursive: true });
+    writeFileSync(join(work, dir, "f.mjs"), big);
+  }
+  git(work, "add", "-A");
+  writeFileSync(join(work, "src", "chat", "new.mjs"), big);  // untracked files count too
+  const areas = JSON.parse(ok(kit(work, "areas", ...BASE, "--max", "3")));
+  assert.equal(areas.length, 3);
+  const paths = areas.flatMap(a => a.paths).sort();
+  assert.deepEqual(paths, [...new Set(paths)], "every file in exactly one area");
+  assert.ok(paths.includes("src/chat/new.mjs") && paths.includes("sites/_template/f.mjs") && paths.includes("src/a.mjs"));
+  const chat = areas.find(a => a.paths.includes("src/chat/f.mjs"));
+  assert.ok(chat.paths.includes("src/chat/new.mjs"), "one folder stays in one area");
+  // one heavy folder of long-lined docs is split by file, not kept as one area
+  for (const k of ["a", "b", "c", "d", "e", "f"]) writeFileSync(join(work, "docs", `${k}.md`), big.repeat(2));
+  git(work, "add", "-A");
+  const docs = JSON.parse(ok(kit(work, "areas", ...BASE, "--max", "3")));
+  assert.ok(docs.filter(a => a.paths.some(p => p.startsWith("docs/"))).length >= 2, "a heavy docs folder spreads over areas");
+  assert.equal(kit(work, "areas", ...BASE, "--max", "0").status, 2);
+});

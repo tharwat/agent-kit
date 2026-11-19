@@ -258,6 +258,13 @@ def plan_check_problems(project, ticket):
         empty = [k for k in LIFECYCLE_KEYS if not filled(lc.get(k))]
         if empty:
             out.append("%s lifecycles[%d]: empty %s" % (shown, i, ", ".join("`%s`" % k for k in empty)))
+    for i, e in enumerate(listed(data, "enumerations", "enumerations_none", shown, out,
+                                 "a row per list the change writes or relies on"), 1):
+        empty = [k for k in ("what", "derived_from", "test") if not filled(e.get(k))]
+        if empty:
+            out.append("%s enumerations[%d] (%s): empty %s. A list is derived from the source (a schema query, a "
+                       "directory walk, a parser) and pinned by a test that re-derives it" %
+                       (shown, i, e.get("what") or "unnamed", ", ".join("`%s`" % k for k in empty)))
     defaults = data.get("safety_defaults", [])
     if not isinstance(defaults, list):
         out.append("%s `safety_defaults` must be a list ([] when there are none)" % shown)
@@ -299,6 +306,10 @@ def inventory_problems(project, ticket, self_review):
         return ["%s has no section named `%s` (named by the Self-review `Inventory:` line)" % (shown, section_name)]
     sec = match[-1]
     where = "%s section `%s`" % (shown, section_name)
+    consensus = sec.get("consensus")
+    if not isinstance(consensus, dict) or not filled(consensus.get("run")) or not filled(consensus.get("enumerators")):
+        out.append("%s has no `consensus` with `run` and `enumerators`: the section is the output of "
+                   ".claude/workflows/consensus-inventory.js, with its run id added as `consensus.run`" % where)
     for i, v in enumerate(listed(sec, "values", "values_none_search", where, out, "a row per value changed"), 1):
         tag = "%s values[%d] (%s)" % (where, i, v.get("value") or "unnamed")
         for k in ("value", "change", "reader_assumes", "search"):
@@ -324,6 +335,23 @@ def inventory_problems(project, ticket, self_review):
             if not answer_ok(b.get("copied"), "yes", "not applicable"):
                 out.append("%s: `copied` is {\"answer\": \"yes\"} or {\"answer\": \"not applicable\", \"why\": ...}"
                            % tag)
+            if not filled(b.get("search")):
+                out.append("%s: `search` is empty" % tag)
+    for kind, keys in (("claims", ("subject", "claim", "search")), ("lists", ("what", "derived_from"))):
+        rows = sec.get(kind, [])
+        if not isinstance(rows, list):
+            out.append("%s `%s` must be a list" % (where, kind))
+            continue
+        for i, r in enumerate(rows, 1):
+            r = r if isinstance(r, dict) else {}
+            tag = "%s %s[%d] (%s)" % (where, kind, i, r.get(keys[0]) or "unnamed")
+            empty = [k for k in keys if not filled(r.get(k))]
+            if empty:
+                out.append("%s: empty %s" % (tag, ", ".join("`%s`" % k for k in empty)))
+            if kind == "claims" and (not locs_ok(r.get("proof"), allow_new=True) or not isinstance(r.get("effects"), list)):
+                out.append("%s: `proof` needs path:line entries, and `effects` a list ([] only after a search)" % tag)
+            if kind == "lists" and (not isinstance(r.get("members"), list) or not r.get("members")):
+                out.append("%s: `members` lists every member (or [\"none\"])" % tag)
     helpers = sec.get("helpers", [])
     if not isinstance(helpers, list):
         out.append("%s `helpers` must be a list" % where)
@@ -381,6 +409,11 @@ def render(kind, data):
                     "%s: %s" % (k.replace("_", " "), cell(lc.get(k))) for k in LIFECYCLE_KEYS[1:]))
         else:
             out.append("none — %s" % data.get("lifecycles_none", ""))
+        out += ["", "### Derived lists"]
+        enums = data.get("enumerations") or []
+        out += table(["List", "Derived from", "Test that re-derives it"],
+                     [[e.get("what"), e.get("derived_from"), e.get("test")] for e in enums]) \
+            if enums else ["none — %s" % data.get("enumerations_none", "")]
         out += ["", "### Safety defaults"]
         out += ["- %s → owner: %s" % (cell(d.get("default")), cell(d.get("owner_answer")))
                 for d in data.get("safety_defaults") or []] or ["none"]
@@ -399,6 +432,22 @@ def render(kind, data):
             out += table(["New behaviour", "Existing sibling", "Guards the sibling has", "Copied?"],
                          [[b.get("behaviour"), b.get("sibling"), b.get("guards"), b.get("copied")] for b in sibs]) \
                 if sibs else ["none — `%s`" % sec.get("siblings_none_search", "")]
+            claims = sec.get("claims") or []
+            if claims:
+                out += ["", "Claims:"]
+                out += table(["Subject", "Claim", "Proof", "Effects found", "Search"],
+                             [[c.get("subject"), c.get("claim"), c.get("proof"), c.get("effects") or "none",
+                               c.get("search")] for c in claims])
+            lists = sec.get("lists") or []
+            if lists:
+                out += ["", "Derived lists:"]
+                out += ["- **%s** (from `%s`): %s" % (cell(l.get("what")), cell(l.get("derived_from")),
+                                                     cell(l.get("members"))) for l in lists]
+            cons = sec.get("consensus") or {}
+            if cons:
+                out += ["", "Built by %s (enumerators %s, critic %s, %s single-source items verified)" % (
+                    cell(cons.get("run")), cell(cons.get("enumerators")), cell(cons.get("critic")),
+                    cell(cons.get("single_source")))]
             helpers = sec.get("helpers") or []
             if helpers:
                 out += ["", "Helper contracts:"]

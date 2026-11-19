@@ -140,7 +140,10 @@ Packs may add checks here: see the section for this command in each installed `.
 ## Step 1.5: Code review rounds (the final gate)
 
 Runs after gates 1–8 pass, on the final code. Each round is the `consensus-review` workflow: three reviewers with
-different lenses, and only findings that survive adversarial verification by vote.
+different lenses on every area of the change, only findings that survive adversarial verification by vote, and the
+next step (`clean`, `fix` or `redesign`) decided by vote. Rounds are a check on a good first draft, not the way to
+reach one: the first draft comes from the consensus inventory (`/operate` Phase 1), and the target is one or two
+rounds.
 
 **Precondition: the self-review record.** Compare `node .claude/scripts/kit-tools.mjs fingerprint --base
 origin/<MAIN_BRANCH>` with the last `Fingerprint:` line in `.claude/state/<ticket>/self-review.md`.
@@ -154,13 +157,16 @@ origin/<MAIN_BRANCH>` with the last `Fingerprint:` line in `.claude/state/<ticke
 
 **How to run a round:**
 1. **Save the branch diff it reviews**, the merge-base diff with the working tree (`<base>` as in `/operate` Phase 3
-   step 1): `git diff --output=.claude/state/<ticket>/round-<N>.diff <base>`.
+   step 1): `git diff --output=.claude/state/<ticket>/round-<N>.diff <base>`. Then take its areas:
+   `node .claude/scripts/kit-tools.mjs areas --base origin/<MAIN_BRANCH>` prints them as one JSON line. A large diff
+   is split so every area gets its own three reviewers: one pass over a big change samples it, and the rest surfaces
+   one round at a time.
 2. **Run the workflow by path.** Call the Workflow tool with
    `scriptPath: "<repo root>/.claude/workflows/consensus-review.js"`, where `<repo root>` is the output of
    `git rev-parse --show-toplevel`. Never call it by `name`: a name resolves to the copy loaded when the session
    started, which is stale if the workflow changed since. Pass `args`:
    ```json
-   { "ticket": "<ticket>", "round": N, "base": "origin/<MAIN_BRANCH>",
+   { "ticket": "<ticket>", "round": N, "base": "origin/<MAIN_BRANCH>", "areas": <the areas JSON>,
      "criticalDomain": "<CRITICAL_DOMAIN>", "consumerSurfaces": "<consumer surfaces from docs/agent/source-layout.md>",
      "contract": "<contract rows with their classes>", "threatModel": "<the contract's threat-model line>",
      "prior": [{ "finding": "...", "disposition": "..." }], "savedDiff": "<previous round's saved diff, rounds 2+>",
@@ -200,7 +206,7 @@ origin/<MAIN_BRANCH>` with the last `Fingerprint:` line in `.claude/state/<ticke
 6. **Use the votes, then check before fixing.** `rejected`, `repeats` and `nits` were decided by 2 agreeing votes
    and need no more work. `noted` (pre-existing, below the bar) is recorded as is. `must_fix` holds every real
    defect to fix here: S1–S4, plus the ticket's own code at any class. Each finding carries its `origin`, and
-   `origins` gives the round's counts (round rule 8). `redesign_signal.recommended` is round rule 10 trigger (c).
+   `origins` gives the round's counts (round rule 8). `next` is the consensus on what comes next (round rule 10).
    `unverified` (verifiers died before 2 agreed): verify each yourself before the round counts. Before fixing a
    `must_fix` item, confirm the evidence at its `file:line`; disagree only with new evidence, as `rejected`.
 
@@ -209,9 +215,10 @@ origin/<MAIN_BRANCH>` with the last `Fingerprint:` line in `.claude/state/<ticke
 (the workflow matches earlier dispositions by leading word):
 - **`must-fix`**: real, with `<file:line>` evidence, and either in code this ticket wrote (origin `first-draft` or
   `fix-introduced`, any class) or a pre-existing S1–S4 defect on the ticket's path. Fix it on this ticket now, with
-  no owner question, in this order: the redesign triggers first (round rule 10); the fix inventory (`/operate`,
-  "Every fix batch"); a regression test that fails without the fix; the root-cause and sibling repair; `/operate`
-  Phase 3 steps 1, 7 and 8 on the fix delta; gates 1–8 again. A fix that changes a state transition must match the
+  no owner question, in this order: the round's `next` (round rule 10); the fix batch's consensus inventory
+  (`/operate`, "Every fix batch"), which enumerates every member of the finding's class; a regression test that
+  fails without the fix; the repair of the whole class; `/operate` Phase 3 steps 1, 7 and 8 on the fix delta;
+  gates 1–8 again. A fix that changes a state transition must match the
   `lifecycles` in `plan-check.json`. A path the plan doesn't have is a scope change, so it is `needs owner`.
 - **`noted`**: real, **pre-existing** and below the bar. Don't fix it. Record it with where, effect and suggested fix
   (round rule 8). The closing step files it on the tracker (round rule 11).
@@ -263,8 +270,8 @@ This section is the one definition. Other commands cite it as "round rule N".
    **Every real defect in code this ticket wrote is fixed on this ticket, whatever its class.** The S1–S4 bar
    decides only pre-existing defects: S1–S4 on the ticket's path is must-fix, and the rest is noted. A ticket's own
    bugs never go to the tracker.
-3. **Rounds run until the code is clean.** The count is a checkpoint, not an exit, and it is counted per ticket,
-   not per run. Continue the count from the round records (round rule 8): the state file, or the `Review round`
+3. **Rounds run until the code is clean.** Rounds are numbered per ticket, not per run. Continue the numbering from
+   the round records (round rule 8): the state file, or the `Review round`
    comments from ticket op **get** when it is missing. Every round reviews the branch against
    `origin/<MAIN_BRANCH>` and saves the diff it reviewed.
    - Round 1 covers the whole branch.
@@ -273,42 +280,36 @@ This section is the one definition. Other commands cite it as "round rule N".
      every fix since, from any source, committed or not. It sets where the reviewer looks first, not what counts:
      a verified finding anywhere is classed like any other.
    - Rounds run without asking, attended or not, and never create or move branches.
-   - Round 3 brings the design review (round rule 10 trigger d). One redesign allows three more rounds, and the
-     owner may grant one extra round (round rule 6).
-   - **The limit is reached** at three rounds with no redesign, or six after one, plus any owner-granted round.
-     Reaching it with work left escalates. It never ends the work quietly, and nothing is filed away to make it
-     end.
+   - **No counter decides anything.** The consensus `next` of each round says whether to fix or redesign (round
+     rule 10). A round count never ends the work, never asks the owner, and never moves the ticket's own defects
+     to another ticket.
+   - **A third round is a signal, not a step.** When round 2 ends with a must-fix, post the round records'
+     `Origins:` lines with ticket op **comment** and Notify (Step 3): a first-draft step (the consensus inventory,
+     the derived lists) missed something, and the owner should know. It is a notice, not a question; the loop
+     carries on.
 4. **Repeats.** A finding that repeats an earlier `rejected`, `noted`, `nit`, `own ticket` or `already decided`
    disposition is marked `repeat` (citing its id) and never counts as new. A finding fixed in an earlier round
-   that comes back is **not** a repeat: the fix didn't hold, so it is new, and it is redesign trigger (a).
+   that comes back is **not** a repeat: the fix didn't hold, so it is new, and the verifiers count it as a redesign vote (round rule 10).
 5. **A round is due** when a reviewable change landed after the last round (a must-fix, a gate fix, a
    `/peer-review` fix). Noted items, nits, rejected leads and repeats change no code, so they never make a round
-   due. Re-run gates 1–8 before each round. **No change ships unreviewed:** with the limit reached, don't make the
-   change. Escalate it (round rule 6).
+   due. Re-run gates 1–8 before each round. **No change ships unreviewed:** every change is followed by a round.
 6. **End states.** When no round is due and no assessment or redesign is in progress, take the **first** line that
    matches:
-   1. **`escalate`:** a needs-owner finding is open; **or** a spiral assessment waits for the owner (round rule
-      10); **or** the limit is reached and the last round found a must-fix.
-   2. **`clean`:** anything else. The last round ran on the final code (round rule 7) and found no new must-fix.
+   1. **`escalate`:** a needs-owner finding is open, or a redesign would change what the feature does, a contract,
+      or the ticket's scope (round rule 10).
+   2. **`clean`:** anything else. The last round ran on the final code (round rule 7) and its `next` is `clean`.
 
    **Escalating:** send **one** message to the owner. Attended: ask in the session. Unattended: post it with
-   ticket op **comment** `<ticket>` and Notify (Step 3), and pause the loop. It holds every open item: the finding
-   in plain language, its evidence and origin, the proposed fix (not applied), a recommendation, and options each
-   with a pro and a con. Typically:
-   - **redesign as the spiral assessment proposes**, offered only while no redesign has run;
-   - **one more round on the fix**, which grants exactly one round past the limit, is recorded as
-     `extra_round: true`, and is offered only while none has been granted;
-   - **re-scope the ticket**;
-   - **ship with these named defects**: the owner accepts each defect by name.
-
-   The answer is recorded and applied without another question. A redesign or an extra round continues the loop,
-   and the end state is taken again afterwards. The only passing `escalate` is an answered **ship with these named
-   defects**: the closing step files those defects (round rule 11). A round that fails or doesn't cover its branch
-   is not a round: run it again.
+   ticket op **comment** `<ticket>` and Notify (Step 3), and pause the loop. It holds the product question or the
+   proposed change of behaviour or scope, in plain language, with its evidence, a recommendation, and options each
+   with a pro and a con. The answer is recorded and applied without another question, and the loop continues.
+   Never offer shipping the ticket's own known defects or filing them elsewhere. The owner may still accept a
+   defect by name, unprompted: the closing step files it (round rule 11). A round that fails or doesn't cover its
+   branch is not a round: run it again.
 7. **Covered** (needed for every passing status): no round is due, and the last round reviewed the current code.
    Compare its saved diff with the current diff: nothing but code comments and plain docs (round rule 1) may have
-   changed, so a `Deliberate` marker added after a round keeps the code covered. There are no post-cap fixes: a
-   reviewable change after the last round makes a round due, or, with the limit reached, escalates.
+   changed, so a `Deliberate` marker added after a round keeps the code covered. A reviewable change after the last
+   round makes a round due.
 8. **Record each round** as one block in `.claude/state/<ticket>/review-rounds.md`, and post the same block with
    ticket op **comment** `<ticket>`, first line `Review round <n>: <ticket>` (the record marker in
    `docs/workflow/ticket-ops.md` §3; `/ship` reads it). Include:
@@ -321,22 +322,21 @@ This section is the one definition. Other commands cite it as "round rule N".
    - tickets created;
    - the end state;
    - any owner answer, verbatim;
-   - any `redesign:` line and spiral assessment.
+   - the round's `next`, and any `redesign:` line and redesign note.
 9. **Attended and unattended runs follow the same rules.** Only how an escalation reaches the owner differs (round
    rule 6). Plain post-op and packs that run it (ticket trains) all use rules 1–11.
-10. **Patch spiral → stop and assess before any edit.** In every round from round 2 on, after verifying the
-    findings and **before fixing any**, check the triggers:
-    - (a) a finding shows an earlier fix didn't work: the same defect is back, or the fix is the defect;
-    - (b) a **second** real finding (any class but nit) in the same area as an earlier one, in this round or an
-      earlier one. "Same area" means the same mechanism, rule, inference, piece of state, or flow. An unrelated
-      finding that only shares a function doesn't count;
-    - (c) a reviewer or verifier recommends a redesign with a concrete simpler shape. With the fallback, the agent
-      verifying the round answers `design: ok | redesign recommended — <simpler shape>`;
-    - (d) round 3 or later finds a must-fix in code this ticket wrote.
+10. **The next step is the consensus `next`, never a count or a guess.** The workflow's verifiers vote on each
+    must-fix finding: is it a symptom of a design that keeps breaking (several defects from one mechanism, a fact
+    inferred that could be stored, a list kept by hand that could be derived, the same mechanism as a defect an
+    earlier round fixed)? Two agreeing votes make `next` a `redesign`; otherwise it is `fix`, or `clean` when nothing
+    is left. With the fallback, the agent verifying the round answers the same question for each finding, and a
+    second finding in one area counts as a redesign vote.
+    - **`fix`:** the fix steps (the `must-fix` disposition above), then the next round.
+    - **`redesign`:** before any edit, write the **redesign note** below into `review-rounds.md` and post it with
+      ticket op **comment** (first line `Redesign: <ticket>`). Then implement it, without waiting for the owner,
+      unless it would change what the feature does, a contract, or the scope: then escalate (round rule 6).
 
-    If a trigger fires, **stop editing**. Write a **spiral assessment** into `review-rounds.md`, and post it with
-    ticket op **comment** (first line `Spiral assessment: <ticket>`). Cite specific findings, and say where the
-    evidence is inconclusive:
+    The redesign note cites specific findings and says where the evidence is inconclusive:
     1. **Origins.** For every finding so far: first-draft, fix-introduced, or a gap in the requirements or the
        verification; an isolated defect, or a symptom of one shared design problem.
     2. **Simplest approach.** Back to the original requirements: is this approach still the simplest that meets
@@ -354,24 +354,15 @@ This section is the one definition. Other commands cite it as "round rule N".
        judge language or content? Those grow with every round. Name the alternative (`/operate` Phase 1 step 6): a
        stored field, a dedicated classification model, or a general model call with a fixed output schema,
        whichever is cheapest and passes the tests.
-    6. **Recommendation.** **Targeted fix**, **simplify <part>** or **redesign <flow>**. Say why, what would change,
-       which test would prove the root cause is fixed without breaking existing behaviour, what evidence would
-       close the review, and what would justify another round. A redesign note says what is stored, who writes
-       it, who reads it, the backfill, the code it removes, and which contract rows change.
+    6. **The redesign.** Simplify or redesign the part named in `next.part`, using `next.simpler_shape` as the
+       starting point. Prefer deleting what nothing needs any more over patching it. Say what is stored, who
+       writes it, who reads it, the backfill, the code it removes, which contract rows change, and which test
+       proves the root cause is gone without breaking existing behaviour.
 
-    **The owner decides** (round rule 6 escalation, options from the recommendation, each with a pro and a con).
-    Make no edit until the answer is recorded.
-    - **Redesign:** implement it with `/operate` from Phase 1 step 2 (a fresh inventory) through Phase 3, starting
-      from `state_homes` in `plan-check.json` (rewritten for the new design), **replacing** the patched code. Run the Critical Systems checks in
-      `CLAUDE.kit.md` where they apply. This starts a new count of up to three rounds, and its round 1 reviews the
-      whole branch. At most **once per ticket**: a trigger after it escalates again with a fresh assessment, and
-      without the redesign option.
-    - **Targeted fix** or **simplify:** carry on with the fix steps, then the next round. If that round would pass
-      the limit (round rule 3), the answer is the owner-granted round (`extra_round: true`), so the fix is still
-      reviewed. With that round already used, offer only redesign, re-scope or ship with named defects.
-
-    Record `redesign: <trigger> → <decision>`. While an assessment or a redesign is in progress, the loop has no end
-    state.
+    Implement it with `/operate` from Phase 1 step 2 (a fresh consensus inventory) through Phase 3, starting from
+    `state_homes` in `plan-check.json` (rewritten for the new design), **replacing** the patched code. Run the
+    Critical Systems checks in `CLAUDE.kit.md` where they apply. The next round reviews the whole branch. Record
+    `redesign: <the findings> → <the redesign>`.
 11. **Open items go to `<OPEN_ITEMS_TICKET>`.** It holds only work that isn't this ticket's own defect. A noted
     finding kept only on its own ticket is lost when that ticket closes. **One writer, at one moment:** the step
     that closes the ticket (`/ship`, or a pack that closes tickets) writes **one** comment on
@@ -402,7 +393,7 @@ This section is the one definition. Other commands cite it as "round rule N".
 - `⏭️ Skipped — Codex`: Codex has no Workflow tool or `/code-review`, and never claims a review ran.
 
 Not passing:
-- `⚠️ Escalated`: waiting on the owner, including a spiral assessment;
+- `⚠️ Escalated`: waiting on the owner (a product decision, or a change of behaviour or scope);
 - `⚠️ N open`: a must-fix isn't fixed;
 - `⚠️ Not run`: the review failed, didn't cover the branch, or the code isn't covered.
 

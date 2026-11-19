@@ -142,7 +142,7 @@ Questions the run raises, asked the same way:
 | ID | Raised when | Options (each with a pro and a con) |
 |---|---|---|
 | `nc1` | the circuit breaker: an own gate the run couldn't make pass (show its output and the kept branch) | **continue** on the kept work; **re-scope** the notes or contract first; **drop** (stays blocked) |
-| `cr-e<n>` | post-op ended `escalate` (round rule 6). Name the cause: a spiral assessment (round rule 10), the round limit reached with a must-fix open, or an open needs-owner finding | those the escalation carries, typically **redesign as assessed** / **targeted fix** / **one more round on the fix** / **re-scope** / **ship with these named defects** |
+| `cr-e<n>` | post-op ended `escalate` (round rule 6). Name the cause: an open needs-owner finding, or a redesign that would change behaviour, a contract or scope (round rule 10) | those the escalation carries: **the product decision**, or **the proposed change** / **a redesign that keeps the behaviour** / **re-scope**. Never offer shipping the ticket's own known defects |
 | `pr-f<n>` | `/peer-review` left a verified finding unresolved, or a `NEEDS-OWNER` one (show the finding, its evidence, the snapshot hash) | **new approach** / **re-scope** keeping every unresolved row / **stop** (stays blocked) |
 | `halt<n>` | a merge broke `<MAIN_BRANCH>` and the run stopped. Before asking, check the fix-forward ticket merged and the deploy is live (`/verify` post-merge half) | **resume** the train / **stay halted** |
 
@@ -157,7 +157,7 @@ Questions the run raises, asked the same way:
    - `nc1` **continue** or **re-scope**: `pending`, keeping `blocked_work` and `open_findings`; the run resumes on the
      checkpoint and must still fix every open finding. **drop**: stays `blocked`, reason
      `dropped by owner after circuit breaker — <why>`.
-   - `cr-e<n>`: `pending`; the run applies the answer on the checkpoint and continues the round count.
+   - `cr-e<n>`: `pending`; the run applies the answer on the checkpoint and continues the rounds.
    - `pr-f<n>` (unresolved peer finding): `pending` only with an owner-chosen new approach or re-scope that keeps
      every unresolved contract row and every open finding. Never erase the evidence (`open_findings`,
      `blocked_work`, `.claude/state/<ticket>/peer-review.json`), never relabel a finding to pass it, never mark the

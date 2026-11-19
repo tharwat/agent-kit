@@ -224,7 +224,7 @@ post-work `/peer-review` stays optional.
 Some defects start before any code: the code faithfully follows a plan that stores one fact twice, contradicts a
 decision, or never settled a state's lifecycle. Every review round then finds one more symptom.
 
-**Write all four parts as a fill-in form, `.claude/state/<ticket>/plan-check.json`.** The record check only asks
+**Write all five parts as a fill-in form, `.claude/state/<ticket>/plan-check.json`.** The record check only asks
 whether each box is filled, never how a note is formatted, so a complete note is never refused for its layout. Write
 exactly these keys:
 
@@ -246,6 +246,10 @@ exactly these keys:
       "name_reuse": "…", "safety_flags": "…", "what_a_person_sees": "…" }
   ],
   "lifecycles_none": null,
+  "enumerations": [
+    { "what": "pii-columns", "derived_from": "the query, walk or parse that produces it", "test": "the test that re-derives it" }
+  ],
+  "enumerations_none": null,
   "safety_defaults": [ { "default": "…", "owner_answer": "…" } ]
 }
 ```
@@ -278,7 +282,14 @@ restored; what editing a record in that state does; whether its name or key can 
 each safety flag; and what a person sees. Each unanswered question goes to the owner, one at a time. Record one
 `lifecycles` entry per state.
 
-**D. Safety defaults.** An engineering default that touches S1–S3 or a user-facing send ("any verdict → hand to a
+**D. Derived lists.** Every list the change will write or rely on (columns holding person data, tables keyed to a
+record, folders that need a row, services that receive data, routes, imports, actions safe to run) is a list some
+member of which will be missed when it is typed by hand: review then finds them one round at a time. Name how each
+is derived from the source (a schema query, a directory walk, a parser, a route table) and the test that re-derives
+it and fails when a member is missing or wrong. Record each in `enumerations`; `enumerations_none` says why there
+is no list.
+
+**E. Safety defaults.** An engineering default that touches S1–S3 or a user-facing send ("any verdict → hand to a
 human", "on error, skip") is shown to the owner as a choice. It is never applied silently. Record each one in
 `safety_defaults` with the owner's answer.
 

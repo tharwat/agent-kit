@@ -5,10 +5,11 @@ How `/verify`, `/test` and `/ship` check each surface. Delete each example row o
 
 ## Where a local run lands
 
-Fill this first. Example only: `.env` points at the one production database and the live provider accounts, so a
-local run is a production run.
+`LOCAL_RUN` in `CLAUDE.md` is the one home of this fact (`isolated` or `production`). Here, give the evidence. Example
+only: `.env` points at the one production database and the live provider accounts, so a local run is a production
+run.
 
-When a local run reaches production, a local check is allowed only from the safe list below. Every other surface is
+With `LOCAL_RUN` = `production`, a local check is allowed only from the safe list below. Every other surface is
 checked **after merge**, from the logs and a read-only query, never by running it locally.
 
 ## Safe to run locally

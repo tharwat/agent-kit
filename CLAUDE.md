@@ -24,5 +24,9 @@ instructions are for changing the kit. They are not the rules the kit installs; 
   `manifest.json` `units`. Record it in `CHANGELOG.md`.
 - **No AI attribution:** no `Co-Authored-By:` trailer and no "Generated with" line in commits or PR bodies, here
   or in anything the kit tells an agent to write.
+- **Lessons from a project wait for a release.** A lesson from a project session goes into `docs/inbox.md`, worded
+  generically (no project facts), the same turn. Releases happen between that project's tickets, as one PR the
+  owner approves, never into a ticket that is in review on the kit, unless the owner calls it a blocker. Fix the
+  cause the lessons share, not each lesson as it arrives.
 - **Ask the owner** one question at a time, with a pro and a con for every option. Work on a branch and open a PR
   to `main`. Don't push without the owner's go-ahead.

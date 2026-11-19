@@ -151,6 +151,23 @@ What changed, and why:
   had to guess which ones counted. A sibling implementation of the same idea found eight checker bugs in two review
   rounds, each one a complete note refused as "missing". As JSON, each box is either filled or not, so there is
   nothing to guess. `--show` prints the readable copy for the ticket, so the JSON stays the one home.
+- **Quality before review, and the consensus decides (1.11.0).** The first ticket on 1.8 still took four rounds
+  (7, 6, 6 and 4 real defects). Its records showed the same causes as the original analysis, one level up:
+  - lists typed by hand (person-data columns, tables to clean, folders needing a row), each missing a member that
+    the next round found;
+  - claims written without tracing the code ("this dry-run is safe");
+  - fixes written the same way, so 10 of 25 defects were fix-introduced;
+  - one review pass over an 81 KB diff sampled it, and first-draft defects surfaced in rounds 2 and 4.
+
+  The inventory existed, but one agent wrote it alone. The review's agents ran only after the code. Now three agents
+  build the inventory before code (`consensus-inventory.js`), claims and lists included, and every fix batch goes
+  through the same workflow. Every list is derived from the source and pinned by a test. A large diff is split into
+  areas, so round 1 sweeps it. The verifiers vote on fix or redesign.
+
+  The round-count machinery is gone: three rounds, one redesign, one owner-granted round, then "re-scope or ship
+  with named defects". Every version of a count (a cap, no limit, a redesign every three rounds) was tried in one
+  day; none fixed a bad first draft, and the owner rejected each. A third round is now a notice to the owner that
+  a first-draft step missed something.
 - **A targeted fix at a spiral stop is still reviewed (1.8.1).** An owner answer of "targeted fix" at round 3 left
   the fix's review round past the limit, so the next step escalated again. The answer now counts as the
   owner-granted round.

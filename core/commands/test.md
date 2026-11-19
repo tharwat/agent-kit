@@ -76,7 +76,7 @@ Start at the cheapest safe rung, and stop at the first that proves the change:
    read. Nothing on the list → this rung is skipped.
 2. **Read the store.** Query that the written rows landed with the right shape, read-only. Exit code 0 is not
    evidence.
-3. **Real run with logs.** Only what the safe list allows, when the map says a local run reaches production;
+3. **Real run with logs.** With `<LOCAL_RUN>` = `production`, only what the safe list allows;
    otherwise this proof waits for `/verify`'s after-merge check. Read local output or `<LOG_SINK>`. A production write is G2, except for rows
    marked `<SYNTHETIC_MARKER>`.
 

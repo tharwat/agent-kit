@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/pack.schema.json",
   "name": "core",
-  "version": "1.10.3",
+  "version": "1.11.0",
   "description": "The workflow core: triage, operate, post-op, peer-review, ship and the supporting commands, rules, hooks and Claude/Codex sync. Always installed.",
   "kind": "core",
   "requires": [],
@@ -39,6 +39,8 @@
      "ask": "Is there a syntax-check command for uncompiled code (e.g. node --check)?"},
     {"name": "DEV_SERVER_COMMAND", "meaning": "How /verify runs the app locally", "example": "npm run dev", "default": "none", "required": false,
      "ask": "How do you run the app locally?"},
+    {"name": "LOCAL_RUN", "meaning": "Where a local run lands: isolated (its own database and test accounts) or production (the local env points at live services)", "example": "production", "default": "production", "required": false,
+     "ask": "Does running the app locally use its own database and test accounts (isolated), or the live ones (production)?"},
     {"name": "LOG_SINK", "meaning": "Where production logs are read, or none", "example": "the hosting provider's log viewer", "default": "none", "required": false,
      "ask": "Where are production logs read?"},
     {"name": "CRITICAL_DOMAIN", "meaning": "Severity class S3: a label plus one line on the logic that must never be wrong here", "example": "billing — invoice totals and refunds", "required": true,

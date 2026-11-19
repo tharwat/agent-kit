@@ -117,7 +117,7 @@ node .claude/scripts/train-state.mjs create .claude/state/trains/<train>.json @<
   (`null` until the run writes `{ test, result, path_exercised, counterfactual_result }`).
 - `contract_note: "no executable behavior"` marks a docs-only ticket. An empty `contract` with no note means
   **untriaged**: an audit over nothing passes trivially, so the helper refuses to start that ticket.
-- `code_review` (written by the run) is `{ rounds, extra_round, redesign, end_state, self_review, dispositions[] }`.
+- `code_review` (written by the run) is `{ rounds, redesign, end_state, self_review, dispositions[] }`.
   Each disposition is `{ round, finding, class, disposition }`, using post-op Step 1.5's disposition words.
 - `open_findings` entries are `{ id, source, finding, class, resolved }`. `blocked_work` is the local-only checkpoint
   record (`/ticket-train-run`, "Preserve blocked work"). `unqueued_work` lists merge-blocker fixes the run made

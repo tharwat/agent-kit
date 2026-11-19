@@ -52,11 +52,28 @@ derive it now from the language, the schema or the call graph.
 | a UI state change | every effect that reads that state, and the order they flush in |
 | new branch logic on a source field | the null, empty, absent and zero-rows cases, with nullability confirmed in the schema source |
 
-**Write it as the dependency inventory, before the first production edit.** About half of all review findings are
-one failure: a value changed while a place that reads or writes it, or a sibling that already guards the same job,
-was missed. A list kept in your head doesn't prevent that; a record with evidence does. Write it as a fill-in form,
-`.claude/state/<ticket>/inventory.json`. The record check asks only whether each box is filled, never how a note is
-formatted:
+**Build the dependency inventory with the consensus workflow, before the first production edit.** About half of
+all review findings are one failure: a value changed while a place that reads or writes it, a sibling that already
+guards the same job, a claim's proof or a list member was missed. One agent enumerating alone misses them, and the
+review rounds then find them one at a time. Three independent agents miss far less.
+
+Call the Workflow tool with `scriptPath: "<repo root>/.claude/workflows/consensus-inventory.js"` (by path, never by
+name) and `args`:
+
+```json
+{ "ticket": "<ticket>", "section": "Plan", "base": "origin/<MAIN_BRANCH>",
+  "plan": "<the planned change: what you will change, add, claim and list, from the contract and the design>",
+  "contract": ".claude/state/<ticket>/triage.md", "planCheck": ".claude/state/<ticket>/plan-check.json",
+  "scratchDir": "<session scratch dir, else .claude/state/tmp>" }
+```
+
+Three agents enumerate from the source independently, a critic looks for what all three missed, and two verifiers
+check every item only one source found. Wait for it to finish. Write its `section` into
+`.claude/state/<ticket>/inventory.json`, add the run id as `consensus.run`, and fill any `needs_change` or `copied`
+box the workflow left open. Codex has no Workflow tool: it builds the same section itself, with
+`consensus.run: "codex: single agent"`, and says so in its report. Running the workflow is part of this command and
+needs no separate opt-in. The record is a fill-in form; the record check asks only whether each box is filled, never
+how a note is formatted:
 
 ```json
 {
@@ -73,11 +90,19 @@ formatted:
       "siblings": [
         { "behaviour": "the new path", "sibling": "path:line",
           "guards": ["every guard the sibling has"],
-          "copied": { "answer": "yes" } } ],
+          "copied": { "answer": "yes" }, "search": "…" } ],
       "siblings_none_search": null,
       "helpers": [
         { "helper": "name", "where": "path:line", "short_circuits": "…", "errors": "the error shape it throws or returns",
-          "success": "what success means" } ] }
+          "success": "what success means" } ],
+      "claims": [
+        { "subject": "scripts/send-reminders --dry-run", "claim": "sends nothing and writes nothing",
+          "proof": ["path:line"], "effects": [], "search": "the calls followed, dynamic imports included" } ],
+      "lists": [
+        { "what": "pii-columns", "derived_from": "the schema query or parse that produced it",
+          "members": ["table.column", "…"] } ],
+      "consensus": { "run": "<workflow run id>", "enumerators": "3/3", "critic": true, "single_source": 0,
+                     "dropped": [] } }
   ]
 }
 ```
@@ -100,6 +125,14 @@ formatted:
   - `copied` is `{"answer": "yes"}`, or `{"answer": "not applicable", "why": "…"}`.
 - **`helpers`:** before calling an existing helper, read it, and fill one entry on its short-circuits, the error
   shape it throws or returns, and what "success" means.
+- **`claims`**, one entry per factual statement the change makes in code, docs, config or data, with the code that
+  proves it. A claim that something is safe or has no effect lists every outside effect found after following every
+  call (dynamic imports, queue and job handlers included). An effect found means the claim is false: change the
+  plan, not the wording.
+- **`lists`**, one entry per list the change writes or relies on (columns, tables, folders, services, routes,
+  imports, safe actions). Each is derived from the source, never typed by hand, and the plan's `enumerations` in
+  `plan-check.json` name the test that re-derives it. The test is the class-ending check: it fails on any member
+  that is missing or wrong, now and after every later change.
 - **Nothing of a kind:** leave the list empty and put the search that showed it in `values_none_search` or
   `siblings_none_search`.
 - **The readable copy** (for the ticket comment) is printed by
@@ -130,6 +163,8 @@ breaks in every case nobody listed. If the fact is known when something is writt
 | the same rule computed in the API and in each client | one stored value, or one function, that all of them read |
 | a special-case branch for each new shape | one data shape with no special cases |
 | word lists, keyword or pattern checks, or hand-built heuristics that judge language or content | a stored field, if the fact is known when the record is written. Otherwise, the cheapest classifier that passes the tests: first a dedicated classification model (it returns probabilities over fixed choices, and is far cheaper than a general model), then a general model call with a fixed output schema. Use the one `docs/agent/integrations.md` lists; adding a new service follows `<DEPENDENCY_POLICY>`. Act on a probability only above a recorded threshold, and fail closed below it. Hand-built classifiers grow by one check per review round |
+| a list typed by hand (columns, tables, folders, services, routes, safe actions) | the list derived from the source (a schema query, a directory walk, a route table), with a test that re-derives it and fails on drift |
+| a regex or hand-written scanner reading code, SQL or markup | a real parser: the language's own, or one the repo already uses |
 | one fact kept in two places, kept in step by a follow-up write or a "remember to also update" | one home, with the other read derived from it; an unavoidable copy changes in the same transaction or by a database trigger (`plan-check.json` state homes) |
 
 - A new nullable column, or one with a default, is the lower-risk path (the additive schema rule in
@@ -293,14 +328,14 @@ unless it equals the current fingerprint.
 **Every fix batch comes back through this phase.** Fixes from a review round, a gate or `/peer-review` are new code.
 A third of review findings are bugs that an earlier fix introduced. A fix never goes in because "this line looks
 right".
-1. **Before the fix,** append a section named `Fix batch <n>` to `inventory.json`, with its own `values` and `siblings` for what the
-   fix changes: a value, the order of a branch, a guard, a state transition. A fix that changes a state transition
-   must match its `lifecycles` entry in `plan-check.json`. A path the plan doesn't have is a scope change, and goes
-   to the owner.
+1. **Before the fix,** run `consensus-inventory.js` again with `"section": "Fix batch <n>"` and `plan` set to the
+   findings and the proposed fix, and append its section to `inventory.json`. A finding is one member of a class
+   (every place with the same defect): the workflow enumerates the class as a `lists` entry, and the fix covers
+   every member, with a test that re-derives the list. A fix that changes a state transition must match its
+   `lifecycles` entry in `plan-check.json`. A path the plan doesn't have is a scope change, and goes to the owner.
 2. **After the fix,** do steps 1, 7 and 8 on the **fix delta**: read it line by line, simplify it, red-team it, and
    write a new record whose `Inventory:` line names the batch.
-3. Then ask: *is this the second finding in the same area?* If yes, stop patching and follow the spiral rule
-   (post-op Step 1.5 round rule 10).
+3. Follow the round's `next`: a `redesign` is never patched (post-op Step 1.5 round rule 10).
 
 Only now hand it to `/post-op`. Its own gates run before any external reviewer sees the code.
 
