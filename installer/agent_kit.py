@@ -3237,8 +3237,13 @@ def preflight(kit, target, answers=None):
     dirty = git_out(target, "status", "--porcelain") or ""
     add("checkout changes", True, (f"{len(dirty.splitlines())} uncommitted change(s) in the checkout: left untouched"
                                    if dirty else "clean"), blocker=False)
-    attempt = earlier_attempt(target)
-    if attempt:
+    attempt = earlier_attempt(target, main_branch)
+    if attempt and attempt["finished"]:
+        add("finished install worktree", True, f"{attempt['path']} (kit {attempt['kit_version'] or '?'}) already "
+            "landed on main. The next apply or upgrade parks it (renamed, never deleted) and starts from main; no "
+            "question needed. The owner can remove the parked folder later with `git worktree remove <path>`",
+            blocker=False)
+    elif attempt:
         add("earlier install attempt", True, f"{attempt['path']} (kit {attempt['kit_version'] or 'not applied yet'}, "
             f"{attempt['changed']} uncommitted change(s)). Ask the owner: continue it (keeps its work, but it was "
             "built with that kit and those answers) or start fresh (draft --fresh parks it, renamed, never "
@@ -3340,14 +3345,41 @@ def link_env_files(top, wt):
     return linked
 
 
-def earlier_attempt(top):
-    """An install worktree left by an earlier run: {path, kit_version, changed} or None."""
+def install_landed(top, main_branch, changed):
+    """True when the install branch already reached origin/<main_branch> and its worktree holds nothing uncommitted:
+    the branch was committed to and every commit is on main (a merge), or its committed lock is the one on main (a
+    squash merge). A branch never committed to is an attempt still in progress, even though main contains its tip."""
+    main = f"origin/{main_branch}"
+    if changed or not main_branch or git_out(top, "rev-parse", "--verify", "--quiet", main) is None:
+        return False
+    own = git_out(top, "rev-list", "--count", f"{main}..{INSTALL_BRANCH}")
+    if own == "0":
+        moves = (git_out(top, "reflog", "show", "--format=%H", INSTALL_BRANCH) or "").splitlines()
+        return len(moves) > 1  # created, then committed to
+    on_branch = git_out(top, "rev-parse", "--verify", "--quiet", f"{INSTALL_BRANCH}:{LOCK_PATH}")
+    return on_branch is not None and on_branch == git_out(top, "rev-parse", "--verify", "--quiet",
+                                                          f"{main}:{LOCK_PATH}")
+
+
+def earlier_attempt(top, main_branch=None):
+    """An install worktree left by an earlier run: {path, kit_version, changed, finished} or None. `finished` means
+    that install already landed on main: it is parked, never continued, so an upgrade starts from main."""
     for w in worktrees(top):
         if w["branch"] == INSTALL_BRANCH:
             lock = read_lock(w["path"]) if os.path.isfile(tpath(w["path"], LOCK_PATH)) else None
             changed = len((git_out(w["path"], "status", "--porcelain") or "").splitlines())
-            return {"path": w["path"], "kit_version": (lock or {}).get("kit", {}).get("version"), "changed": changed}
+            return {"path": w["path"], "kit_version": (lock or {}).get("kit", {}).get("version"), "changed": changed,
+                    "finished": install_landed(top, main_branch, changed)}
     return None
+
+
+def free_path(path):
+    """`path`, or `path-2`, `path-3`, … when a folder (another lane's worktree, say) already sits there."""
+    n, out = 1, path
+    while os.path.exists(out):
+        n += 1
+        out = f"{path}-{n}"
+    return out
 
 
 def park_attempt(top, attempt):
@@ -3373,8 +3405,8 @@ def install_worktree(target, main_branch, worktree_dir=None, fresh=False):
     with `fresh`, parked aside first (renamed, never deleted). The checkout's env files are linked in, so tests run
     there as they do in the checkout."""
     top = main_checkout(os.path.abspath(target))
-    attempt = earlier_attempt(top)
-    if attempt and fresh:
+    attempt = earlier_attempt(top, main_branch)
+    if attempt and (fresh or attempt["finished"]):
         park_attempt(top, attempt)
     elif attempt:
         link_env_files(top, attempt["path"])
@@ -3383,8 +3415,7 @@ def install_worktree(target, main_branch, worktree_dir=None, fresh=False):
         path = os.path.join(top, worktree_dir, "agent-kit-install")
     else:
         path = os.path.join(os.path.dirname(top), os.path.basename(top) + "-agent-kit-install")
-    if os.path.exists(path):
-        raise KitError(f"{path} exists and is not the {INSTALL_BRANCH} worktree; move it aside and run again")
+    path = free_path(path)
     rc, _o, err = git_run(top, "fetch", "origin", main_branch)
     if rc:
         raise KitError(f"git fetch origin {main_branch} failed: {err}")

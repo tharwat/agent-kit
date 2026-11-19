@@ -36,6 +36,8 @@ API calls they make, and what each acceptance criterion says the user can do. No
 ## Step 2: Target
 
 - **Before merge (default):** start `<DEV_SERVER_COMMAND>` in the background and use the local URL it prints.
+  `none` (the app is never started locally, because a local run reaches production) → there is no pre-merge
+  target: run `--deployed` after merge.
 - **After deploy (`--deployed`):** use `<WEB_QA_URL>` (setting it at install was the owner's yes for read-only
   runs there); `none` → NEEDS_CONTEXT. First confirm the deploy is live with
   the `## /qa` section of each installed `.claude/packs/*.md` (a deploy pack such as render). No such section →

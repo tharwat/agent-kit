@@ -23,7 +23,8 @@ NEEDS_CONTEXT.
 
 ## Step 2: Target
 
-Default: start `<DEV_SERVER_COMMAND>` in the background and use the local URL it prints. `--deployed`: use
+Default: start `<DEV_SERVER_COMMAND>` in the background and use the local URL it prints (`none` → no local target:
+use `--deployed` after merge). `--deployed`: use
 `<WEB_QA_URL>` (`none` → NEEDS_CONTEXT); setting it at install was the owner's yes for read-only checks there.
 **Any other production URL needs the owner's yes for this run**: ask one question, with a pro and a con per option.
 On a production target, interactions that write data are G2: skip them unless the owner says yes.

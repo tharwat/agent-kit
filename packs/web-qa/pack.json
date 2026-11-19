@@ -1,6 +1,6 @@
 {
   "name": "web-qa",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Playwright E2E and visual QA for a web frontend, plus web checks for /verify, /security and /test.",
   "kind": "stack",
   "requires": ["core"],

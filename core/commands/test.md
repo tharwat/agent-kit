@@ -71,11 +71,13 @@ Packs may add checks here: see the section for this command in each installed `.
 
 Start at the cheapest safe rung, and stop at the first that proves the change:
 
-1. **Dry-run.** Use a dry-run entry point (`docs/agent/verify-map.md` lists them, or grep for `dry`), and read its
-   "would do X" output.
+1. **Dry-run.** Use only an entry point on the safe list in `docs/agent/verify-map.md`, and read its "would do X"
+   output. Never search the code for a dry-run flag and run what you find: a flag is proven safe only where it was
+   read. Nothing on the list → this rung is skipped.
 2. **Read the store.** Query that the written rows landed with the right shape, read-only. Exit code 0 is not
    evidence.
-3. **Real run with logs.** Run it and read local output or `<LOG_SINK>`. A production write is G2, except for rows
+3. **Real run with logs.** Only what the safe list allows, when the map says a local run reaches production;
+   otherwise this proof waits for `/verify`'s after-merge check. Read local output or `<LOG_SINK>`. A production write is G2, except for rows
    marked `<SYNTHETIC_MARKER>`.
 
 Never run anything `docs/agent/verify-map.md` lists as irreversible as a test. If a path can't be exercised, say so

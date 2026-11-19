@@ -221,7 +221,9 @@ upgrades follow them without asking again.
   live job, or rotates a shared token, because the local `.env` points at production.
 - **Check:** where the project's local `.env` points (database host, provider accounts), by key names and docs only,
   never values. Read the project's existing "run it locally" instructions and follow each one's code path.
-- **Recommend:** `kit` when local reaches production: a short safe list, everything else after merge. `project`
+- **Recommend:** `kit` when local reaches production: a short safe list, everything else after merge. Set
+  `DEV_SERVER_COMMAND` to `none` unless starting the app is itself on the safe list (its startup jobs, schedulers
+  and queue workers checked). `project`
   only when the project has a separate local or staging database and test provider accounts, and its recipes use
   them.
 - **Pro:** ends the class of defect instead of patching each recipe. **Con:** more surfaces wait until after merge
