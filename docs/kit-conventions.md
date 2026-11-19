@@ -34,6 +34,7 @@ A test checks that every `<UPPER_SNAKE>` used anywhere is defined in `manifest.j
 | `BUILD_COMMAND` | Optional | `none` |
 | `SYNTAX_CHECK_COMMAND` | Optional, for code with no compiler | `node --check <file>` |
 | `DEV_SERVER_COMMAND` | How to run the app locally for `/verify` | |
+| `LOCAL_RUN` | Where a local run lands: `isolated` (its own database and test accounts) or `production` | `production` |
 | `LOG_SINK` | Where production logs are read | "Render logs via MCP", `none` |
 | `CRITICAL_DOMAIN` | Severity class S3: a label + one line on "the logic that must never be wrong here" | `billing — invoice totals and refunds` |
 | `CRITICAL_SYSTEMS` | Areas whose changes get the stricter checks (§6) | auth, API contracts, schema |
@@ -143,10 +144,10 @@ A post-merge failure is fixed forward on a new ticket and alerts the owner.
   | File | Holds |
   |---|---|
   | `triage.md` | Contract copy and hand-off |
-  | `plan-check.json` | Triage Step 4.8 as a fill-in form: `state_homes`, `contradiction_check`, `lifecycles`, `safety_defaults`. `check-record.py --show plan-check` prints the readable copy |
-  | `inventory.json` | The dependency inventory as a fill-in form: section `Plan` (`values` readers and writers, `siblings`, `helpers`), then one `Fix batch <n>` section per fix batch. `check-record.py --show inventory` prints the readable copy |
+  | `plan-check.json` | Triage Step 4.8 as a fill-in form: `state_homes`, `contradiction_check`, `lifecycles`, `enumerations` (derived lists and their tests), `safety_defaults`. `check-record.py --show plan-check` prints the readable copy |
+  | `inventory.json` | The dependency inventory, built by `consensus-inventory.js` before code: section `Plan` (`values` readers and writers, `siblings`, `helpers`, `claims`, `lists`, `consensus`), then one `Fix batch <n>` section per fix batch, built the same way. `check-record.py --show inventory` prints the readable copy |
   | `self-review.md` | Contains `Fingerprint: <h>` and `Inventory: <inventory.json section>` |
-  | `review-rounds.md` | One block per round (findings `R<n>-<k>` with class, origin and disposition; an `Origins:` line), plus any spiral assessment |
+  | `review-rounds.md` | One block per round (findings `R<n>-<k>` with class, origin and disposition; an `Origins:` line; the round's `next`), plus any redesign note |
   | `post-op.md` | Contains `Fingerprint: <h>` and `Result: clean\|escalate` (`capped` was removed in 1.8.0). `clean` with a `⏭️ Skipped — Codex` review row means the gates passed and the review round was skipped |
   | `self-review.diff`, `round-<n>.diff` | The saved diffs the fingerprints were taken from |
   | `upstream.txt` | Saved upstream for the fallback review path. Marked `restored` afterwards, never removed |

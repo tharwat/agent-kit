@@ -4,6 +4,52 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.11.0 — 2026-11-18
+
+Rounds were a symptom; this release goes after the bad first draft and the bad fix. Evidence: the first ticket on
+1.8 took four rounds (7, 6, 6, 4 real defects), from lists typed by hand, claims not traced, fixes made the same
+way, and one review pass sampling a large diff.
+
+- **Three agents build the dependency inventory before any code.** The new workflow `consensus-inventory.js` runs
+  in `/operate` Phase 1:
+  - three enumerators work independently;
+  - a completeness critic looks for what all three missed;
+  - two verifiers check every item only one source found.
+
+  The inventory now also holds `claims` (every statement the change makes, with its proof and, for a safety claim,
+  every effect found) and `lists`. `check-record.py` requires `consensus.run` and a `search` on every row.
+- **Every fix batch goes through the same workflow,** and enumerates the finding's whole class, so the fix covers
+  every member.
+- **Lists are derived, never typed.** `plan-check.json` gains `enumerations`: each list the change writes or relies
+  on, how it is derived from the source, and the test that re-derives it. `/operate` adds "a list typed by hand →
+  derived with a test" and "a regex reading code → a real parser".
+- **The review sweeps.** `kit-tools.mjs areas` splits a large diff into areas, and `consensus-review.js` runs its
+  three lenses on each, so round 1 covers the whole change.
+- **The verifiers decide what comes next.** `consensus-review.js` returns `next`:
+  - `clean`;
+  - `fix`;
+  - `redesign`, when two votes agree a must-fix finding comes from a design that keeps breaking, including the
+    same mechanism as a defect an earlier round fixed.
+
+  The agent writes a redesign note and carries it out. The owner is asked only for a product decision or a change
+  of behaviour, contract or scope.
+- **Removed:** the round count, the limits, `extra_round`, redesign-once, and the "re-scope or ship with named
+  defects" options. Ticket-trains no longer enforces a cap. A third round notifies the owner with the `Origins:`
+  lines, as a notice, not a question.
+- **`LOCAL_RUN` (`isolated | production`)** is the one home of "where a local run lands". It replaces 1.10.3's
+  `DEV_SERVER_COMMAND = none`. `/verify`, `/test`, `/qa` and `/playwright-qa` read it.
+- **A guessed install fact is confirmed first** through the project's own MCP server or CLI. Otherwise its evidence
+  names where the owner checks it.
+
+**Upgrade touches:**
+- `CLAUDE.kit.md`, the facts table in `CLAUDE.md` (adds `LOCAL_RUN`);
+- `/triage`, `/operate`, `/post-op`, `/verify`, `/test`, `/peer-review`;
+- `.claude/workflows/` (adds `consensus-inventory.js`), `kit-tools.mjs`, `check-record.py`;
+- with web-qa, `/qa` and `/playwright-qa`; with ticket-trains, its commands and `train-state.mjs`.
+
+A project that set `DEV_SERVER_COMMAND` to `none` in 1.10.3 sets it back to its real command, with `LOCAL_RUN`
+`production`.
+
 ## 1.10.3 — 2026-11-18
 
 - **An upgrade starts from main, not from the finished install's branch.** A merged `agent-kit/install` worktree

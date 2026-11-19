@@ -235,14 +235,14 @@ test("open findings are never erased; they only move to resolved", () => {
   assert.throws(() => patch(r, "ABC-1", { open_findings: [f] }), /open_findings is append-only/);
 });
 
-test("code_review: rounds never decrease and stay under the cap", () => {
+test("code_review: rounds never decrease; no round cap (kit 1.11.0)", () => {
   const cr = { rounds: 2, extra_round: false, redesign: null, end_state: null, self_review: null, dispositions: [{ round: 1, finding: "x", class: "S4", disposition: "must-fix" }] };
   const s = train([ticket("ABC-1", { code_review: cr })]);
   assert.throws(() => patch(s, "ABC-1", { code_review: { ...cr, rounds: 1 } }), /never decreases/);
-  assert.throws(() => patch(s, "ABC-1", { code_review: { ...cr, rounds: 4 } }), /past the cap of 3/);
-  assert.equal(patch(s, "ABC-1", { code_review: { ...cr, rounds: 4, extra_round: true } }).revision, 1);
-  assert.equal(patch(s, "ABC-1", { code_review: { ...cr, rounds: 6, redesign: "(b) same mechanism -> redesign as proposed" } }).revision, 1);
-  assert.throws(() => patch(s, "ABC-1", { code_review: { ...cr, rounds: 8, extra_round: true, redesign: "r" } }), /past the cap of 7/);
+  assert.equal(patch(s, "ABC-1", { code_review: { ...cr, rounds: 4 } }).revision, 1);
+  assert.equal(patch(s, "ABC-1", { code_review: { ...cr, rounds: 5, redesign: "R3-1, R3-2 -> derive the table list" } }).revision, 1);
+  const { extra_round, ...noExtra } = cr;
+  assert.equal(train([ticket("ABC-2", { code_review: { ...noExtra, rounds: 3 } })]).revision, 0);
   assert.throws(() => patch(s, "ABC-1", { code_review: { ...cr, dispositions: [] } }), /dispositions is append-only/);
   assert.throws(() => patch(s, "ABC-1", { code_review: { ...cr, dispositions: [...cr.dispositions, { round: 3, finding: "y", class: "S4", disposition: "must-fix" }] } }), /round that did not run/);
   assert.throws(() => patch(s, "ABC-1", { code_review: { ...cr, dispositions: [...cr.dispositions, { round: 2, finding: "y", class: "S4", disposition: "fix" }] } }), /not one of/);

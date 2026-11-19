@@ -25,6 +25,9 @@ PLAN_CHECK = {
                     "restored": "n/a", "edited_in_state": "blocked", "name_reuse": "n/a",
                     "safety_flags": "none apply", "what_a_person_sees": "a Held badge"}],
     "lifecycles_none": None,
+    "enumerations": [{"what": "order-statuses", "derived_from": "the orders.status CHECK constraint",
+                      "test": "tests/statuses.test.js"}],
+    "enumerations_none": None,
     "safety_defaults": [],
 }
 INVENTORY = {
@@ -35,9 +38,13 @@ INVENTORY = {
                     "readers": ["jobs/ship.js:12", "ui/list.tsx:88"], "reader_assumes": "open = shippable",
                     "needs_change": {"answer": "yes"}, "search": "grep -rn \"status\" src"}],
         "siblings": [{"behaviour": "hold retry", "sibling": "jobs/retry.js:20", "guards": ["budget", "idempotency"],
-                      "copied": {"answer": "yes"}}],
+                      "copied": {"answer": "yes"}, "search": "grep -rn retry jobs"}],
         "helpers": [{"helper": "loadOrder", "where": "lib/orders.js:5", "short_circuits": "null on missing id",
                      "errors": "throws DbError", "success": "a row"}],
+        "claims": [{"subject": "scripts/hold --dry-run", "claim": "writes nothing", "proof": ["scripts/hold.js:12"],
+                    "effects": [], "search": "read scripts/hold.js and its imports"}],
+        "lists": [{"what": "order-statuses", "derived_from": "the CHECK constraint", "members": ["open", "held"]}],
+        "consensus": {"run": "wf_abc123", "enumerators": "3/3", "critic": True, "single_source": 2, "dropped": []},
     }],
 }
 PLAN_CHECK_PATH = ".claude/state/ABC-12/plan-check.json"
@@ -187,6 +194,8 @@ class Kinds(Case):
             "empty `removed`": variant(PLAN_CHECK, ["lifecycles", 0, "removed"], ""),
             "`lifecycles` is empty": variant(PLAN_CHECK, ["lifecycles"], []),
             "owner_answer": variant(PLAN_CHECK, ["safety_defaults"], [{"default": "on error, skip"}]),
+            "`enumerations` is empty": variant(PLAN_CHECK, ["enumerations"], []),
+            "empty `test`": variant(PLAN_CHECK, ["enumerations", 0, "test"], ""),
         }
         for want, data in cases.items():
             with self.subTest(want=want):
@@ -201,6 +210,7 @@ class Kinds(Case):
     def test_plan_check_none_boxes_and_new_writers(self):
         data = variant(variant(PLAN_CHECK, ["state_homes"], []), ["state_homes_none"], "docs-only ticket")
         data = variant(variant(data, ["lifecycles"], []), ["lifecycles_none"], "no state added")
+        data = variant(variant(data, ["enumerations"], []), ["enumerations_none"], "the change keeps no list")
         self.write(PLAN_CHECK_PATH, dumps(data))
         self.write(PATHS["triage"], GOOD["triage"])
         self.assertEqual(self.check("triage").returncode, 0)
@@ -232,6 +242,10 @@ class Kinds(Case):
             "`copied`": (GOOD["operate"], variant(INVENTORY, b + ["copied"], {"answer": "not applicable"})),
             "`siblings` is empty": (GOOD["operate"], variant(INVENTORY, b[:-1], [])),
             "helpers[1]": (GOOD["operate"], variant(INVENTORY, ["sections", 0, "helpers", 0, "where"], "lib")),
+            "no `consensus`": (GOOD["operate"], variant(INVENTORY, ["sections", 0, "consensus"], DELETE)),
+            "siblings[1] (hold retry): `search`": (GOOD["operate"], variant(INVENTORY, b + ["search"], "")),
+            "claims[1]": (GOOD["operate"], variant(INVENTORY, ["sections", 0, "claims", 0, "proof"], ["the script"])),
+            "lists[1]": (GOOD["operate"], variant(INVENTORY, ["sections", 0, "lists", 0, "members"], [])),
         }
         for want, (record, inventory) in cases.items():
             with self.subTest(want=want):
@@ -243,7 +257,8 @@ class Kinds(Case):
 
     def test_operate_fix_batch_and_none_boxes(self):
         data = json.loads(dumps(INVENTORY))
-        data["sections"].append({"name": "Fix batch 1", "values": [], "values_none_search": "git diff --stat"})
+        data["sections"].append({"name": "Fix batch 1", "values": [], "values_none_search": "git diff --stat",
+                                 "consensus": {"run": "wf_fix1", "enumerators": "3/3"}})
         self.write(INVENTORY_PATH, dumps(data))
         self.write(PATHS["operate"], GOOD["operate"] + "\nSelf-review: ABC-12\nFingerprint: %s\n"
                    "Covers: fix batch since %s\nInventory: Fix batch 1\n" % ("cd" * 32, FP))
@@ -258,6 +273,8 @@ class Kinds(Case):
         self.assertIn("| order status | orders.status | api/orders.js:40 |", r.stdout)
         self.assertIn("No conflicts found.", r.stdout)
         r = self.run_cli("--show", "inventory", "--ticket", TICKET)
+        self.assertIn("scripts/hold --dry-run", r.stdout)
+        self.assertIn("Built by wf_abc123", r.stdout)
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("### Plan", r.stdout)
         self.assertIn("| hold retry | jobs/retry.js:20 | budget, idempotency | yes |", r.stdout)

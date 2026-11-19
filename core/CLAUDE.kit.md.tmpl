@@ -50,13 +50,15 @@ defect in code the ticket wrote, whatever its class. Only pre-existing defects b
   "Generated with" line in commits, PRs or ticket comments.
 - **`/triage → /operate → /post-op → /peer-review (optional) → /ship`**, with `/handoff` → `/resume` to pause.
 - **`/triage`** writes the binding contract (a row per criterion, safety gate, failure mode and sibling path, with
-  severity, hostile case and counterfactual) and checks the plan (one fact, one home; contradictions; lifecycles).
+  severity, hostile case and counterfactual) and checks the plan (one fact, one home; contradictions; lifecycles;
+  every list derived from the source, with a test).
   Implement without waiting.
-- **`/operate`** writes the dependency inventory (every reader, writer and sibling of what changes) and turns each
-  row into a test before production edits, then red-teams its own diff. Every fix batch gets its own inventory.
-- **`/post-op`** runs its gates, self-red-team and contract audit, then review rounds until the code is clean. A
-  second finding in one area stops patching for a written spiral assessment the owner decides on. It ends `clean`
-  or `escalate`, never with known defects of its own or an unreviewed fix; it never commits.
+- **`/operate`** has three agents build the dependency inventory (every reader, writer, sibling, claim and list
+  member) before production edits, turns each row into a test, then red-teams its own diff. Every fix batch is
+  inventoried the same way.
+- **`/post-op`** runs its gates, self-red-team and contract audit, then review rounds until the code is clean. The
+  verifiers vote on the next step (fix or redesign); no round counter. It ends `clean` or `escalate`, never with
+  known defects of its own or an unreviewed fix; it never commits.
 - **`/post-op` is never optional before a commit that touches source or `.claude/`.** Small, urgent, low-risk or well-tested is never a reason to skip it. <!-- codex-restate -->
 - **`/peer-review`**: the owner's call per ticket. After a pass, an unresolved verified finding stops `/ship`.
 - **`/verify`** runs on the feature branch, locally against real services, before merge.

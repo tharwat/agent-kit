@@ -196,9 +196,8 @@ listing every `NOTED` finding with where, effect and suggested fix. `/ship` file
 with ticket op **comment**, then set `resolved: true`.
 
 **After fixes.** The fixes are new code: run `/operate` Phase 3 steps 1, 7 and 8 on the fix delta (new self-review
-record), then `/post-op`'s static gates and a review round (post-op Step 1.5 round rules 5 and 7). With the round
-limit reached, escalate instead: no fix ships unreviewed. A second finding in the same area: follow the spiral rule
-(round rule 10). Then take a new
+record), then `/post-op`'s static gates and a review round (post-op Step 1.5 round rules 5 and 7), whose `next` decides fix or redesign (round
+rule 10). No fix ships unreviewed. Then take a new
 `node .claude/scripts/kit-tools.mjs fingerprint --base origin/<MAIN_BRANCH>`, write it to `fingerprint`, recompute
 `verdict`, and post a fresh `PEER_REVIEW:` comment. A fixed finding with a failing-without-fix regression test
 counts as resolved. Another peer-review pass is the owner's call, not a loop this command enters.

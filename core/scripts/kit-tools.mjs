@@ -8,6 +8,7 @@
 //   covered      --hash <h> --base <rev>                       exit 0 when the current fingerprint equals <h>
 //   check-review --file <f> --hash <h> [--lenses <n>] [--contract <file>]
 //                                                              validates a reviewer's output; prints CLEAN|FINDINGS
+//   areas        --base <rev> [--max <n>]                      the review areas for a large diff, as one JSON line
 //
 // On success a command prints one line on stdout. On any refusal or failure it prints nothing on stdout, one line on
 // stderr, and exits 1 (usage errors exit 2). The tool never fetches: the caller runs `git fetch` first. It never
@@ -199,15 +200,80 @@ export function checkReview({ text, hash, lenses = CORE_LENS_COUNT, contractText
   return { result: findings.length ? "FINDINGS" : "CLEAN", lenses: statuses.size, findings: findings.length, observations };
 }
 
+// ---------------------------------------------------------------------------------------------------------- areas
+
+// A review samples: three reviewers over one large diff each report their top findings, and the rest surface one
+// round at a time. Over these sizes the diff is split into areas, and every area gets its own reviewers. Size is the
+// diff's bytes, not its lines: a docs change of 450 long lines is as much to check as 1,500 lines of code.
+export const AREA_SPLIT_BYTES = 24_000;
+export const AREA_SPLIT_FILES = 8;
+const AREA_DEFAULT_MAX = 4;
+// Folders whose second level is the real unit (src/chat, packages/api, …).
+const NESTED_ROOTS = new Set(["src", "lib", "app", "apps", "packages", "services", "server", "client", "web", "docs",
+  "scripts", "tests", "test", "sites", ".claude"]);
+
+export function areaKey(path) {
+  const parts = path.split("/");
+  if (parts.length === 1) return "(root)";
+  return NESTED_ROOTS.has(parts[0]) && parts.length > 2 ? `${parts[0]}/${parts[1]}` : parts[0];
+}
+
+// [{name, paths, bytes}] for the changed files (tracked edits against the merge-base, plus untracked files). Files are
+// grouped by areaKey; a group heavier than one area's share is split into its files; then the units are packed into
+// at most `max` areas, largest first into the lightest. One area when the diff is small.
+export function areas({ base, max = AREA_DEFAULT_MAX, cwd = process.cwd() }) {
+  const top = repoTop(cwd);
+  const mb = mergeBase(top, base);
+  const files = new Map();
+  const diff = String(git(["-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--no-renames", mb, "--", "."], top));
+  for (const chunk of diff.split(/^(?=diff --git )/m)) {
+    const m = /^diff --git a\/(.+?) b\/(.+)$/m.exec(chunk);
+    if (m) files.set(m[2], chunk.length);
+  }
+  for (const path of untracked(top, []).split("\n").filter(Boolean)) {
+    if (files.has(path)) continue;
+    let n = 1;
+    try { n = readFileSync(join(top, path)).length; } catch { /* unreadable: counts as one byte */ }
+    files.set(path, n);
+  }
+  if (!files.size) throw new Refusal(`empty diff against ${base}: nothing to review`);
+  const total = [...files.values()].reduce((a, b) => a + b, 0);
+  const all = [...files.keys()].sort();
+  if (total <= AREA_SPLIT_BYTES && files.size <= AREA_SPLIT_FILES) return [{ name: "whole branch", paths: all, bytes: total }];
+  const share = total / max;
+  const groups = new Map();
+  for (const [path, n] of files) {
+    const k = areaKey(path);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push([path, n]);
+  }
+  const units = [];
+  for (const [k, members] of groups) {
+    const bytes = members.reduce((a, [, n]) => a + n, 0);
+    if (bytes > share && members.length > 1) for (const [path, n] of members) units.push({ keys: [path], paths: [path], bytes: n });
+    else units.push({ keys: [k], paths: members.map(([path]) => path), bytes });
+  }
+  const bins = [];
+  for (const u of units.sort((a, b) => b.bytes - a.bytes)) {
+    if (bins.length < max) { bins.push({ keys: [...u.keys], paths: [...u.paths], bytes: u.bytes }); continue; }
+    const light = bins.reduce((a, b) => (b.bytes < a.bytes ? b : a));
+    light.keys.push(...u.keys);
+    light.paths.push(...u.paths);
+    light.bytes += u.bytes;
+  }
+  return bins.map(b => ({ name: b.keys.sort().join(" + "), paths: b.paths.sort(), bytes: b.bytes }));
+}
+
 // ---------------------------------------------------------------------------------------------------------------- CLI
 
-const USAGE = "usage: kit-tools.mjs fingerprint --base <rev> | freeze --base <rev> --contract <file> --out <dir> | covered --hash <h> --base <rev> | check-review --file <f> --hash <h> [--lenses <n>] [--contract <file>]";
+const USAGE = "usage: kit-tools.mjs fingerprint --base <rev> | freeze --base <rev> --contract <file> --out <dir> | covered --hash <h> --base <rev> | check-review --file <f> --hash <h> [--lenses <n>] [--contract <file>] | areas --base <rev> [--max <n>]";
 
 const SPEC = {
   fingerprint: { required: ["base"], optional: [] },
   freeze: { required: ["base", "contract", "out"], optional: [] },
   covered: { required: ["hash", "base"], optional: [] },
   "check-review": { required: ["file", "hash"], optional: ["lenses", "contract"] },
+  areas: { required: ["base"], optional: ["max"] },
 };
 
 class Usage extends Error {}
@@ -232,6 +298,11 @@ function main(argv) {
   if (command === "fingerprint") return fingerprint({ base: opts.base });
   if (command === "covered") return `covered ${covered({ hash: opts.hash, base: opts.base })}`;
   if (command === "freeze") return freeze({ base: opts.base, contract: opts.contract, out: opts.out });
+  if (command === "areas") {
+    const max = opts.max == null ? AREA_DEFAULT_MAX : Number(opts.max);
+    if (!Number.isInteger(max) || max < 1) throw new Usage(USAGE);
+    return JSON.stringify(areas({ base: opts.base, max }));
+  }
   // check-review
   const lenses = opts.lenses == null ? CORE_LENS_COUNT : Number(opts.lenses);
   if (!Number.isInteger(lenses) || lenses < 1) throw new Usage(USAGE);

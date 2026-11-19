@@ -1,6 +1,6 @@
 {
   "name": "ticket-trains",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Queue several triaged tickets and run them unattended, one at a time, with locked and validated state.",
   "kind": "workflow",
   "requires": [
