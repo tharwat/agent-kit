@@ -40,7 +40,8 @@ Packs may add checks here: see the section for this command in each installed `.
 
 ## Step 1: Drive it locally
 
-Start the app with `<DEV_SERVER_COMMAND>` when the surface needs it, then exercise the **changed** path, including
+Start the app with `<DEV_SERVER_COMMAND>` when the surface needs it (`none`: the app is never started locally, and
+surfaces that need it are `🕒 DEFERRED`), then exercise the **changed** path, including
 the failure path the ticket fixed. Real requests and real responses, not a description of what would happen.
 
 - **Only what the map proves safe.** When `verify-map.md` says a local run reaches production, run only actions on
@@ -55,7 +56,8 @@ the failure path the ticket fixed. Real requests and real responses, not a descr
 - **Screens:** exercise the authenticated screen the ticket names, with zero page errors.
 - **Seeding:** use the seed commands in `verify-map.md`. Never create accounts through a protected public endpoint
   (captcha, rate limit). Never change a protected fixture.
-- **Nothing irreversible as a test.** Use the dry-run entry point for anything in the irreversible list.
+- **Nothing irreversible as a test.** For anything in the irreversible list, use a safe-list entry point or defer
+  the check to after merge.
 
 ## Step 1.5: Rows you create are synthetic (required)
 

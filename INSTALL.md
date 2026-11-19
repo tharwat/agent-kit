@@ -218,7 +218,8 @@ tests run there as they do in the checkout.
    - **When a local run reaches production** (the local `.env` points at the live database and provider accounts),
      write `verify-map.md` as a short safe list, not a recipe per area. Only actions proven side-effect free go on
      it. Every other row says `Local check: none` and names its after-merge check: a log line and a read-only query.
-     `/verify` then reports `🕒 DEFERRED` for those surfaces. Patching recipe after recipe doesn't converge: each fix
+     `/verify` then reports `🕒 DEFERRED` for those surfaces. Set `DEV_SERVER_COMMAND` to `none` unless starting the
+     app is on the safe list: `npm start` often starts the schedulers and workers too. Patching recipe after recipe doesn't converge: each fix
      uncovers the next path to production.
 3. **Then apply:**
 
