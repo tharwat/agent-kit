@@ -19,3 +19,22 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   - a rule replaces a list;
   - a redesign deletes or simplifies and never adds a checker;
   - code that judges or parses text is never written to prove a doc.
+
+- **A blind pre-code check did not hold up on a large live ticket.** On replays of four past tickets it covered 59%
+  of the first-draft bugs. Live, on a large ticket, it fully covered 6 of 38 and partly covered 11. In 4 cases its
+  own expectations prescribed the defect. Its tests exercised one path each, so even the covered bugs got through.
+  One of its owner questions added a recovery subsystem, which then held about half of all review findings. Don't
+  ship it as it stands. If it comes back, it must not add scope, and every test must drive the real path and
+  inputs.
+- **A capped review over a whole large diff drips; it doesn't converge.** A review that reports at most 10
+  findings found 8, 10, 7, 9, 4 and 8 per round, and 39 of 46 were already in the first draft. A review that
+  returns exactly its cap hasn't finished. Split a large diff into areas and review each one without a cap. Review
+  a fix batch without a cap too.
+- **Fix batches regress through the same miss as first drafts.** In the review after one uncapped sweep, 4 of 9
+  defects were in the sweep's own fixes:
+  - a step added to a flow was skipped by an early return;
+  - a resumed path called out before checking the stored result;
+  - a lookup narrowed for one caller broke another caller;
+  - a reader needed fields that the new writer never set.
+  A fix that changes a function's scope or steps must first list that function's exits, callers and readers, as a
+  first draft should.
