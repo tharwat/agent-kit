@@ -40,3 +40,6 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   first draft should. The next review showed the check also needs the reverse direction: a fix that looked up a row
   by a key, with a limit of 1, missed three other writers that copy the same key onto other rows. A lookup needs
   every writer of the key it matches on.
+- **Fixes that add a new state keep the rounds going.** Two rounds in a row, a fix added a new user-facing outcome
+  or live state. The next review then found its biggest defects in the readers and timing of that new state. A fix
+  should reuse an existing state that already behaves as needed, and ask the owner before adding a new one.
