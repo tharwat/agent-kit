@@ -47,3 +47,11 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   round added a protection, and the next round found that protection's bugs. The fix rounds should weigh what a
   protection costs against how rare and how cheap the edge case is. Where the protection keeps breaking, removing
   it and accepting the small loss is a valid fix.
+- **Nothing in the loop triggers a redesign, so it never happens.** In one ticket, a job's state was worked out at
+  read time from several fields (status, an outcome code, a provider id, the reconciler's list, a time limit).
+  Every round from 9 to 11 found a reader that didn't select a field, a writer that didn't set one, or a timing
+  gap. The loop only ever offered "fix these, review again". The trigger should be an event, not a count: when a
+  finding sits in an earlier fix to the same area, stop fixing that area and redesign it. Store the state as one
+  column, written where it changes and read everywhere; delete the code that works it out. The owner approves the
+  design (states, writers, readers, deletions) before any code. The same rule belongs at triage: a state with more
+  than two values that several screens read is stored, not derived.
