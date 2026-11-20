@@ -59,3 +59,11 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   code fields, and eight places wrote the column directly. The next review found 4 important defects, all from
   readers or writes in the wrong order. A stored state needs one function as its only writer, with a table of
   allowed moves that refuses all others and a test for every row. Every reader uses the state alone.
+- **The ticket should have plugged into the lifecycle that already existed.** The project already kept a stored job
+  lifecycle (queued, running, waiting at the provider, succeeded, failed), with a reconciler for paid provider
+  renders and guards against paying twice. The change was "one more provider, plus a charge". Instead it built a
+  provider-specific set of phases and a recovery system next to the existing ones: about 2,400 production lines and
+  rounds into double figures. The pre-code check made it worse by listing 201 cases, and each case became code. The
+  plan should start from the entity's stored states and their allowed moves, reuse the existing states, and say
+  what the new thing adds to them. Cases come from that table. A plan that adds a parallel state system next to an
+  existing one is a design defect, caught before code.
