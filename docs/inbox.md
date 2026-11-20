@@ -37,4 +37,6 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   - a lookup narrowed for one caller broke another caller;
   - a reader needed fields that the new writer never set.
   A fix that changes a function's scope or steps must first list that function's exits, callers and readers, as a
-  first draft should.
+  first draft should. The next review showed the check also needs the reverse direction: a fix that looked up a row
+  by a key, with a limit of 1, missed three other writers that copy the same key onto other rows. A lookup needs
+  every writer of the key it matches on.
