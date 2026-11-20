@@ -55,3 +55,7 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   column, written where it changes and read everywhere; delete the code that works it out. The owner approves the
   design (states, writers, readers, deletions) before any code. The same rule belongs at triage: a state with more
   than two values that several screens read is stored, not derived.
+  Storing it isn't enough on its own. The first try added the column, but readers still read the old status and
+  code fields, and eight places wrote the column directly. The next review found 4 important defects, all from
+  readers or writes in the wrong order. A stored state needs one function as its only writer, with a table of
+  allowed moves that refuses all others and a test for every row. Every reader uses the state alone.
