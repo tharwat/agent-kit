@@ -43,3 +43,7 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
 - **Fixes that add a new state keep the rounds going.** Two rounds in a row, a fix added a new user-facing outcome
   or live state. The next review then found its biggest defects in the readers and timing of that new state. A fix
   should reuse an existing state that already behaves as needed, and ask the owner before adding a new one.
+  Rounds 9–11 of one ticket were spent on a single rare edge case: a paid job the app may still collect. Each
+  round added a protection, and the next round found that protection's bugs. The fix rounds should weigh what a
+  protection costs against how rare and how cheap the edge case is. Where the protection keeps breaking, removing
+  it and accepting the small loss is a valid fix.
