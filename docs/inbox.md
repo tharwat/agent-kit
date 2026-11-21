@@ -67,3 +67,57 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   plan should start from the entity's stored states and their allowed moves, reuse the existing states, and say
   what the new thing adds to them. Cases come from that table. A plan that adds a parallel state system next to an
   existing one is a design defect, caught before code.
+- **First-draft bugs track the production lines written, and nothing tried so far has changed the rate.** Across 19
+  past tickets of one project, first-draft bugs against merged production lines gave r = 0.82: about 3 bugs, plus 1.2
+  for every 100 production lines. Tickets under 300 lines averaged 5 bugs; tickets over 700 averaged 15. The large
+  live ticket that ran the pre-code check landed on the same line (about 2,400 lines, 33 predicted, 38 found), so
+  the check changed the amount of code, not its quality. Review fixes then grew that ticket's production code by
+  about half. The lever with evidence behind it is writing less: a smaller design, a smaller ticket, and fixes that
+  remove code. (Merged lines include fix lines, so part of the fit is circular.)
+- **The plan named the existing mechanism and still built beside it.** A contract row cited the existing recovery
+  job and the stored request id, so "look for the existing lifecycle" was not the missing step. The plan was a list
+  of rows and cases, and nothing in its form set the existing mechanism against what the change adds. When the
+  owner asked for exactly that (a table of existing step against "what this adds", with "nothing" allowed; no new
+  states; reused and new code file by file with estimated lines; what is out of the ticket), the same agent
+  produced a one-page design about a fifth the size. The form of the plan did what the instruction to look had not.
+- **An owner question with a recommended option is the agent's decision in practice.** On one ticket the owner took
+  the recommended option on 6 of 7 pre-code questions. Three of those added scope that the owner later cut: a
+  recovery subsystem (recommended over the challenger's "accept the loss") and two forced confirmation steps. A
+  question whose option adds a mechanism or a state must say what it costs (lines, new states, new failure paths),
+  and the smaller option is the recommended one unless the owner has asked for the protection.
+- **A replay that scores written expectations measures paper.** The pre-code replays asked whether an expectation
+  covered each known bug (59%). Live, the tests written from those expectations each drove one path, and one passed
+  only because it sent a field the real button never sends. A replay counts only if it builds the code and a review
+  sweeps the result.
+- **The kit's own review still has caps.** Each reviewer in `consensus-review.js` is told to "report at most 15",
+  and the fallback runs the built-in review at its default limit. Both contradict the capped-review lesson above.
+- **Long review loops come from two kinds of work, and both can be named at triage.** In a second project that
+  runs three-reviewer consensus rounds, 15 of 25 post-op runs ended within three rounds and 9 ran past three or
+  needed a redesign. Short did not mean finished: under a severity bar, six short runs fixed 11 findings and sent
+  31 to the tracker, and only five of the 25 runs ended short with nothing from review left open. Of the 9 long
+  runs, five were code that judges free text with patterns or word lists, and two were code that
+  works a state out from several fields. Each round found one more phrase, format or field combination, and each
+  fix added a case and broke another; in one ticket the count per round went 8, 7, 11, 9. The work has no finite
+  list of cases, so no review can finish it. The design must close it before code: a stored state with a move
+  table, a rule on structure or position that needs no meaning, or a model call that fails closed.
+- **A redesign that keeps the same kind of solution doesn't end the loop.** Redesigns that deleted the mechanism
+  (a text classifier removed, a decision stored on the record, four pattern lists replaced by one order rule) ended
+  clean in one or two rounds. Redesigns that rebuilt the pattern matching in a tidier form kept producing findings.
+  "At most one redesign" is the wrong limit; "the redesign changes the kind of solution and removes code" is the
+  test.
+- **The fix rule has swung between two failures.** "Fix every verified finding" had no stopping point (rounds into
+  the tens). A severity bar that sent small findings to the tracker stopped the loop and filled the tracker with a
+  dozen items a ticket, so the owner reversed it: fix everything the ticket wrote. That brought the loops back,
+  and in one ticket every change after round 1 was undone because round 1 had found nothing that needed fixing.
+  Both rules treat all small findings alike. They are three different things: a real defect a normal action
+  reaches (fix it, however small); one more member of a class with no end (don't fix it; close the class or state
+  its boundary); and a case that needs a fault or never occurs in the project. For that third kind the owner's
+  direction is a vote on facts by agents other than the author: what is lost and to whom (data, money, a person
+  wrongly contacted, security, hand work for the operator, appearance), what has to happen first, whether anyone
+  would notice, and what the fix costs. A small fix is made now whatever the vote says; only a costly fix for a
+  remote, bounded case becomes a ticket, and the ticket carries the analysis. The bar failed before because the
+  author applied it to its own findings and "noted" was the easy answer.
+- **Zero-context reviewers aimed at a checker never run out.** On a ticket that built a parser-style check, two
+  hostile reviewers found about 11 new evasions a round for four rounds while the real change was clean from round
+  2. The threat-model line and the prior-art questions the kit already has came from this; they are needed on
+  every round, by every reviewer.
