@@ -24,7 +24,8 @@
 |          |                                     | check, lifecycles, safety defaults (see PLAN_CHECK below)       |
 | operate  | .claude/state/<T>/self-review.md    | a `Fingerprint: <64-hex>` line, and an `Inventory: <section>`   |
 |          | + .claude/state/<T>/inventory.json  | line naming a section of inventory.json whose boxes are filled  |
-|          |                                     | (see INVENTORY below)                                           |
+|          |                                     | (see INVENTORY below). A fix batch names its fix notes instead: |
+|          |                                     | `Inventory: Fix note <id>`, written in review-rounds.md         |
 | post-op  | .claude/state/<T>/post-op.md        | `Fingerprint: <64-hex or none (no reviewable change)>` and      |
 |          |                                     | `Result: clean or escalate` (`capped` is gone since 1.8.0)      |
 | handoff  | .claude/handoffs/latest.md          | written after the start, with the `## Git state` / `Branch:` block |
@@ -69,6 +70,7 @@ RESULT_LINE_RE = re.compile(r"^Result:.*$", re.M)
 HANDOFF_BRANCH_RE = re.compile(r"^Branch:\s*\S", re.M)
 INVENTORY_LINE_RE = re.compile(r"^Inventory:[ \t]*(.*)$", re.M)
 FILE_LINE_RE = re.compile(r"^\S+:[0-9]+(-[0-9]+)?\b")
+FIX_NOTE_RE = re.compile(r"^fix note \S", re.I)
 
 
 def norm(line):
@@ -283,12 +285,31 @@ def answer_ok(box, yes_word, other_word):
     return box["answer"] == yes_word or filled(box.get("why"))
 
 
+def fix_note_problems(project, ticket, name):
+    """A fix batch names the fix notes it wrote before the fix (operate, "Every fix batch"): they must exist."""
+    path = os.path.join(ticket_dir(project, ticket), "review-rounds.md")
+    shown = rel(project, path)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = [norm(x).lower() for x in fh]
+    except OSError:
+        return ["%s doesn't exist (the Self-review `Inventory:` line names `%s`, which is written there before "
+                "the fix)" % (shown, name)]
+    want = norm(name).lower()
+    if not any(x.startswith(want + ":") and len(x) > len(want) + 1 for x in lines):
+        return ["%s has no line starting `%s:` (the fix note is written before the fix: the function, its exits, "
+                "callers, readers and the writers of each key it looks up)" % (shown, norm(name))]
+    return []
+
+
 def inventory_problems(project, ticket, self_review):
     """The dependency inventory /operate writes before its first production edit (operate Phase 1 step 2)."""
     out = []
     blocks = self_review.split("Self-review:")
     named = INVENTORY_LINE_RE.findall(blocks[-1])
     section_name = named[-1].strip() if named else ""
+    if FIX_NOTE_RE.match(section_name):
+        return fix_note_problems(project, ticket, section_name)
     data, shown = load_json(project, ticket, "inventory.json", out)
     if data is None:
         if out and out[0].endswith("doesn't exist"):

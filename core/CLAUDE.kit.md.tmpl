@@ -36,9 +36,9 @@ queries need no gate. Elsewhere, cite gates by label (`G2`) only; edit them here
 A change to `<CRITICAL_SYSTEMS>` is agent-approved with stricter checks unless it hits a gate: (1) find every consumer; (2) record its need and risk on the ticket; (3) add tests, regressions included, keeping existing ones green; (4) verify before merge. A post-merge failure is fixed forward on a new ticket and alerts the owner. <!-- codex-restate -->
 
 Review severity: **S1** data integrity (loss, corruption, wrong writes, cross-tenant exposure), **S2** auth and
-security, **S3** `<CRITICAL_DOMAIN>`, **S4** the ticket's own behaviour. S1–S4 are must-fix, and so is every real
-defect in code the ticket wrote, whatever its class. Only pre-existing defects below the bar go to
-`<OPEN_ITEMS_TICKET>`.
+security, **S3** `<CRITICAL_DOMAIN>`, **S4** anything else normal use reaches. S1–S4 are must-fix, and so is any
+defect with a small fix. Only the review's voters, never the author, send a remote, bounded defect with a costly
+fix to its own ticket.
 
 ## Git and workflow
 
@@ -54,11 +54,12 @@ defect in code the ticket wrote, whatever its class. Only pre-existing defects b
   every list derived from the source, with a test).
   Implement without waiting.
 - **`/operate`** has three agents build the dependency inventory (every reader, writer, sibling, claim and list
-  member) before production edits, turns each row into a test, then red-teams its own diff. Every fix batch is
-  inventoried the same way.
-- **`/post-op`** runs its gates, self-red-team and contract audit, then review rounds until the code is clean. The
-  verifiers vote on the next step (fix or redesign); no round counter. It ends `clean` or `escalate`, never with
-  known defects of its own or an unreviewed fix; it never commits.
+  member) before production edits, turns each row into a test, then red-teams its own diff. A fix batch is one
+  fix per mechanism, with a fix note first (exits, callers, readers, writers).
+- **`/post-op`** runs its gates, self-red-team and contract audit, then review rounds until the code is clean:
+  an uncapped sweep, then a check of the fixes. Voters other than the author decide what is fixed; a defect inside
+  a fix stops the patching and sends a redesign to the owner. No round counter. It ends `clean` or `escalate`,
+  never with an unreviewed fix; it never commits.
 - **`/post-op` is never optional before a commit that touches source or `.claude/`.** Small, urgent, low-risk or well-tested is never a reason to skip it. <!-- codex-restate -->
 - **`/peer-review`**: the owner's call per ticket. After a pass, an unresolved verified finding stops `/ship`.
 - **`/verify`** runs on the feature branch, locally against real services, before merge.
@@ -83,8 +84,8 @@ defect in code the ticket wrote, whatever its class. Only pre-existing defects b
 - Name the sibling you copy (`file:line`). Before any diff, state its impact on each consumer, even "none".
 - **Add tests for every change**, even unasked. Mutation-test behavioural checks: each fails with its guard deleted.
 - Build the deliverable, not machinery around it. Automation resolves edge cases instead of exiting to a human.
-- **A review claim is a hypothesis until verified.** Fix a verified must-fix defect on the ticket's path on that
-  ticket, even if pre-existing; only independent new capability gets a new ticket.
+- **A review claim is a hypothesis until verified.** Fix a verified must-fix defect on that ticket, even if
+  pre-existing; only the review's vote or independent new capability makes a new ticket.
 - Follow codebase conventions; keep existing comments, headers and imports. Unless asked, don't remove
   unused-looking code, reformat untouched code, or broadly refactor, rename or move.
 - **Ask the owner only** for a product decision, a gate or a truly ambiguous task: one question at a time, plain

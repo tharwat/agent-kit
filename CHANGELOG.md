@@ -4,6 +4,58 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.12.0 — unreleased draft (2026-11-21)
+
+The review loop, first half of a two-part change. The second half (a one-page design at triage, and removing the
+steps that generate volume) waits for a live result. Evidence: the review records of two projects. Under "fix
+every finding" rounds ran into the tens and most later defects sat in earlier fixes; under a severity bar the
+loop stopped but about five of 25 runs ended with nothing from review left open.
+
+- **The author no longer decides what a finding gets.** In `consensus-review.js` the verifiers answer facts about
+  each real finding: what is lost and to whom, whether the loss is bounded, what has to happen first, whether
+  anyone would notice, what the fix costs, and whether it is one more member of a class with no end. A table in
+  code turns two agreeing answers into the outcome (`/post-op` round rule 2):
+  - a serious loss, anything normal use reaches, and anything with a small fix: fixed on the ticket;
+  - a remote, bounded defect with a costly fix: its own ticket, carrying the analysis and a priority;
+  - a split vote: fixed now.
+
+  The author is a witness: it passes a `witness` note of what is already guarded or decided, and sends an
+  objection or an unverified finding back with `recheck`. It never rejects, shrinks or defers a finding.
+- **`open class` is a new outcome:** one more phrase, format, evasion or fault combination that the same check
+  would have to list. It is never fixed one by one. Finders report such a mechanism once.
+- **No cap on findings.** "Report at most 15" is gone, and the fallback runs `/code-review high --max-findings
+  all`, with two fresh subagents answering the questions.
+- **Codex is a finder in every round** when the `codex` CLI runs on the machine (`codexModel`), headless,
+  read-only, with MCP servers off. A round counts without it and its record says so.
+- **Round 1 sweeps the whole branch; a later round reviews only the fix delta.**
+- **Events replace the redesign vote.** `next` is `redesign` when a real defect sits in lines an earlier fix
+  wrote, comes from the same mechanism as an earlier fixed one, or is an open class that normal use or a serious
+  loss reaches; the author raises it too when a fix would add a stored state, a user-visible outcome or a
+  mechanism. Patching that part stops. A one-screen redesign note goes to the owner **before any edit** (it used
+  to be applied without waiting): remove, reuse, or one closed shape, in that order. A redesign must change the
+  kind of solution and remove code, and records `Redesign size: <before> → <after>`.
+- **A fix batch writes fix notes, not an inventory section.** One fix per mechanism; before a fix changes what a
+  function does, a `Fix note <id>:` line in `review-rounds.md` lists its exits, callers, readers and the writers
+  of each key it looks up. `consensus-inventory.js` no longer has a fix-batch mode, and `check-record.py` accepts
+  `Inventory: Fix note <id>` when that note exists. An `inventory.json` `Fix batch <n>` section is still accepted.
+- **Review rounds no longer write `noted` items for `<OPEN_ITEMS_TICKET>`.** A deferred finding is its own ticket.
+  `/peer-review`, pack audits and owner-accepted defects still use the tracker.
+- **Removed:** the per-finding `design` vote, the third-round notice, `proposed_class` from finders.
+- New test: `core/scripts/consensus-review.test.mjs` pins the table and the events with scripted agents.
+
+**Not changed, and now out of step:** `/peer-review`, `/bteam` and the hardening pack still sort their own
+findings by the S1–S4 bar, with the author applying it.
+
+**Upgrade touches:**
+- `CLAUDE.kit.md` (the review severity and `/post-op` lines);
+- `/post-op`, `/operate` ("Every fix batch"), `/peer-review`, `/codex-review`;
+- `.claude/workflows/consensus-review.js`, `consensus-inventory.js`, `check-record.py`;
+- with ticket-trains, `/ticket-train-run`, `/ticket-train-triage` and `train-state.mjs` (adds the `open class`
+  disposition; a `redesign` now pauses the ticket for the owner); with hardening, `/hardening`.
+
+A ticket that is mid-review when a project upgrades: finish its current round under the old rules, and start the
+new rules at the next round.
+
 ## 1.11.0 — 2026-11-18
 
 Rounds were a symptom; this release goes after the bad first draft and the bad fix. Evidence: the first ticket on

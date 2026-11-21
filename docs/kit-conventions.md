@@ -81,14 +81,16 @@ reference them by path.
 
 | Class | Covers |
 |---|---|
-| S1 | Data integrity: loss, corruption, wrong writes, cross-tenant exposure |
-| S2 | Auth and security: access-control holes, secrets, injection, unsafe input |
+| S1 | Data integrity: loss, corruption, wrong writes, cross-tenant exposure; or money lost with no ceiling |
+| S2 | Auth and security: access-control holes, secrets, injection, unsafe input; or a person wrongly contacted or charged, or a legal breach |
 | S3 | `<CRITICAL_DOMAIN>` |
-| S4 | The ticket's own behaviour: a contract row not met |
+| S4 | Anything else normal use reaches |
 
-S1–S4 findings are must-fix, and so is every real defect in code the ticket wrote (origin `first-draft` or
-`fix-introduced`), whatever its class. Only pre-existing defects below the bar are `noted` and go to the open-items
-tracker. A finding with no wrong behaviour is a `nit`: not fixed, not filed.
+In a `/post-op` review round the class is a label derived from the voters' answers (post-op Step 1.5 round rule 2).
+S1–S4 findings are must-fix, and so is any real defect whose fix is small. Only the voters, never the author, send a
+remote, bounded defect with a costly fix to its own ticket, with their analysis. A finding with no wrong behaviour
+is a `nit`: not fixed, not filed. `/peer-review` still sorts its own findings by class: S1–S4 and anything
+`[introduced by this diff]` are fixed, and a pre-existing defect below S4 is `noted` for the open-items tracker.
 
 ## 6. Owner-Kept Gates and Critical Systems
 
@@ -145,9 +147,9 @@ A post-merge failure is fixed forward on a new ticket and alerts the owner.
   |---|---|
   | `triage.md` | Contract copy and hand-off |
   | `plan-check.json` | Triage Step 4.8 as a fill-in form: `state_homes`, `contradiction_check`, `lifecycles`, `enumerations` (derived lists and their tests), `safety_defaults`. `check-record.py --show plan-check` prints the readable copy |
-  | `inventory.json` | The dependency inventory, built by `consensus-inventory.js` before code: section `Plan` (`values` readers and writers, `siblings`, `helpers`, `claims`, `lists`, `consensus`), then one `Fix batch <n>` section per fix batch, built the same way. `check-record.py --show inventory` prints the readable copy |
-  | `self-review.md` | Contains `Fingerprint: <h>` and `Inventory: <inventory.json section>` |
-  | `review-rounds.md` | One block per round (findings `R<n>-<k>` with class, origin and disposition; an `Origins:` line; the round's `next`), plus any redesign note |
+  | `inventory.json` | The dependency inventory, built by `consensus-inventory.js` before code: section `Plan` (`values` readers and writers, `siblings`, `helpers`, `claims`, `lists`, `consensus`). A fix batch adds no section: it writes fix notes in `review-rounds.md`. `check-record.py --show inventory` prints the readable copy |
+  | `self-review.md` | Contains `Fingerprint: <h>` and `Inventory: <inventory.json section>` (`Plan`), or `Inventory: Fix note <id>` for a fix batch |
+  | `review-rounds.md` | One block per round (a `Panel:` line; findings `R<n>-<k>` with class, origin, disposition and why; a `Fixed:` line; an `Origins:` line; the round's `next`), the fix notes (`Fix note <id>: …`), plus any redesign note with its `Redesign size:` line |
   | `post-op.md` | Contains `Fingerprint: <h>` and `Result: clean\|escalate` (`capped` was removed in 1.8.0). `clean` with a `⏭️ Skipped — Codex` review row means the gates passed and the review round was skipped |
   | `self-review.diff`, `round-<n>.diff` | The saved diffs the fingerprints were taken from |
   | `upstream.txt` | Saved upstream for the fallback review path. Marked `restored` afterwards, never removed |

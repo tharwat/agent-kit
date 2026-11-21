@@ -66,9 +66,9 @@ upgrades follow them without asking again.
   - a **redesign** changes how it works, such as storing a status instead of working it out from several fields.
 
   A project rule that says "refactor freely" often means redesign. Ask which, in the decision's `found`.
-- **Kit:** refactor and simplify the code the ticket changes (`/operate` has a simplify step). Redesign when the review's
-  verifiers vote that findings come from a design that keeps breaking. Don't broadly refactor, rename or move code the ticket doesn't
-  touch, unless asked.
+- **Kit:** refactor and simplify the code the ticket changes (`/operate` has a simplify step). Redesign when the
+  review stops patching a part (a defect inside a fix, or an open class) and the owner approves the redesign note.
+  Don't broadly refactor, rename or move code the ticket doesn't touch, unless asked.
 - **Protects against:** wide diffs. Every untouched file in a diff is more readers and writers to miss, the top cause
   of review findings and of bugs added by fixes.
 - **The project's way is as safe when:** rarely. "Refactor freely" usually means the same as the kit: improve the
@@ -158,10 +158,11 @@ upgrades follow them without asking again.
 
 ### review-rounds: The project's own review loop
 
-- **Kit:** quality comes before review. Three agents build the dependency inventory before any code, every list
-  is derived from the source with a test, and every fix goes through the same step. Review rounds then check every
-  area of the change, and the verifiers vote on fix or redesign. No round counter, no cap, and the owner is asked
-  only for product decisions. A ticket never ends with known defects of its own, or with a fix no reviewer read.
+- **Kit:** quality comes before review. Three agents build the dependency inventory before any code, and every list
+  is derived from the source with a test. Review rounds then sweep every area of the change with no cap on
+  findings, and voters other than the author decide what is fixed now and what gets its own ticket. A defect inside
+  a fix stops the patching and sends a redesign note to the owner. No round counter, and a ticket never ends with
+  a fix no reviewer read.
 - **Check:** a round cap in the project's text ("stop at 3"), and whether leftover findings go to a tracker.
 - **Recommend:** `kit`. A fixed cap ends tickets with known bugs and fills the tracker.
 - **Pro:** defects are prevented or fixed, not filed. **Con:** more agents run before the code is written.

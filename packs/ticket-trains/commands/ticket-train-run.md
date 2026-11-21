@@ -118,8 +118,8 @@ Take the first `pending` ticket.
    1–11, unattended (round rule 9). After each round, update `code_review` (`rounds`, `redesign`,
    `end_state`, `self_review` = the record's fingerprint, every disposition appended). Then by end state:
    - `clean` → step 6.
-   - A `next` of `redesign` is applied without waiting (round rule 10), unless it would change behaviour, a
-     contract or scope: then it is an `escalate`, and no edit is made until the owner answers.
+   - A `next` of `redesign` is an `escalate` (round rule 10): post-op sends the redesign note, the round's other
+     must-fix items are still fixed, and no edit is made to the named part until the owner answers.
    - `escalate` → post-op has already posted its one escalation comment and notified (round rule 6). Preserve the
      work (below), add each open item to `open_findings`, add one `cr-e<n>` question (the items, a recommendation,
      options each with a pro and a con), block with `question cr-e<n>: <one line>`.

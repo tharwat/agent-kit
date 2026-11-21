@@ -21,6 +21,9 @@ Runs Codex as a hostile, zero-context reviewer of the snapshot `/peer-review` St
 engine of `/peer-review`, next to `/bteam`. A second engine is worth having because it doesn't share Claude's
 assumptions.
 
+Codex is also a finder in every `/post-op` review round (post-op Step 1.5), where the round's workflow starts it
+with the model named above, read-only and with MCP servers off. That needs no snapshot and none of the steps below.
+
 - **Review-only.** Codex never writes code here. Any patch it returns is discarded; only its findings count. If it
   asks whether to implement a fix, the answer is no.
 - **Hash-bound.** Its output must attest the snapshot hash and pass

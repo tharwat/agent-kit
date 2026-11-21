@@ -265,6 +265,23 @@ class Kinds(Case):
         r = self.check("operate")
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_operate_fix_batch_names_its_fix_notes(self):
+        rounds = ".claude/state/ABC-12/review-rounds.md"
+        record = (GOOD["operate"] + "\nSelf-review: ABC-12\nFingerprint: %s\n"
+                  "Covers: fix batch since %s\nInventory: Fix note R2\n" % ("cd" * 32, FP))
+        self.write(PATHS["operate"], record)
+        r = self.check("operate")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("review-rounds.md doesn't exist", r.stdout)
+        for text, code, want in (("Review round 2: ABC-12\nFix note R2:\n", 1, "no line starting `Fix note R2:`"),
+                                 ("Fix note R1: hold() — exits: a.js:3\n", 1, "no line starting `Fix note R2:`"),
+                                 ("Fix note R2: hold() — exits: a.js:3 · callers: b.js:9\n", 0, "")):
+            with self.subTest(text=text):
+                self.write(rounds, text)
+                r = self.check("operate")
+                self.assertEqual(r.returncode, code, r.stdout)
+                self.assertIn(want, r.stdout)
+
     def test_show_renders_the_readable_copy(self):
         self.write(PLAN_CHECK_PATH, dumps(PLAN_CHECK))
         self.write(INVENTORY_PATH, dumps(INVENTORY))

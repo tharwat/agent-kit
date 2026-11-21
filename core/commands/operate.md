@@ -30,9 +30,9 @@ copy; trackers mangle symbols), then ticket op **get** `<ticket>` (comments and 
 - **No contract:** say so, and write the rows before any code.
 - The independent vectors come from `/peer-review test-contract <ticket>`, run by `/triage`. A row whose vector reads
   `not run` still needs its hostile case and counterfactual: they are what the test is built from.
-- A verified must-fix finding (S1–S4, post-op Step 1.5 round rule 2) that shares the ticket's execution path,
-  invariant, safety outcome or acceptance criterion joins the contract and is fixed here. It is never recorded away
-  as "outside scope". Only a genuinely independent capability is recorded instead of built.
+- A verified must-fix finding (post-op Step 1.5 round rule 2) joins the contract and is fixed here. It is never
+  recorded away as "outside scope". Only the review's vote, or a genuinely independent capability, puts work on
+  another ticket.
 
 **2. Enumerate the space, not the example.** The defect class is larger than the ticket's instances, and you can
 derive it now from the language, the schema or the call graph.
@@ -302,7 +302,7 @@ starting" and the lenses below. Then:
 Self-review: <ticket>
 Fingerprint: <h>
 Covers: whole branch | fix batch since <previous fingerprint>
-Inventory: <the inventory.json section this pass wrote or re-walked: Plan, or Fix batch <n>>
+Inventory: <Plan (the inventory.json section), or Fix note <id> for a fix batch>
 Diff read: <files> · <lines> lines, read line by line against origin/<MAIN_BRANCH>
 Design: <shape chosen>; simpler alternative considered: <one>, rejected because <reason>
 Edge cases checked: <null/empty/absent, malformed, concurrent, each sibling path…>
@@ -328,14 +328,24 @@ unless it equals the current fingerprint.
 **Every fix batch comes back through this phase.** Fixes from a review round, a gate or `/peer-review` are new code.
 A third of review findings are bugs that an earlier fix introduced. A fix never goes in because "this line looks
 right".
-1. **Before the fix,** run `consensus-inventory.js` again with `"section": "Fix batch <n>"` and `plan` set to the
-   findings and the proposed fix, and append its section to `inventory.json`. A finding is one member of a class
-   (every place with the same defect): the workflow enumerates the class as a `lists` entry, and the fix covers
-   every member, with a test that re-derives the list. A fix that changes a state transition must match its
-   `lifecycles` entry in `plan-check.json`. A path the plan doesn't have is a scope change, and goes to the owner.
-2. **After the fix,** do steps 1, 7 and 8 on the **fix delta**: read it line by line, simplify it, red-team it, and
-   write a new record whose `Inventory:` line names the batch.
-3. Follow the round's `next`: a `redesign` is never patched (post-op Step 1.5 round rule 10).
+1. **One batch, grouped by mechanism.** Sort the findings by the function, stored state or rule they come from, and
+   make one fix per mechanism at its root cause, never one per finding.
+2. **Fix note first.** Before a fix changes what a function does, write its note into
+   `.claude/state/<ticket>/review-rounds.md`, with `file:line` for each entry:
+   ```
+   Fix note <id>: <function> — exits: … · callers: … · readers of what it writes: … · writers of <each key it looks up>: …
+   ```
+   `<id>` is the round (`R2`), or `G<n>` for a gate fix; one batch may hold several notes under one id. It is a
+   note you write from reading the code, not a workflow and not a checker.
+3. **A fix that adds is not a fix.** One that would add a stored state, a user-visible outcome or a new mechanism
+   is a design change: stop, and take it to the owner (post-op Step 1.5 round rule 10). One that would add a list
+   entry or an exception to a rule says so in its fix note first: if the next entry is already imaginable, it is an
+   open class (round rule 2), and another entry doesn't close it.
+4. **A regression test that fails without the fix,** driven through the real entry point with the inputs the real
+   caller sends.
+5. **After the fix,** do steps 1, 7 and 8 on the **fix delta**: read it line by line, simplify it, red-team it, and
+   write a new record whose `Inventory:` line names the notes (`Inventory: Fix note <id>`).
+6. Follow the round's `next`: a `redesign` is never patched (round rule 10).
 
 Only now hand it to `/post-op`. Its own gates run before any external reviewer sees the code.
 
@@ -373,10 +383,9 @@ Packs may add lenses here: see the section for this command in each installed `.
 - **Never hand over code you haven't read back.** Writing it is not reading it.
 - **Never ship a pattern you haven't watched match something.**
 - **Never accept a red test without reading why it is red**, or a green one without knowing what would turn it red.
-- **Every real defect in code this ticket wrote is fixed here, whatever its class**, and so is a must-fix (S1–S4)
-  inside the definition of done. Only pre-existing defects below the bar are noted (post-op Step 1.5 round rule 2). A verified must-fix defect on the ticket's execution path is always inside it:
-  calling it "pre-existing", or reading the ticket narrowly, never makes it safe to leave. Only a genuinely
-  independent capability gets its own ticket (post-op Step 1.5, disposition "own ticket").
+- **You never defer a defect; only the review's vote does** (post-op Step 1.5 round rule 2). A must-fix is fixed
+  here whoever wrote the code: calling it "pre-existing", or reading the ticket narrowly, never makes it safe to
+  leave. The vote sends only a remote, bounded defect with a costly fix to its own ticket.
 - **No inventory, no edit.** A production edit made before its `inventory.json` entries exist is the first draft the
   reviewers will spend rounds on.
 - **Slow is the point.** Every shortcut skipped here was tried, and it produced a fix round, which is slower.

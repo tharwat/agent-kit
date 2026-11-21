@@ -26,39 +26,14 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   One of its owner questions added a recovery subsystem, which then held about half of all review findings. Don't
   ship it as it stands. If it comes back, it must not add scope, and every test must drive the real path and
   inputs.
-- **A capped review over a whole large diff drips; it doesn't converge.** A review that reports at most 10
-  findings found 8, 10, 7, 9, 4 and 8 per round, and 39 of 46 were already in the first draft. A review that
-  returns exactly its cap hasn't finished. Split a large diff into areas and review each one without a cap. Review
-  a fix batch without a cap too.
-- **Fix batches regress through the same miss as first drafts.** In the review after one uncapped sweep, 4 of 9
-  defects were in the sweep's own fixes:
-  - a step added to a flow was skipped by an early return;
-  - a resumed path called out before checking the stored result;
-  - a lookup narrowed for one caller broke another caller;
-  - a reader needed fields that the new writer never set.
-  A fix that changes a function's scope or steps must first list that function's exits, callers and readers, as a
-  first draft should. The next review showed the check also needs the reverse direction: a fix that looked up a row
-  by a key, with a limit of 1, missed three other writers that copy the same key onto other rows. A lookup needs
-  every writer of the key it matches on.
-- **Fixes that add a new state keep the rounds going.** Two rounds in a row, a fix added a new user-facing outcome
-  or live state. The next review then found its biggest defects in the readers and timing of that new state. A fix
-  should reuse an existing state that already behaves as needed, and ask the owner before adding a new one.
-  Rounds 9–11 of one ticket were spent on a single rare edge case: a paid job the app may still collect. Each
-  round added a protection, and the next round found that protection's bugs. The fix rounds should weigh what a
-  protection costs against how rare and how cheap the edge case is. Where the protection keeps breaking, removing
-  it and accepting the small loss is a valid fix.
-- **Nothing in the loop triggers a redesign, so it never happens.** In one ticket, a job's state was worked out at
-  read time from several fields (status, an outcome code, a provider id, the reconciler's list, a time limit).
-  Every round from 9 to 11 found a reader that didn't select a field, a writer that didn't set one, or a timing
-  gap. The loop only ever offered "fix these, review again". The trigger should be an event, not a count: when a
-  finding sits in an earlier fix to the same area, stop fixing that area and redesign it. Store the state as one
-  column, written where it changes and read everywhere; delete the code that works it out. The owner approves the
-  design (states, writers, readers, deletions) before any code. The same rule belongs at triage: a state with more
-  than two values that several screens read is stored, not derived.
-  Storing it isn't enough on its own. The first try added the column, but readers still read the old status and
-  code fields, and eight places wrote the column directly. The next review found 4 important defects, all from
-  readers or writes in the wrong order. A stored state needs one function as its only writer, with a table of
-  allowed moves that refuses all others and a test for every row. Every reader uses the state alone.
+- **A state several screens read is stored, not worked out (the triage half of a lesson whose review half shipped
+  in 1.12.0).** In one ticket a job's state was worked out at read time from several fields (status, an outcome
+  code, a provider id, a reconciler's list, a time limit), and every round found a reader that didn't select a
+  field, a writer that didn't set one, or a timing gap. Triage should catch it before code: a state with more than
+  two values that several screens read is stored. Storing it isn't enough on its own: the first try added the
+  column, but readers still read the old fields and eight places wrote the column directly. A stored state needs
+  one function as its only writer, with a table of allowed moves that refuses all others and a test for every row.
+  Every reader uses the state alone.
 - **The ticket should have plugged into the lifecycle that already existed.** The project already kept a stored job
   lifecycle (queued, running, waiting at the provider, succeeded, failed), with a reconciler for paid provider
   renders and guards against paying twice. The change was "one more provider, plus a charge". Instead it built a
@@ -89,8 +64,6 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   covered each known bug (59%). Live, the tests written from those expectations each drove one path, and one passed
   only because it sent a field the real button never sends. A replay counts only if it builds the code and a review
   sweeps the result.
-- **The kit's own review still has caps.** Each reviewer in `consensus-review.js` is told to "report at most 15",
-  and the fallback runs the built-in review at its default limit. Both contradict the capped-review lesson above.
 - **Long review loops come from two kinds of work, and both can be named at triage.** In a second project that
   runs three-reviewer consensus rounds, 15 of 25 post-op runs ended within three rounds and 9 ran past three or
   needed a redesign. Short did not mean finished: under a severity bar, six short runs fixed 11 findings and sent
@@ -100,24 +73,5 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   fix added a case and broke another; in one ticket the count per round went 8, 7, 11, 9. The work has no finite
   list of cases, so no review can finish it. The design must close it before code: a stored state with a move
   table, a rule on structure or position that needs no meaning, or a model call that fails closed.
-- **A redesign that keeps the same kind of solution doesn't end the loop.** Redesigns that deleted the mechanism
-  (a text classifier removed, a decision stored on the record, four pattern lists replaced by one order rule) ended
-  clean in one or two rounds. Redesigns that rebuilt the pattern matching in a tidier form kept producing findings.
-  "At most one redesign" is the wrong limit; "the redesign changes the kind of solution and removes code" is the
-  test.
-- **The fix rule has swung between two failures.** "Fix every verified finding" had no stopping point (rounds into
-  the tens). A severity bar that sent small findings to the tracker stopped the loop and filled the tracker with a
-  dozen items a ticket, so the owner reversed it: fix everything the ticket wrote. That brought the loops back,
-  and in one ticket every change after round 1 was undone because round 1 had found nothing that needed fixing.
-  Both rules treat all small findings alike. They are three different things: a real defect a normal action
-  reaches (fix it, however small); one more member of a class with no end (don't fix it; close the class or state
-  its boundary); and a case that needs a fault or never occurs in the project. For that third kind the owner's
-  direction is a vote on facts by agents other than the author: what is lost and to whom (data, money, a person
-  wrongly contacted, security, hand work for the operator, appearance), what has to happen first, whether anyone
-  would notice, and what the fix costs. A small fix is made now whatever the vote says; only a costly fix for a
-  remote, bounded case becomes a ticket, and the ticket carries the analysis. The bar failed before because the
-  author applied it to its own findings and "noted" was the easy answer.
-- **Zero-context reviewers aimed at a checker never run out.** On a ticket that built a parser-style check, two
-  hostile reviewers found about 11 new evasions a round for four rounds while the real change was clean from round
-  2. The threat-model line and the prior-art questions the kit already has came from this; they are needed on
-  every round, by every reviewer.
+  (1.12.0 shipped the review half: such a finding is an `open class` and is never fixed alone. Naming the two
+  kinds at triage still waits.)
