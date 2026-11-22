@@ -101,3 +101,26 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   - *A limit rested on an outside service's documented behaviour, which read two ways and was never measured.*
     Every time limit assumed one reading. When a design depends on what an outside service does, a measurement
     comes before the code.
+- **A loop that fixes every small confirmed finding has no end, and its "nothing serious left" describes the
+  review's reach, not the code.** The rebuilt large ticket ended at round 4 by the owner's order ("fix, then stop
+  reviewing"), with six fixes shipping unreviewed. What its last round and a side-by-side trial showed:
+  - *The last round listed 8 findings and none was serious.* Two repeated things the owner had already decided. Of
+    the six real ones, three could not go wrong today (behind a switch that is off, two numbers that happen to be
+    equal, a row limit six times the data), and two traced to the previous fix batch. All six were proposed as
+    "fix", so all six would be new code for another round to read. Nothing in the loop could say "this one is real,
+    small and not reachable today: one follow-up ticket". The owner had to end it by hand.
+  - *A wider round found the narrow loop's later findings a round earlier, and many it never found.* One round of
+    the draft review (three lenses per area plus a second vendor's reviewer) on the round-3 code reported 30
+    distinct defects. The project's own next fix batch closed 7 of them. Its round 4 then reported 2 more and part
+    of a third. About 20 are still in the code, raised by no project round. Four of those, read again in the code,
+    are real and touch a paid item (thrown away, bought twice, let past the spending limit, left unusable). A
+    three-lens round that comes back quiet has sampled; it has not swept.
+  - *Storing the fact held.* The recovery part gave 4, 3 and 4 findings a round. The fix asked one stored fact once,
+    before any other decision about the job, and the next round found nothing serious there. The file grew: the
+    simplification was one fact read in one place, not fewer lines.
+  - *An open class grew when it was patched.* A choice made by matching patterns on an outside service's free-text
+    error was reported as an open class, and the next fix batch added a second pattern to it.
+  - The direction: who a defect reaches decides now against ticket, not the size of its fix; a real finding that
+    normal use cannot reach today goes to one follow-up ticket; finders and voters are given the owner's decided
+    list, so a decided item is not raised again; a round ends on "nothing serious and reachable is open, the rest
+    is in a ticket", never on zero findings.
