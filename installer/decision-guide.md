@@ -158,11 +158,11 @@ upgrades follow them without asking again.
 
 ### review-rounds: The project's own review loop
 
-- **Kit:** quality comes before review. Three agents build the dependency inventory before any code, and every list
-  is derived from the source with a test. Review rounds then sweep every area of the change with no cap on
-  findings, and voters other than the author decide what is fixed now and what goes to a follow-up ticket. A defect inside
-  a fix stops the patching and sends a redesign note to the owner. No round counter, and a ticket never ends with
-  a fix no reviewer read.
+- **Kit:** quality comes before review. A one-page design sets what exists against what the change adds, with
+  estimated lines per file, and three agents build the dependency inventory before any code. Review rounds then
+  sweep every area of the change with no cap on findings, and voters other than the author decide what is fixed
+  now and what goes to a follow-up ticket. A defect inside a fix stops the patching and sends a redesign note to
+  the owner. No round counter, and a ticket never ends with a fix no reviewer read.
 - **Check:** a round cap in the project's text ("stop at 3"), and whether leftover findings go to a tracker.
 - **Recommend:** `kit`. A fixed cap ends tickets with known bugs and fills the tracker.
 - **Pro:** defects are prevented or fixed, not filed. **Con:** more agents run before the code is written.
