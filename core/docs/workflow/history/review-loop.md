@@ -175,8 +175,13 @@ What changed, and why:
   nothing from review left open. Both rules treated all small findings alike, and under both the author sorted its
   own findings, where "noted" is the easy answer. Now:
   - voters other than the author answer facts (what is lost and to whom, what must happen first, whether anyone
-    would notice, what the fix costs), and a table in code turns the answers into fix now or its own ticket. A
-    small fix is always made; only a costly fix for a remote, bounded case is deferred, with the analysis;
+    would notice, what the fix costs), and a table in code turns the answers into fix now or the follow-up ticket. Who
+    a defect reaches decides, not the size of its fix. The first round also makes every small fix. A later round
+    fixes only a serious loss or a defect normal use reaches. On the ticket this was drawn from, round 4 offered
+    six small real findings as fixes (three could not go wrong as the project stood, two came from the previous
+    fixes), each would have been new code for a fifth round, and the owner ended the loop by hand. A defect that
+    cannot go wrong today (`dormant`) is filed with what would wake it. One follow-up ticket per ticket, not one
+    ticket per finding;
   - "one more member of a class with no end" is its own answer. Long loops came from code that judges free text
     with patterns and from state worked out from several fields, where each round found one more case. Such a
     member is never fixed alone;

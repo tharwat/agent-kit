@@ -386,7 +386,7 @@ Packs may add lenses here: see the section for this command in each installed `.
 - **Never accept a red test without reading why it is red**, or a green one without knowing what would turn it red.
 - **You never defer a defect; only the review's vote does** (post-op Step 1.5 round rule 2). A must-fix is fixed
   here whoever wrote the code: calling it "pre-existing", or reading the ticket narrowly, never makes it safe to
-  leave. The vote sends only a remote, bounded defect with a costly fix to its own ticket.
+  leave. The vote sends only a bounded defect that normal use doesn't reach to the follow-up ticket.
 - **No inventory, no edit.** A production edit made before its `inventory.json` entries exist is the first draft the
   reviewers will spend rounds on.
 - **Slow is the point.** Every shortcut skipped here was tried, and it produced a fix round, which is slower.

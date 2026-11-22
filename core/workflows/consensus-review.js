@@ -3,7 +3,7 @@
 // finders with no author context (3 Claude lens reviewers per area, plus Codex when post-op passes its model), with
 // no cap on findings → dedup in code, then one agent groups the reports by mechanism → 2 refuting verifiers per group
 // (+1 tie-breaker), who also answer the impact questions → the table in `outcome` sorts each real finding (fix now |
-// own ticket | open class | nit) → events decide what comes next: clean | fix | redesign. In the sweep one event is
+// follow-up ticket | open class | nit) → events decide what comes next: clean | fix | redesign. In the sweep one event is
 // a shared cause: several findings that one change closes, named by the grouper and checked by two verifiers.
 // The author never votes. What it knows arrives as `witness` claims the voters check, and an objection to a result
 // comes back through `recheck`, where the voters decide again.
@@ -51,7 +51,7 @@ const IMPACT = [
   'If the finding is real, answer the impact questions from the code, as facts. They decide whether it is fixed now or later, so do not shade them (post-op Step 1.5 round rule 2):',
   `- loss: the worst thing lost when it happens. "data" (data lost, corrupted, wrongly or irreversibly written, or shown to the wrong tenant); "security" (an access-control hole, a lock-out, a leaked secret, personal data in logs, injection or unsafe input, an unverified webhook); "person" (a person wrongly contacted or charged, or a legal or compliance breach); "critical" (a wrong result in ${CRITICAL}); "money" (money lost or mis-charged, and nothing above); "operator" (hand work for an operator or support, and nothing above); "appearance" (wrong text, layout or log line, and nothing else lost); "none" (no wrong behaviour at all: style, naming, a refactor, test polish, wording of a comment, unmeasured performance).`,
   '- bounded: true when each occurrence loses a small, known amount that can be put right; false when it can repeat or grow without anyone seeing it.',
-  '- reach: what has to happen first. "normal" (an ordinary action, or an input production really sends); "unusual" (a valid but unusual input, order or timing); "one-failure" (one independent failure at the wrong moment: a crash, a timeout, an outage); "two-failures" (two or more independent things going wrong together).',
+  '- reach: what has to happen first. "normal" (an ordinary action, or an input production really sends); "unusual" (a valid but unusual input, order or timing); "one-failure" (one independent failure at the wrong moment: a crash, a timeout, an outage); "two-failures" (two or more independent things going wrong together); "dormant" (the path is live code, but it cannot go wrong as the project stands today: first someone would have to change a setting production does not use, edit a constant, or the data would have to grow far past what exists. Say in the evidence what would wake it).',
   '- silent: true when nobody would notice it happened (no error, no alert, nothing visible).',
   '- fix: "small" when the root-cause fix is a few lines in one place and adds no stored state, no list entry, no exception to a rule and no new mechanism; otherwise "costly".',
   '- open_class: true when this is one more member of a class with no end: another phrase, format, evasion or combination of faults that the same check would have to list, so that fixing this one leaves the next. Name the class in the evidence.',
@@ -119,7 +119,7 @@ const CODEX_SCHEMA = {
 
 // Only dispositions that can make a finding a repeat (round rule 4); a fixed finding that comes back is new. These
 // words must equal post-op's disposition words: matching is by leading word. `noted` is read from older records.
-const REPEATABLE = ['rejected', 'nit', 'own ticket', 'open class', 'already decided', 'noted']
+const REPEATABLE = ['rejected', 'nit', 'follow-up', 'own ticket', 'open class', 'already decided', 'noted']
 const lead = p => String(p.disposition || '').trim().toLowerCase()
 const priorRepeatable = PRIOR.filter(p => REPEATABLE.some(r => lead(p).startsWith(r)))
 const PRIOR_IDS = priorRepeatable.map((_, k) => `P${k + 1}`)
@@ -153,7 +153,7 @@ const VERDICT = {
     real: { type: 'boolean' },
     loss: { type: 'string', enum: ['data', 'security', 'person', 'critical', 'money', 'operator', 'appearance', 'none'] },
     bounded: { type: 'boolean' },
-    reach: { type: 'string', enum: ['normal', 'unusual', 'one-failure', 'two-failures'] },
+    reach: { type: 'string', enum: ['normal', 'unusual', 'one-failure', 'two-failures', 'dormant'] },
     silent: { type: 'boolean' },
     fix: { type: 'string', enum: ['small', 'costly'] },
     open_class: { type: 'boolean' },
@@ -308,19 +308,25 @@ const quorum = (votes, key) => {
 }
 const statusKey = v => (v.real ? 'real' : 'not')
 const repeatKey = v => v.repeat_of || 'none'
-// Round rule 2, the table, applied to one vote. The first line that matches wins.
+// Round rule 2, the table, applied to one vote. The first line that matches wins. Who a defect reaches decides, not
+// the size of its fix: a small fix is done now only in the sweep, which reads everything once. After it every fix is
+// new code another round must read, so a fix has to be serious or reached, and the rest goes to the follow-up ticket.
 const serious = v => ['data', 'security', 'person', 'critical'].includes(v.loss) || (v.loss === 'money' && !v.bounded)
 const outcome = v =>
   v.loss === 'none' ? 'nit'
   : v.open_class ? 'open'
-  : serious(v) || v.reach === 'normal' || v.fix === 'small' ? 'fix'
+  : serious(v) || v.reach === 'normal' ? 'fix'
+  : v.reach === 'dormant' ? 'ticket'
+  : v.fix === 'small' && !LATER ? 'fix'
   : 'ticket'
 const reason = v =>
   v.loss === 'none' ? 'nothing wrong happens'
   : v.open_class ? 'one more member of a class with no end'
   : serious(v) ? `serious loss (${v.loss}${v.loss === 'money' ? ', no ceiling' : ''})`
   : v.reach === 'normal' ? 'normal use reaches it'
-  : v.fix === 'small' ? 'the fix is small'
+  : v.reach === 'dormant' ? 'it cannot go wrong as the project stands today'
+  : v.fix === 'small' && !LATER ? 'the fix is small, and this is the sweep'
+  : LATER ? 'bounded, not reached by normal use, and the sweep is over'
   : 'remote, bounded, and costly to fix'
 // The label the record keeps (round rule 2): S1 data or money with no ceiling, S2 security or a person, S3 the
 // critical domain, S4 anything else normal use reaches, noted any other real defect.
@@ -373,7 +379,7 @@ const judged = await pipeline(grouped, async (f, _orig, i) => {
     origin,
     why: d.outcome ? reason(yes.find(v => outcome(v) === out)) : 'the voters split, so it is fixed now',
     analysis: yes.map(facts).join(' | '),
-    priority: out === 'ticket' ? (yes.some(v => v.reach === 'unusual' || v.silent) ? 'worth fixing' : 'minor') : null,
+    priority: out !== 'ticket' ? null : yes.every(v => v.reach === 'dormant') ? 'dormant' : yes.some(v => v.reach === 'unusual' || v.silent) ? 'worth fixing' : 'minor',
     repeat_of: repeat ? `${repeat}: ${priorById[repeat] || ''}` : null,
     evidence: yes.map(v => v.evidence).join(' | '),
     stop,

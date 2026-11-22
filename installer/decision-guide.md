@@ -160,7 +160,7 @@ upgrades follow them without asking again.
 
 - **Kit:** quality comes before review. Three agents build the dependency inventory before any code, and every list
   is derived from the source with a test. Review rounds then sweep every area of the change with no cap on
-  findings, and voters other than the author decide what is fixed now and what gets its own ticket. A defect inside
+  findings, and voters other than the author decide what is fixed now and what goes to a follow-up ticket. A defect inside
   a fix stops the patching and sends a redesign note to the owner. No round counter, and a ticket never ends with
   a fix no reviewer read.
 - **Check:** a round cap in the project's text ("stop at 3"), and whether leftover findings go to a tracker.

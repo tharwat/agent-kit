@@ -31,7 +31,7 @@ export const TRANSITIONS = Object.freeze({
   done: [],
   needs_verify: ["done", "blocked"],
 });
-export const DISPOSITIONS = Object.freeze(["must-fix", "noted", "nit", "own ticket", "open class", "rejected", "already decided", "needs owner", "repeat"]);
+export const DISPOSITIONS = Object.freeze(["must-fix", "noted", "nit", "follow-up", "own ticket", "open class", "rejected", "already decided", "needs owner", "repeat"]);
 // post-op round rule 6 (kit 1.8.0): no `capped`; a ticket ends clean or goes to the owner.
 export const END_STATES = Object.freeze(["clean", "escalate"]);
 export const CHECKPOINT_KIND = "WIP checkpoint — blocked";

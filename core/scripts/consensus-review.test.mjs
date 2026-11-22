@@ -64,6 +64,8 @@ test("the table: what two agreeing voters make of a real finding", async () => {
     [{ loss: "money", bounded: false }, "must_fix", "S1"],
     [{ loss: "appearance", reach: "normal" }, "must_fix", "S4"],
     [{ fix: "small", reach: "two-failures" }, "must_fix", "noted"],
+    [{ fix: "small", reach: "dormant" }, "tickets", "noted"],
+    [{ loss: "person", reach: "dormant" }, "must_fix", "S2"],
     [{ loss: "money", bounded: true }, "tickets", "noted"],
     [{}, "tickets", "noted"],
     [{ loss: "none" }, "nits", "nit"],
@@ -75,6 +77,26 @@ test("the table: what two agreeing voters make of a real finding", async () => {
     assert.equal(out[bucket].length, 1, `${JSON.stringify(over)} → ${bucket}`);
     assert.equal(out[bucket][0].class, cls, JSON.stringify(over));
   }
+});
+
+test("after the sweep a small fix is not done now: only a serious or reached defect is", async () => {
+  const later = { base: "origin/main", round: 2, savedDiff: ".claude/state/T-1/round-1.diff" };
+  const small = await run(later, { reviews: one, votes: both({ fix: "small", reach: "unusual" }) });
+  assert.equal(small.out.must_fix.length, 0);
+  assert.equal(small.out.tickets.length, 1);
+  assert.match(small.out.tickets[0].why, /the sweep is over/);
+  assert.equal(small.out.next.action, "clean");
+  // A defect a fix wrote is an event only when it is fixed now.
+  const inFix = await run(later, { reviews: one, votes: both({ fix: "small", origin: "fix-introduced" }) });
+  assert.equal(inFix.out.tickets.length, 1);
+  assert.equal(inFix.out.next.action, "clean");
+  for (const over of [{ loss: "data" }, { reach: "normal" }]) {
+    const { out } = await run(later, { reviews: one, votes: both(over) });
+    assert.equal(out.must_fix.length, 1, JSON.stringify(over));
+  }
+  const dormant = await run({ base: "origin/main" }, { reviews: one, votes: both({ fix: "small", reach: "dormant" }) });
+  assert.equal(dormant.out.tickets[0].priority, "dormant");
+  assert.match(dormant.out.tickets[0].why, /as the project stands today/);
 });
 
 test("a deferred finding carries its analysis and a priority", async () => {
@@ -115,7 +137,7 @@ test("events: a defect in a fix, or in a mechanism already fixed, stops the patc
 });
 
 test("a repeat of an earlier decision is not new", async () => {
-  const prior = [{ finding: "R1-2: slow query", disposition: "own ticket ABC-9" }];
+  const prior = [{ finding: "R1-2: slow query", disposition: "follow-up ABC-9" }];
   const { out } = await run({ base: "origin/main", prior }, { reviews: one, votes: both({ repeat_of: "P1", reach: "normal" }) });
   assert.equal(out.repeats.length, 1);
   assert.equal(out.next.action, "clean");

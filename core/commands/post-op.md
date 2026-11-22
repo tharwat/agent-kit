@@ -24,10 +24,10 @@ rounds (Step 1.5) and Lessons learned. It ends with a report that answers one qu
   afterwards: `/triage` → `/operate` → `/post-op` → `/peer-review` (optional) → `/ship`. Never launch it here, and
   never report its absence as a gap. Codex as a finder inside a review round (Step 1.5) is separate from it.
 - **The vote decides what is fixed here; you don't.** A real defect is fixed on this ticket when its loss is
-  serious, normal use reaches it, or its fix is small, whoever wrote it (round rule 2). Only a remote, bounded
-  defect with a costly fix gets its own ticket, with the voters' analysis attached. Nothing is deferred by the
-  author, by a round count, or so that a ticket can finish. The ticket ends clean or goes to the owner (round
-  rules 3 and 6).
+  serious or normal use reaches it, whoever wrote it, and in the sweep also when its fix is small (round rule 2).
+  Every other real defect goes into the ticket's one follow-up ticket, with the voters' analysis attached. Nothing
+  is deferred by the author or by a round count, and nothing real is dropped. The ticket ends clean or goes to the
+  owner (round rules 3 and 6).
 - **The gates are static and check conventions.** None runs the changed code against real services, so a green
   post-op is not "validated": that is `/verify`, run by `/ship` before merge. Nor do they attack the diff: the
   self-red-team does. A diff can pass every gate and still hold a dead path, impossible user-facing copy, or a race.
@@ -180,7 +180,10 @@ origin/<MAIN_BRANCH>` with the last `Fingerprint:` line in `.claude/state/<ticke
      "scratchDir": "<session scratch dir, else .claude/state/tmp>" }
    ```
    - `prior` is the **decided list**: every earlier finding, as `"R<n>-<k>: <finding>"`, with its disposition, plus
-     the standing items. Finders and voters both get it, so a decided item comes back only with new evidence.
+     the standing items. It also holds every owner decision recorded for this ticket before the review (on the
+     ticket, in the contract, in a triage answer, in a project doc the change follows), as `"Owner: <the
+     decision>"` with the disposition `already decided — <where it is recorded>`. Finders and voters both get it,
+     so a decided item comes back only with new evidence.
    - `codexModel` is the model on the `Codex model:` line of `.claude/commands/codex-review.md`. Pass it when
      `codex --version` runs on this machine; leave it out otherwise. Codex then reviews headless, read-only, with MCP
      servers off. A round counts without it, and the result's `codex` says what happened.
@@ -229,11 +232,15 @@ matches earlier dispositions by leading word):
 - **`must-fix`**: the result's `must_fix` or `redesign`. It is fixed on this ticket: a `must_fix` item as one batch
   through `/operate`, "Every fix batch", with no owner question; a `redesign` item through round rule 10. Then
   gates 1–8 again.
-- **`own ticket`**: the result's `tickets` (the vote deferred it: remote, bounded, costly to fix), or a genuinely
-  independent capability. Run ticket op **search** first. If an open ticket covers it, add it there with ticket op **comment**.
-  Otherwise use ticket op **create** in the backlog (parent: the ticket's epic, if any; labels per
-  `.claude/rules/ticket-ops.md`). The ticket carries where (`file:line`), what happens and to whom, the voters'
-  `analysis` as returned, the `priority`, and a suggested fix and test. Record the key and carry on.
+- **`follow-up`**: the result's `tickets`. The vote deferred it: it is real, its loss is bounded, and normal use
+  doesn't reach it. All of a ticket's deferred findings go into **one** follow-up ticket, written once, when no
+  round is due (round rule 6). Run ticket op **search** for `Follow-up: <ticket>`. If it exists, add to it with
+  ticket op **comment**. Otherwise use ticket op **create** in the backlog (title `Follow-up: <ticket> review
+  findings`; parent: the ticket's epic, if any; labels per `.claude/rules/ticket-ops.md`). It has one entry per
+  finding: where (`file:line`), what happens and to whom, the voters' `analysis` as returned, the `priority` (for
+  `dormant`, what would wake it), and a suggested fix and test. Record its key on every `follow-up` line.
+- **`own ticket`**: a genuinely independent capability, never a defect of this change. Ticket op **search**, then
+  **comment** on the open ticket that covers it, or **create** one. Record the key and carry on.
 - **`open class`**: the result's `open_class`, one more member of a class with no end. Never fixed or filed on its
   own: one line under its mechanism in the round record, as a known limit.
 - **`nit`**: nothing wrong happens (style, naming, refactor, test polish, wording, unmeasured performance). Not
@@ -270,7 +277,7 @@ This section is the one definition. Other commands cite it as "round rule N".
      |---|---|
      | What is lost, at worst | data · security · a person (wrongly contacted or charged, or a legal breach) · `<CRITICAL_DOMAIN>` · money · an operator's hand work · appearance · nothing |
      | Is the loss bounded | yes (small, known, can be put right) · no (it can repeat or grow unseen) |
-     | What has to happen first | normal use · an unusual but valid input, order or timing · one independent failure · two or more |
+     | What has to happen first | normal use · an unusual but valid input, order or timing · one independent failure · two or more · nothing can today (`dormant`: it needs a setting production doesn't use, an edited constant, or far more data than exists) |
      | Would anyone notice | yes · no |
      | What does the fix cost | small (a few lines in one place; no new state, list entry, exception or mechanism) · costly |
      | Is it one more member of a class with no end | yes (another phrase, format, evasion or fault combination) · no |
@@ -282,8 +289,13 @@ This section is the one definition. Other commands cite it as "round rule N".
      | it is one more member of a class with no end | `open class`: never fixed one by one. If normal use or a serious loss reaches it, the mechanism is redesigned (round rule 10) |
      | the loss is serious: data, security, a person, `<CRITICAL_DOMAIN>`, or money with no ceiling | fix now, however unlikely |
      | normal use reaches it | fix now, however small |
-     | the fix is small | fix now, however unlikely |
-     | none of these: remote, bounded and costly to fix | `own ticket`, with the analysis and a priority |
+     | it cannot go wrong as the project stands today (`dormant`) | `follow-up`, naming what would wake it |
+     | the fix is small, and the round is the sweep (round 1) | fix now, however unlikely |
+     | none of these | `follow-up`, with the analysis and a priority |
+   - **Who a defect reaches decides, not the size of its fix.** The sweep reads everything once, so it also fixes
+     what is small. After it, every fix is new code another round must read: a later round fixes only a serious
+     loss or a defect normal use reaches, and files the rest. A round with nothing to fix now is `clean`, however
+     many entries the follow-up ticket holds.
    - **Class** is the label the record keeps: **S1** data integrity, or money with no ceiling; **S2** auth and
      security, or a person; **S3** `<CRITICAL_DOMAIN>`; **S4** anything else normal use reaches; **noted** any
      other real defect; **nit**.
@@ -299,7 +311,7 @@ This section is the one definition. Other commands cite it as "round rule N".
    - Rounds run without asking, attended or not, and never create or move branches.
    - **No counter decides anything.** A round count never ends the work, never asks the owner, and never defers a
      finding.
-4. **Repeats.** A finding that repeats an earlier `rejected`, `nit`, `own ticket`, `open class` or `already
+4. **Repeats.** A finding that repeats an earlier `rejected`, `nit`, `follow-up`, `open class` or `already
    decided` disposition is marked `repeat` (citing its id) and never counts as new. A finding fixed in an earlier
    round that comes back is **not** a repeat: the fix didn't hold, which is an event (round rule 10).
 5. **A round is due** when a reviewable change landed after the last round (a must-fix, a gate fix, a
@@ -309,6 +321,7 @@ This section is the one definition. Other commands cite it as "round rule N".
 6. **End states.** When no round is due, take the **first** line that matches:
    1. **`escalate`:** a needs-owner finding is open, or a redesign note is waiting for the owner (round rule 10).
    2. **`clean`:** anything else. The last round ran on the final code (round rule 7) and its `next` is `clean`.
+      Write the follow-up ticket now, from every `follow-up` line of every round.
 
    **Escalating:** send **one** message to the owner. Attended: ask in the session. Unattended: post it with
    ticket op **comment** `<ticket>` and Notify (Step 3), and pause the loop. It holds the product question or the
@@ -366,7 +379,7 @@ This section is the one definition. Other commands cite it as "round rule N".
       before> → <after>`. If it grew, it was a rebuild: tell the owner, with the numbers, before the next round.
       The next round reviews the delta, which holds the whole redesign.
 11. **Open items go to `<OPEN_ITEMS_TICKET>`.** It holds work that isn't a review finding of this ticket: the vote
-    sends a deferred finding to its own ticket (round rule 2), so review rounds add nothing here. **One writer, at
+    sends a deferred finding to the ticket's follow-up ticket (round rule 2), so review rounds add nothing here. **One writer, at
     one moment:** the step that closes the ticket (`/ship`, or a pack that closes tickets) writes **one** comment
     on `<OPEN_ITEMS_TICKET>` with ticket op **comment**, before closing, from the records already on the ticket.
     Post-op and `/peer-review` only record items on the ticket.
@@ -399,7 +412,7 @@ Not passing:
 - `⚠️ Not run`: the review failed, didn't cover its scope, or the code isn't covered.
 
 Summary: one line, such as "base origin/<MAIN_BRANCH> · 2 rounds · clean · Codex returned 4 · 11 real: 9 fixed, 1
-own ticket, 1 open class (first-draft 9 · fix-introduced 0 · pre-existing 2) · 6 not a defect".
+follow-up, 1 open class (first-draft 9 · fix-introduced 0 · pre-existing 2) · 6 not a defect".
 
 ---
 
@@ -430,7 +443,7 @@ Contract audit:
 Code review findings (one line each):
   [R1-1] <finding> — <file:line> — <class> · <origin> — <disposition> — <why>
 Panel: <reviewers> · Codex <returned n | unavailable — why | not requested>
-Fixed: <X> of <N> real findings fixed here · <own ticket keys> · <open-class lines>
+Fixed: <X> of <N> real findings fixed here · <follow-up ticket key> · <open-class lines>
 Origins: first-draft <a> · fix-introduced <b> · pre-existing <d> · not a defect <e>
 
 Peer review: not run | CLEAN <snapshot_hash> | UNRESOLVED
@@ -508,8 +521,8 @@ Owner action: <none | the action>
   fix, invalidates the gate verdicts: re-run gates 1–8, or mark the ones not re-run.
 - Only the closing step writes to `<OPEN_ITEMS_TICKET>` and the `Open items (PR #<N>)` marker, so a later
   `/peer-review` can still add items.
-- Never defer, shrink or reject a finding yourself. Only the vote sends one to its own ticket (round rule 2), and
-  it never sends a serious loss, a defect normal use reaches, or one with a small fix.
+- Never defer, shrink or reject a finding yourself. Only the vote sends one to the follow-up ticket (round rule 2),
+  and it never sends a serious loss or a defect normal use reaches.
 
 Why these rules exist: `docs/workflow/history/review-loop.md` (not loaded by default; where it disagrees with a rule
 here, the rule wins).

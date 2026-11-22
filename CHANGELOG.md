@@ -15,12 +15,22 @@ loop stopped but about five of 25 runs ended with nothing from review left open.
   each real finding: what is lost and to whom, whether the loss is bounded, what has to happen first, whether
   anyone would notice, what the fix costs, and whether it is one more member of a class with no end. A table in
   code turns two agreeing answers into the outcome (`/post-op` round rule 2):
-  - a serious loss, anything normal use reaches, and anything with a small fix: fixed on the ticket;
-  - a remote, bounded defect with a costly fix: its own ticket, carrying the analysis and a priority;
+  - a serious loss, and anything normal use reaches: fixed on the ticket, in any round;
+  - anything with a small fix: fixed in round 1, which sweeps the whole branch. In a later round it is filed,
+    because every fix is new code another round must read;
+  - a defect that cannot go wrong as the project stands today (`dormant`: it needs a setting production doesn't
+    use, an edited constant, or far more data than exists): filed, with what would wake it;
+  - every other real defect: filed, carrying the analysis and a priority;
   - a split vote: fixed now.
+
+  Filed means the ticket's **one** follow-up ticket (`Follow-up: <ticket> review findings`), written once when no
+  round is due. The disposition is `follow-up`; `own ticket` now means only an independent capability. A round
+  with nothing to fix now is `clean`, however many entries the follow-up ticket holds.
 
   The author is a witness: it passes a `witness` note of what is already guarded or decided, and sends an
   objection or an unverified finding back with `recheck`. It never rejects, shrinks or defers a finding.
+  The decided list (`prior`) also carries every owner decision recorded for the ticket before the review, so
+  finders and voters don't raise a decided item again without new evidence.
 - **`open class` is a new outcome:** one more phrase, format, evasion or fault combination that the same check
   would have to list. It is never fixed one by one. Finders report such a mechanism once.
 - **No cap on findings.** "Report at most 15" is gone, and the fallback runs `/code-review high --max-findings
@@ -44,7 +54,7 @@ loop stopped but about five of 25 runs ended with nothing from review left open.
   function does, a `Fix note <id>:` line in `review-rounds.md` lists its exits, callers, readers and the writers
   of each key it looks up. `consensus-inventory.js` no longer has a fix-batch mode, and `check-record.py` accepts
   `Inventory: Fix note <id>` when that note exists. An `inventory.json` `Fix batch <n>` section is still accepted.
-- **Review rounds no longer write `noted` items for `<OPEN_ITEMS_TICKET>`.** A deferred finding is its own ticket.
+- **Review rounds no longer write `noted` items for `<OPEN_ITEMS_TICKET>`.** A deferred finding goes into the ticket's follow-up ticket.
   `/peer-review`, pack audits and owner-accepted defects still use the tracker.
 - **Removed:** the per-finding `design` vote, the third-round notice, `proposed_class` from finders.
 - New test: `core/scripts/consensus-review.test.mjs` pins the table and the events with scripted agents.

@@ -153,10 +153,10 @@ record of what was decided, built, reviewed and verified.
      when it is installed, with no cap on findings. Two verifiers try to refute each finding.
 
    The verifiers, not the author, decide what happens to a real finding. They answer what is lost and to whom, what
-   has to happen first, whether anyone would notice, and what the fix costs. A serious loss, anything normal use
-   reaches and anything with a small fix is fixed on the ticket. Only a remote, bounded defect with a costly fix
-   gets its own ticket, with that analysis attached. The first round sweeps the whole change, and a later round
-   checks only the fixes. A defect inside a fix stops the patching: you get a one-screen redesign note that must
+   has to happen first, whether anyone would notice, and what the fix costs. A serious loss and anything normal use
+   reaches is fixed on the ticket. The first round sweeps the whole change and also fixes anything with a small
+   fix. A later round checks only the fixes. Every other real defect goes into one follow-up ticket, with that
+   analysis attached, so a round that finds nothing serious ends the review. A defect inside a fix stops the patching: you get a one-screen redesign note that must
    change the kind of solution and remove code. No round counter decides. It ends `clean` or `escalate`, never
    with a fix no reviewer read.
 4. **`/peer-review`** (optional) freezes the diff, then has it reviewed by a zero-context second Claude and by Codex.

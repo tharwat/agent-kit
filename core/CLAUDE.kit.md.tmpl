@@ -36,9 +36,9 @@ queries need no gate. Elsewhere, cite gates by label (`G2`) only; edit them here
 A change to `<CRITICAL_SYSTEMS>` is agent-approved with stricter checks unless it hits a gate: (1) find every consumer; (2) record its need and risk on the ticket; (3) add tests, regressions included, keeping existing ones green; (4) verify before merge. A post-merge failure is fixed forward on a new ticket and alerts the owner. <!-- codex-restate -->
 
 Review severity: **S1** data integrity (loss, corruption, wrong writes, cross-tenant exposure), **S2** auth and
-security, **S3** `<CRITICAL_DOMAIN>`, **S4** anything else normal use reaches. S1–S4 are must-fix, and so is any
-defect with a small fix. Only the review's voters, never the author, send a remote, bounded defect with a costly
-fix to its own ticket.
+security, **S3** `<CRITICAL_DOMAIN>`, **S4** anything else normal use reaches. S1–S4 are must-fix, and in the first
+review round so is any defect with a small fix. Only the review's voters, never the author, send a bounded defect
+that normal use doesn't reach to the follow-up ticket.
 
 ## Git and workflow
 

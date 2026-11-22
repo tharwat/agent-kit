@@ -87,8 +87,8 @@ reference them by path.
 | S4 | Anything else normal use reaches |
 
 In a `/post-op` review round the class is a label derived from the voters' answers (post-op Step 1.5 round rule 2).
-S1–S4 findings are must-fix, and so is any real defect whose fix is small. Only the voters, never the author, send a
-remote, bounded defect with a costly fix to its own ticket, with their analysis. A finding with no wrong behaviour
+S1–S4 findings are must-fix, and in the first round so is any real defect whose fix is small. Only the voters, never
+the author, send a bounded defect that normal use doesn't reach to the ticket's follow-up ticket, with their analysis. A finding with no wrong behaviour
 is a `nit`: not fixed, not filed. `/peer-review` still sorts its own findings by class: S1–S4 and anything
 `[introduced by this diff]` are fixed, and a pre-existing defect below S4 is `noted` for the open-items tracker.
 
