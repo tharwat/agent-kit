@@ -75,3 +75,29 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   table, a rule on structure or position that needs no meaning, or a model call that fails closed.
   (1.12.0 shipped the review half: such a finding is an `open class` and is never fixed alone. Naming the two
   kinds at triage still waits.)
+- **A one-page design held the scope but not the bug rate, and its "no new states" rule left facts unstored.** The
+  rebuild of the large ticket followed an owner-approved one-page design (existing step against "what this adds",
+  no new states, file-by-file line estimates). What it showed:
+  - *The estimate was half the build.* Every file came out at about twice its estimate, evenly. First-draft bugs
+    then landed on the fitted line for the lines actually written. An estimate nobody compares with the diff during
+    the build limits nothing.
+  - *The part designed as a stored state stayed quiet; the part designed as numbers did not.* The charge had a
+    stored state, one writer and a move table, and review found no cluster there. A late requirement (collect the
+    result faster) went onto the page as "three numbers, about 30 lines, no new states". That code was under a
+    tenth of the production lines and held almost half the findings, at the same count every round.
+  - *"No new states" pushed the design to work facts out.* Two facts a re-run needs (is the result already in our
+    own storage; which record did this request become) were guessed from time limits, try counts and the order of
+    two writes. One was stored but read in a single branch; the other was not stored. The page must ask the other
+    question as well: what must this code know when it is run again after stopping at any point, and where is each
+    fact stored? A time limit or a try count that stands in for a fact that could be read is the sign.
+  - *A read with one question beat three rounds of lens review.* Asked to reassess, the author read the re-run path
+    once with one fact in mind (which branches decide without reading it) and found three serious defects no
+    reviewer had reported. No test stopped the job between two writes and resumed it; that one test would have
+    caught the family.
+  - *The owner's "pause and reassess" questions gave the right diagnosis, three rounds late.* Do the findings share
+    a cause; is a state being worked out instead of read; is this still the simplest way to meet the requirement.
+    The cluster was already visible in the first round's findings. Nothing in the kit asks these before the first
+    fix; the 1.12.0 draft stops patching only after a fix has itself broken.
+  - *A limit rested on an outside service's documented behaviour, which read two ways and was never measured.*
+    Every time limit assumed one reading. When a design depends on what an outside service does, a measurement
+    comes before the code.
