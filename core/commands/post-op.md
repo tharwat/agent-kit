@@ -143,7 +143,8 @@ Runs after gates 1–8 pass, on the final code. Each round is the `consensus-rev
 
 - **Finders** read the change with no context from you: three Claude reviewers with different lenses on every area,
   and Codex when it is installed. There is no cap on findings.
-- **Voters** decide: two verifiers try to refute each finding, and their answers sort a real one (round rule 2).
+- **Voters** decide: one agent groups the reports by mechanism, so a defect reported from several files is voted
+  on once. Two verifiers try to refute each group, and their answers sort a real one (round rule 2).
 - **You are the witness, never a voter.** You wrote the code, so "it's minor" is the easy answer. You say what is
   already guarded or decided, and the voters check it.
 
@@ -338,7 +339,9 @@ This section is the one definition. Other commands cite it as "round rule N".
 10. **The next step is the round's `next`: `clean`, `fix` or `redesign`. Events decide it, never a count, a guess or
     the author.**
     - **`fix`:** one batch (`/operate`, "Every fix batch"), then the next round, which reviews only that batch.
-    - **`redesign`** means patching has stopped working in the part `next.part` names. It fires when:
+    - **`redesign`** means the part `next.part` names is not patched finding by finding. It fires when:
+      - in the sweep, two or more findings share a cause that one change closes (`shared_causes`): a fact the code
+        works out instead of reading, or a second copy of a mechanism. Two verifiers confirmed it;
       - a real defect sits in lines an earlier fix wrote (wrong text alone is just fixed);
       - a real defect comes from the same mechanism as one an earlier round fixed;
       - normal use or a serious loss reaches an open class;
@@ -348,7 +351,8 @@ This section is the one definition. Other commands cite it as "round rule N".
       Make no further edit to that part. The round's other `must_fix` items are still fixed in the same batch.
     - **The redesign note goes to the owner before any edit** (round rule 6). Write it into `review-rounds.md` and
       post it with ticket op **comment** (first line `Redesign: <ticket>`). Keep it to one screen:
-      1. **What happened:** the findings and fixes in this part so far, one line each.
+      1. **What happened:** the findings and fixes in this part so far, one line each, and the shared cause when
+         the round named one (its proposed change is where the choice starts).
       2. **The choice,** taking the first that works:
          - **remove** the protection or the part. Say what is lost, how rare the case is and what one occurrence
            costs. Accepting a small, rare loss is a valid design;

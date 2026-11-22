@@ -1,9 +1,10 @@
 // Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License).
 // One code-review round for /post-op Step 1.5. Post-op owns the fixes and the record; this script runs a round:
 // finders with no author context (3 Claude lens reviewers per area, plus Codex when post-op passes its model), with
-// no cap on findings → dedup in code → 2 refuting verifiers per finding (+1 tie-breaker), who also answer the impact
-// questions → the table in `outcome` sorts each real finding (fix now | own ticket | open class | nit) → events
-// decide what comes next: clean | fix | redesign.
+// no cap on findings → dedup in code, then one agent groups the reports by mechanism → 2 refuting verifiers per group
+// (+1 tie-breaker), who also answer the impact questions → the table in `outcome` sorts each real finding (fix now |
+// own ticket | open class | nit) → events decide what comes next: clean | fix | redesign. In the sweep one event is
+// a shared cause: several findings that one change closes, named by the grouper and checked by two verifiers.
 // The author never votes. What it knows arrives as `witness` claims the voters check, and an objection to a result
 // comes back through `recheck`, where the voters decide again.
 // Run it by scriptPath (<repo root>/.claude/workflows/consensus-review.js), never by name.
@@ -13,7 +14,8 @@ export const meta = {
   whenToUse: 'Called by /post-op Step 1.5 for each code-review round (args: ticket, round, base, areas, repo, criticalDomain, consumerSurfaces, contract, threatModel, prior, savedDiff, scratchDir, witness, codexModel, recheck)',
   phases: [
     { title: 'Review', detail: 'finders with no author context, one lens each per area, plus Codex; no cap on findings' },
-    { title: 'Verify', detail: '2 refuting verifiers per finding, a 3rd only on a split; they answer the impact questions' },
+    { title: 'Group', detail: 'one agent groups the reports by mechanism and names any shared cause' },
+    { title: 'Verify', detail: '2 refuting verifiers per group, a 3rd only on a split; they answer the impact questions' },
   ],
 }
 
@@ -40,7 +42,7 @@ const AREAS = Array.isArray(A.areas) && A.areas.length > 1
 const notRun = (reviewers, why) => {
   log(why)
   return { ticket: A.ticket || null, round: ROUND, round_ran: false, base: BASE, reviewers, reason: why,
-    must_fix: [], redesign: [], tickets: [], open_class: [], nits: [], repeats: [], rejected: [], unverified: [], origins: {}, next: null }
+    must_fix: [], redesign: [], shared_causes: [], tickets: [], open_class: [], nits: [], repeats: [], rejected: [], unverified: [], origins: {}, next: null }
 }
 if (!BASE) return notRun('0/3', 'args.base is missing (post-op passes origin/<MAIN_BRANCH>) — round did not run')
 
@@ -241,10 +243,58 @@ log(RECHECK.length
   ? `recheck of ${merged.length} finding(s)`
   : `${all.length} raw findings from ${returned.length}/${jobs.length} reviewers in ${AREAS.length} area(s), Codex ${codexNote} → ${merged.length} after dedup`)
 
+// Group by mechanism before the vote (barrier needed: every finder's report must be in). Finders work per area, so
+// one defect arrives from several files and the file-and-line merge above cannot see it. One agent groups; each
+// group is voted on once, through its first report, with the others attached. It does not judge what is real.
+const GROUPING = {
+  type: 'object',
+  properties: {
+    groups: { type: 'array', items: { type: 'object',
+      properties: { ids: { type: 'array', items: { type: 'string' } }, mechanism: { type: 'string' } }, required: ['ids', 'mechanism'] } },
+    causes: { type: 'array', items: { type: 'object',
+      properties: { fact: { type: 'string' }, stored: { type: 'string' }, change: { type: 'string', enum: ['remove', 'reuse', 'store'] },
+        what: { type: 'string' }, closes: { type: 'array', items: { type: 'string' } } },
+      required: ['fact', 'stored', 'change', 'what', 'closes'] } },
+  },
+  required: ['groups', 'causes'],
+}
+const CAUSE_ASK = [
+  'Then look across the groups for a shared cause: a fact the code works out (from time limits, try counts, the order of two writes, a piece of text, or several fields read together) instead of reading it from one stored place, or a second copy of a mechanism the project already had.',
+  'For each one give: `fact` in plain words; `stored`, where it is stored today or that it is not; `change`, the smallest change that makes the findings impossible, choosing in this order: "remove" a protection the requirement does not need, "reuse" a mechanism that already exists, "store" the fact once with one writer; `what`, that change in one or two sentences, with what it costs; and `closes`, the ids of the reports the change closes without a fix of their own.',
+  'A change that is only each group\'s own fix is not a shared cause. Propose nothing bigger than the findings justify. An empty list is a valid answer.',
+].join(' ')
+const nid = i => `N${i + 1}`
+const wantGroups = !RECHECK.length && merged.length > 1
+if (wantGroups) phase('Group')
+const grouping = wantGroups ? await agent(
+  'You are one step in a code review. Finders reviewed different parts of one change, so the same defect may be reported more than once, from different files. ' +
+  'You do not judge whether a report is real: verifiers do that next. Do not modify any file.\n\n' +
+  `${CONTEXT}\n\n${DIFF_HOWTO}\n\n` +
+  'Group the reports by mechanism. Reports belong in one group when one root-cause fix would close all of them; when in doubt, keep them apart. Every id goes in exactly one group, and a report that stands alone is a group of one. Give each group its `mechanism` in one sentence.\n\n' +
+  (LATER ? 'Return an empty `causes` list.' : CAUSE_ASK) + '\n\nThe reports:\n' +
+  merged.map((f, i) => `- ${nid(i)} — ${f.file}:${f.line} — ${f.summary}\n  Claimed failure: ${f.failure_scenario}`).join('\n'),
+  { label: 'group', phase: 'Group', schema: GROUPING }) : null
+// Applied in code: an id counts once, an unknown id is dropped, and a report the grouper left out stands alone.
+const groupOf = {}
+const grouped = []
+const idx = id => { const m = /^N(\d+)$/.exec(String(id).trim()); return m && merged[m[1] - 1] ? m[1] - 1 : -1 }
+for (const g of (grouping && Array.isArray(grouping.groups) ? grouping.groups : [])) {
+  const members = [...new Set((g.ids || []).map(idx))].filter(i => i >= 0 && !(i in groupOf))
+  if (!members.length) continue
+  const first = merged[members[0]]
+  const rest = members.slice(1).map(i => merged[i])
+  members.forEach(i => { groupOf[i] = grouped.length })
+  grouped.push({ ...first, lenses: [...new Set([first, ...rest].flatMap(f => f.lenses))], mechanism: rest.length ? text(g.mechanism) : null,
+    also: [...first.also, ...rest.flatMap(f => [`${f.file}:${f.line} — ${f.summary}`, ...f.also])],
+    members: rest.map(f => ({ file: f.file, line: f.line, summary: f.summary })) })
+}
+merged.forEach((f, i) => { if (!(i in groupOf)) { groupOf[i] = grouped.length; grouped.push({ ...f, mechanism: null, members: [] }) } })
+if (wantGroups) log(grouping ? `${merged.length} reports → ${grouped.length} group(s) by mechanism` : 'the grouping step did not return; each report is voted on alone')
+
 const verifyOne = (f, i, n) => agent(
   `You are a skeptical verifier. Try to REFUTE this code-review finding against the actual code. If you cannot confirm it from the code, it is not real (real=false). Read the code; do not trust the claim.\n\n` +
   `Finding: ${f.file}:${f.line} — ${f.summary}\nClaimed failure: ${f.failure_scenario}\n` +
-  (f.also.length ? `Another reviewer reported at this line: ${f.also.join(' / ')}\n` : '') +
+  (f.also.length ? `Other reports of the same defect (at this line, or grouped with it as one mechanism). If one of them is a different defect, say so in the evidence: ${f.also.join(' / ')}\n` : '') +
   (f.objection ? `The author objects, and does not vote: ${f.objection}\nThe objection is a claim. Check it against the code like the finding.\n` : '') +
   `\n${CONTEXT}\n\n${IMPACT}\n\n${ORIGIN}\n\n${DIFF_HOWTO}\n\n${priorText}\n\n${fixedText}\n\n${witnessText}\n\n${MARKERS}\n\n` +
   'Give the evidence (file:line and what the code does). When the finding is not real, the impact answers are ignored: give loss "none". Do not modify any file.',
@@ -290,7 +340,7 @@ const decide = votes => {
 }
 const settled = d => d.status === 'not' || (d.status === 'real' && d.outcome && d.repeat)
 
-const judged = await pipeline(merged, async (f, _orig, i) => {
+const judged = await pipeline(grouped, async (f, _orig, i) => {
   let votes = (await parallel([() => verifyOne(f, i, 'a'), () => verifyOne(f, i, 'b')])).filter(Boolean)
   // Any split (or a dead verifier) calls the single tie-breaker.
   if (!settled(decide(votes))) {
@@ -301,6 +351,7 @@ const judged = await pipeline(merged, async (f, _orig, i) => {
   const yes = votes.filter(v => v.real)
   const no = votes.filter(v => !v.real)
   const base = { file: f.file, line: f.line, summary: f.summary, failure_scenario: f.failure_scenario, also: f.also, finders: f.lenses,
+    mechanism: f.mechanism, members: f.members,
     votes: `${yes.length} real / ${no.length} not / ${votes.length} returned` }
   if (d.status !== 'real') return { ...base, status: d.status === 'not' ? 'rejected' : 'unverified', evidence: votes.map(v => v.evidence).join(' | ') }
   // A split on the outcome means fix now (round rule 2); a split on "is it a repeat" means it is not one.
@@ -329,6 +380,32 @@ const judged = await pipeline(merged, async (f, _orig, i) => {
   }
 })
 
+// A shared cause (round rule 10): the grouper proposes it, two verifiers try to refute it, and it holds only for
+// the findings both say the one change closes. It is an event when it closes two or more findings that would
+// otherwise each be fixed or noted alone: those are not patched one by one.
+const refOf = j => (judged[j] ? `${judged[j].file}:${judged[j].line} — ${judged[j].summary}` : null)
+const open = j => judged[j] && judged[j].status === 'real' && !judged[j].repeat_of && ['fix', 'open'].includes(judged[j].outcome)
+const proposed = (!LATER && grouping && Array.isArray(grouping.causes) ? grouping.causes : [])
+  .map(c => ({ ...c, at: [...new Set((c.closes || []).map(idx).filter(i => i >= 0).map(i => groupOf[i]))].filter(open) }))
+  .filter(c => c.at.length > 1)
+const CAUSE_VERDICT = {
+  type: 'object',
+  properties: { holds: { type: 'boolean' }, closes: { type: 'array', items: { type: 'string' } }, evidence: { type: 'string' } },
+  required: ['holds', 'closes', 'evidence'],
+}
+const sharedCauses = (await pipeline(proposed, async (c, _orig, k) => {
+  const votes = (await parallel(['a', 'b'].map(n => () => agent(
+    'You are a skeptical verifier. Another agent claims that several confirmed code-review findings share one cause, and that one change would close them without a fix of their own. Try to REFUTE it against the code.\n\n' +
+    `The fact the code is said to work out, or the mechanism it is said to repeat: ${c.fact}\nStored today: ${c.stored}\nThe change proposed (${c.change}): ${c.what}\n\nThe findings:\n` +
+    c.at.map(j => `- G${j + 1} — ${refOf(j)}`).join('\n') +
+    `\n\n${CONTEXT}\n\n${DIFF_HOWTO}\n\n${witnessText}\n\n` +
+    'Set holds to true only when the code shows the shared cause and the change is smaller than the separate fixes: it removes or reuses code, or stores the fact once, and adds no second mechanism. In `closes`, list the ids of the findings the change really closes with no fix of their own. Give the evidence (file:line). Do not modify any file.',
+    { label: `cause:${k + 1}.${n}`, phase: 'Verify', schema: CAUSE_VERDICT })))).filter(Boolean)
+  const at = c.at.filter(j => votes.length === 2 && votes.every(v => v.holds && (v.closes || []).some(id => String(id).trim() === `G${j + 1}`)))
+  return at.length > 1 ? { fact: c.fact, stored: c.stored, change: c.change, what: c.what, at, evidence: votes.map(v => v.evidence).join(' | ') } : null
+})).filter(Boolean)
+for (const c of sharedCauses) for (const j of c.at) if (!judged[j].stop) judged[j].stop = `it shares a cause with other findings, and one change closes them: ${c.fact}`
+
 const results = judged.filter(Boolean)
 const live = results.filter(r => r.status === 'real' && !r.repeat_of)
 const redesign = live.filter(r => r.stop)
@@ -341,7 +418,7 @@ const origins = live.filter(r => r.outcome !== 'nit').reduce((c, r) => ({ ...c, 
 const next = redesign.length
   ? { action: 'redesign', part: [...new Set(redesign.map(r => r.file))],
       findings: redesign.map(r => `${r.file}:${r.line} — ${r.summary} (${r.stop})`),
-      why: `patching has stopped working in the part named; ${mustFix.length} other finding(s) are still fixed in this batch` }
+      why: `findings in the part named are not patched one by one (each says why); ${mustFix.length} other finding(s) are still fixed in this batch` }
   : mustFix.length || unverified.length
     ? { action: 'fix', why: `${mustFix.length} finding(s) to fix now${unverified.length ? `, ${unverified.length} unverified to send back as recheck` : ''}` }
     : { action: 'clean', why: 'nothing to fix now and nothing unverified' }
@@ -360,6 +437,7 @@ return {
   areas: AREAS.map(a => a.name),
   must_fix: mustFix,
   redesign,
+  shared_causes: sharedCauses.map(c => ({ fact: c.fact, stored: c.stored, change: c.change, what: c.what, closes: c.at.map(refOf), evidence: c.evidence })),
   tickets: live.filter(r => r.outcome === 'ticket'),
   open_class: live.filter(r => r.outcome === 'open' && !r.stop),
   nits: live.filter(r => r.outcome === 'nit'),

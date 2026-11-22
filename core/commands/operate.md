@@ -329,7 +329,8 @@ unless it equals the current fingerprint.
 A third of review findings are bugs that an earlier fix introduced. A fix never goes in because "this line looks
 right".
 1. **One batch, grouped by mechanism.** Sort the findings by the function, stored state or rule they come from, and
-   make one fix per mechanism at its root cause, never one per finding.
+   make one fix per mechanism at its root cause, never one per finding. The round has grouped them already
+   (`mechanism`, `members`): a fix note covers every member of its group.
 2. **Fix note first.** Before a fix changes what a function does, write its note into
    `.claude/state/<ticket>/review-rounds.md`, with `file:line` for each entry:
    ```

@@ -28,6 +28,12 @@ loop stopped but about five of 25 runs ended with nothing from review left open.
 - **Codex is a finder in every round** when the `codex` CLI runs on the machine (`codexModel`), headless,
   read-only, with MCP servers off. A round counts without it and its record says so.
 - **Round 1 sweeps the whole branch; a later round reviews only the fix delta.**
+- **Reports are grouped by mechanism before the vote.** Finders work per area, so one defect arrives from several
+  files; the first live trial confirmed one defect five times, with ten verifiers. One agent now groups the
+  reports and each group is voted on once (`mechanism`, `members`). In the sweep the same agent names any shared
+  cause: a fact the code works out instead of reading, or a second copy of a mechanism, that one change closes.
+  Two verifiers try to refute it. A cause they confirm for two or more findings is an event: those findings go
+  to the redesign note instead of being patched one by one (`shared_causes`).
 - **Events replace the redesign vote.** `next` is `redesign` when a real defect sits in lines an earlier fix
   wrote, comes from the same mechanism as an earlier fixed one, or is an open class that normal use or a serious
   loss reaches; the author raises it too when a fix would add a stored state, a user-visible outcome or a

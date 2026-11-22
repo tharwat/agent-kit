@@ -15,12 +15,14 @@ const vote = (over = {}) => ({ real: true, loss: "operator", bounded: true, reac
   open_class: false, origin: "first-draft", mechanism_of: "none", repeat_of: "none", evidence: "e", ...over });
 const finding = (k, over = {}) => ({ file: `src/f${k}.js`, line: k, summary: `finding ${k}`, failure_scenario: "x → y", ...over });
 
-// script: { reviews: label → findings | null, votes: (findingIndex, voter) → vote | null, relay }
+// script: { reviews: label → findings | null, votes: (groupIndex, voter) → vote | null, relay, group, cause: label → verdict }
 async function run(args, script) {
   const calls = [];
   const agent = async (prompt, opts) => {
     calls.push({ prompt, label: opts.label });
     if (opts.label === "review:codex") return script.relay ?? null;
+    if (opts.label === "group") return script.group ?? null;
+    if (opts.label.startsWith("cause:")) return script.cause ? script.cause(opts.label) : null;
     if (opts.label.startsWith("review:")) {
       const r = script.reviews ? script.reviews(opts.label) : [];
       return r === null ? null : { findings: r };
@@ -152,4 +154,49 @@ test("a later round reviews only the fix delta", async () => {
   const { out, calls } = await run({ base: "origin/main", round: 2, savedDiff: ".claude/state/T/round-1.diff" }, { reviews: one, votes: both() });
   assert.equal(out.scope, "fix delta");
   assert.match(calls[0].prompt, /Report findings only in the fix delta/);
+});
+
+const three = label => (label === "review:correctness" ? [finding(1), finding(2), finding(3)] : []);
+
+test("grouping: reports of one mechanism from different files get one vote", async () => {
+  // N1 is claimed twice and N9 does not exist: an id counts once and an unknown id is dropped.
+  const group = { groups: [{ ids: ["N1", "N3"], mechanism: "one reader drops the answer" }, { ids: ["N2", "N9", "N1"], mechanism: "alone" }], causes: [] };
+  const { out, calls } = await run({ base: "origin/main" }, { reviews: three, group, votes: both({ fix: "small" }) });
+  assert.equal(out.must_fix.length, 2);
+  assert.equal(out.must_fix[0].mechanism, "one reader drops the answer");
+  assert.deepEqual(out.must_fix[0].members.map(m => m.file), ["src/f3.js"]);
+  const verifies = calls.filter(c => c.label.startsWith("verify:"));
+  assert.equal(verifies.length, 4);
+  assert.match(verifies[0].prompt, /src\/f3\.js:3 — finding 3/);
+
+  // A report the grouper leaves out is still voted on, alone.
+  const partial = await run({ base: "origin/main" }, { reviews: three, group: { groups: [{ ids: ["N2"], mechanism: "m" }], causes: [] }, votes: both({ fix: "small" }) });
+  assert.equal(partial.out.must_fix.length, 3);
+});
+
+test("a shared cause holds only for the findings two verifiers say one change closes", async () => {
+  const group = { groups: [], causes: [{ fact: "whether the result is already saved", stored: "not stored", change: "store", what: "store it once", closes: ["N1", "N2", "N3"] }] };
+  const votes = both({ fix: "small" });
+  const yes = ids => () => ({ holds: true, closes: ids, evidence: "e" });
+
+  const held = await run({ base: "origin/main" }, { reviews: three, group, votes, cause: yes(["G1", "G2"]) });
+  assert.equal(held.out.next.action, "redesign");
+  assert.equal(held.out.redesign.length, 2);
+  assert.match(held.out.redesign[0].stop, /whether the result is already saved/);
+  assert.equal(held.out.must_fix.length, 1);
+  assert.equal(held.out.shared_causes[0].closes.length, 2);
+
+  const refuted = await run({ base: "origin/main" }, { reviews: three, group, votes, cause: l => ({ holds: l.endsWith("a"), closes: ["G1", "G2"], evidence: "e" }) });
+  assert.equal(refuted.out.next.action, "fix");
+  assert.equal(refuted.out.must_fix.length, 3);
+  assert.equal(refuted.out.shared_causes.length, 0);
+
+  // The two verifiers agree on one finding only: one finding is not a shared cause.
+  const one = await run({ base: "origin/main" }, { reviews: three, group, votes, cause: l => ({ holds: true, closes: l.endsWith("a") ? ["G1", "G2"] : ["G1"], evidence: "e" }) });
+  assert.equal(one.out.redesign.length, 0);
+
+  // A later round only checks the fixes: no shared causes there.
+  const later = await run({ base: "origin/main", round: 2, savedDiff: "x.diff" }, { reviews: three, group, votes, cause: yes(["G1", "G2"]) });
+  assert.equal(later.out.shared_causes.length, 0);
+  assert.ok(!later.calls.some(c => c.label.startsWith("cause:")));
 });
