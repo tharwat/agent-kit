@@ -56,7 +56,27 @@ loop stopped but about five of 25 runs ended with nothing from review left open.
   `Inventory: Fix note <id>` when that note exists. An `inventory.json` `Fix batch <n>` section is still accepted.
 - **Review rounds no longer write `noted` items for `<OPEN_ITEMS_TICKET>`.** A deferred finding goes into the ticket's follow-up ticket.
   `/peer-review`, pack audits and owner-accepted defects still use the tracker.
-- **Removed:** the per-finding `design` vote, the third-round notice, `proposed_class` from finders.
+- **Triage Step 4.8 is the design page.** `plan-check.json` keeps its place and gains four boxes:
+  - `adds`: each step of the flow the change touches, what does it today, and what the change adds ("nothing" is
+    an answer). A second set of states or recovery rules beside an existing one is a design defect;
+  - `open_work`: every part that judges free text or works a state out from several fields, and how the design
+    closes it (a stored state, a structural rule, a classifier or a model call that fails closed);
+  - `outside`: each behaviour of an outside service the design rests on, with its measurement, or `before code:`
+    and the measurement `/operate` takes first;
+  - `size`: every file as reused, changed or new with its estimated production lines, and what is out of the
+    ticket.
+
+  State homes now ask what a re-run must know: a time limit, a try count or the order of two writes that stands
+  in for a fact that could be read is a defect in the page. A state with more than two values that several
+  places read is stored, with one writer and a table of allowed moves. An owner question whose option adds a
+  mechanism says what it costs, and the smaller option is the recommended one.
+- **`/operate` builds inside the page.** It takes the `before code:` measurements first, adds no state or recovery
+  rule the page doesn't have, and sets the diff against `size` at the end of every build step: a production file
+  more than half again over its estimate stops the build until the page is amended or the code removed. A flow
+  that can run again gets a test that stops between two writes and runs it again.
+- **Removed:** the per-finding `design` vote, the third-round notice, `proposed_class` from finders, and the
+  `enumerations` box (lists derived by a test that re-derives them). A rule replaces a list, and no checker is
+  written to prove one.
 - New test: `core/scripts/consensus-review.test.mjs` pins the table and the events with scripted agents.
 
 **Not changed, and now out of step:** `/peer-review`, `/bteam` and the hardening pack still sort their own

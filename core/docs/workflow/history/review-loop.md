@@ -195,6 +195,14 @@ What changed, and why:
     writes a fix note (exits, callers, readers, writers of each key), because 4 of 9 defects after one sweep were
     in the sweep's own fixes: a skipped early return, a narrowed lookup, a reader of a field no writer set;
   - Codex joined the round as a finder, since three reviewers on one model share blind spots.
+  - triage's plan self-check became the design page. On one large ticket a plan made of contract rows and case
+    lists named the existing mechanism and still built a second one beside it (about 2,400 production lines).
+    Asked for a table of existing step against "what this adds", with "nothing" allowed and file-by-file line
+    estimates, the same agent produced a design a fifth the size. The rebuild then showed what the page still
+    lacked: every file came out at twice its estimate because nobody compared; two facts a re-run needed were
+    guessed from time limits and held almost half the findings; and a limit rested on an outside service's
+    documented behaviour, which read two ways. The "derive every list with a test" box is gone: on its first
+    ticket each derived list became a checker, and each checker a new place for defects.
 - **A targeted fix at a spiral stop is still reviewed (1.8.1).** An owner answer of "targeted fix" at round 3 left
   the fix's review round past the limit, so the next step escalated again. The answer now counts as the
   owner-granted round.

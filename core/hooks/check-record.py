@@ -20,8 +20,9 @@
 | kind     | record                              | must contain                                                    |
 |----------|-------------------------------------|-----------------------------------------------------------------|
 | triage   | .claude/state/<T>/triage.md         | the contract table header and at least one `| C<n> |` row       |
-|          | + .claude/state/<T>/plan-check.json | triage Step 4.8 as fill-in boxes: state homes, contradiction    |
-|          |                                     | check, lifecycles, safety defaults (see PLAN_CHECK below)       |
+|          | + .claude/state/<T>/plan-check.json | triage Step 4.8, the design page, as fill-in boxes: what the    |
+|          |                                     | change adds, state homes, contradiction check, lifecycles,     |
+|          |                                     | open-ended work, outside behaviour, size, safety defaults      |
 | operate  | .claude/state/<T>/self-review.md    | a `Fingerprint: <64-hex>` line, and an `Inventory: <section>`   |
 |          | + .claude/state/<T>/inventory.json  | line naming a section of inventory.json whose boxes are filled  |
 |          |                                     | (see INVENTORY below). A fix batch names its fix notes instead: |
@@ -147,8 +148,14 @@ def fingerprints_at_start(marker):
 
 # ---------------------------------------------------------------- JSON records (fill-in forms)
 #
-# plan-check.json (triage Step 4.8):
-#   {"ticket", "state_homes": [{"fact", "home", "writers": [loc], "readers": [loc],
+# plan-check.json (triage Step 4.8, the design page):
+#   {"ticket", "adds": [{"step", "existing", "adds"}], "adds_none": null | "<reason>",
+#    "open_work": [{"part", "closed_by": "stored state|structural rule|classifier|model call", "how"}],
+#    "open_work_none": null | "<reason>",
+#    "outside": [{"behaviour", "measured"}], "outside_none": null | "<reason>",
+#    "size": {"files": [{"path", "kind": "reused|changed|new", "lines": n}], "out_of_ticket": [..]},
+#    "size_none": null | "<reason>",
+#    "state_homes": [{"fact", "home", "writers": [loc], "readers": [loc],
 #                               "second_home": null | {"where", "kept_in_step_by": "transaction|trigger", "owner_ok"}}],
 #    "state_homes_none": null | "<reason>",
 #    "contradiction_check": {"rows_read": n, "decisions_read": n,
@@ -170,6 +177,8 @@ def fingerprints_at_start(marker):
 
 LIFECYCLE_KEYS = ("state", "created", "changed", "removed", "restored", "edited_in_state", "name_reuse",
                   "safety_flags", "what_a_person_sees")
+OPEN_WORK_CLOSERS = ("stored state", "structural rule", "classifier", "model call")
+SIZE_KINDS = ("reused", "changed", "new")
 
 
 def filled(x):
@@ -260,13 +269,40 @@ def plan_check_problems(project, ticket):
         empty = [k for k in LIFECYCLE_KEYS if not filled(lc.get(k))]
         if empty:
             out.append("%s lifecycles[%d]: empty %s" % (shown, i, ", ".join("`%s`" % k for k in empty)))
-    for i, e in enumerate(listed(data, "enumerations", "enumerations_none", shown, out,
-                                 "a row per list the change writes or relies on"), 1):
-        empty = [k for k in ("what", "derived_from", "test") if not filled(e.get(k))]
+    for i, a in enumerate(listed(data, "adds", "adds_none", shown, out,
+                                 "a row per existing step the change touches"), 1):
+        empty = [k for k in ("step", "existing", "adds") if not filled(a.get(k))]
         if empty:
-            out.append("%s enumerations[%d] (%s): empty %s. A list is derived from the source (a schema query, a "
-                       "directory walk, a parser) and pinned by a test that re-derives it" %
-                       (shown, i, e.get("what") or "unnamed", ", ".join("`%s`" % k for k in empty)))
+            out.append("%s adds[%d]: empty %s. Say what exists today and what the change adds to it (\"nothing\" "
+                       "is an answer)" % (shown, i, ", ".join("`%s`" % k for k in empty)))
+    for i, w in enumerate(listed(data, "open_work", "open_work_none", shown, out,
+                                 "a row per part that judges free text or works a state out from several fields"), 1):
+        if not filled(w.get("part")) or w.get("closed_by") not in OPEN_WORK_CLOSERS or not filled(w.get("how")):
+            out.append("%s open_work[%d]: needs `part`, `closed_by` (%s) and `how`" %
+                       (shown, i, " | ".join(OPEN_WORK_CLOSERS)))
+    for i, o in enumerate(listed(data, "outside", "outside_none", shown, out,
+                                 "a row per behaviour of an outside service the design rests on"), 1):
+        if not filled(o.get("behaviour")) or not filled(o.get("measured")):
+            out.append("%s outside[%d]: needs `behaviour` and `measured` (how and when it was measured and what "
+                       "came back, or \"before code: <the measurement>\")" % (shown, i))
+    if not filled(data.get("size_none")):
+        size = data.get("size")
+        if not isinstance(size, dict):
+            out.append("%s has no `size`: list the files with their estimated production lines, or fill "
+                       "`size_none`" % shown)
+        else:
+            files = size.get("files")
+            if not isinstance(files, list) or not files:
+                out.append("%s size: `files` is empty: add a row per file, or fill `size_none`" % shown)
+            for i, f in enumerate(files if isinstance(files, list) else [], 1):
+                f = f if isinstance(f, dict) else {}
+                n = f.get("lines")
+                if not filled(f.get("path")) or f.get("kind") not in SIZE_KINDS or \
+                        not isinstance(n, int) or isinstance(n, bool) or n < 0:
+                    out.append("%s size files[%d]: needs `path`, `kind` (%s) and `lines` (a whole number of "
+                               "production lines)" % (shown, i, " | ".join(SIZE_KINDS)))
+            if not isinstance(size.get("out_of_ticket"), list):
+                out.append("%s size: `out_of_ticket` must be a list ([] when nothing was left out)" % shown)
     defaults = data.get("safety_defaults", [])
     if not isinstance(defaults, list):
         out.append("%s `safety_defaults` must be a list ([] when there are none)" % shown)
@@ -405,7 +441,12 @@ def table(header, rows):
 def render(kind, data):
     out = []
     if kind == "plan-check":
-        out += ["## Plan self-check: %s" % data.get("ticket", ""), "", "### State homes"]
+        out += ["## Design page: %s" % data.get("ticket", ""), "", "### What exists, and what the change adds"]
+        adds = data.get("adds") or []
+        out += table(["Step", "What exists today", "What this change adds"],
+                     [[a.get("step"), a.get("existing"), a.get("adds")] for a in adds]) \
+            if adds else ["none — %s" % data.get("adds_none", "")]
+        out += ["", "### State homes"]
         homes = data.get("state_homes") or []
         if homes:
             out += table(["Fact", "Its one home", "Who writes it", "Who reads it", "Second home?"],
@@ -430,11 +471,25 @@ def render(kind, data):
                     "%s: %s" % (k.replace("_", " "), cell(lc.get(k))) for k in LIFECYCLE_KEYS[1:]))
         else:
             out.append("none — %s" % data.get("lifecycles_none", ""))
-        out += ["", "### Derived lists"]
-        enums = data.get("enumerations") or []
-        out += table(["List", "Derived from", "Test that re-derives it"],
-                     [[e.get("what"), e.get("derived_from"), e.get("test")] for e in enums]) \
-            if enums else ["none — %s" % data.get("enumerations_none", "")]
+        out += ["", "### Open-ended work"]
+        work = data.get("open_work") or []
+        out += table(["Part", "Closed by", "How"], [[w.get("part"), w.get("closed_by"), w.get("how")] for w in work]) \
+            if work else ["none — %s" % data.get("open_work_none", "")]
+        out += ["", "### Outside behaviour the design rests on"]
+        outside = data.get("outside") or []
+        out += table(["Behaviour", "Measured"], [[o.get("behaviour"), o.get("measured")] for o in outside]) \
+            if outside else ["none — %s" % data.get("outside_none", "")]
+        out += ["", "### Size"]
+        size = data.get("size") if isinstance(data.get("size"), dict) else {}
+        files = [f for f in size.get("files") or [] if isinstance(f, dict)]
+        if files:
+            out += table(["File", "Reused, changed or new", "Estimated production lines"],
+                         [[f.get("path"), f.get("kind"), f.get("lines")] for f in files])
+            out.append("Total: %d production lines." % sum(f.get("lines") for f in files
+                                                           if isinstance(f.get("lines"), int)))
+            out.append("Out of the ticket: %s" % ("; ".join(cell(x) for x in size.get("out_of_ticket") or []) or "nothing"))
+        else:
+            out.append("none — %s" % data.get("size_none", ""))
         out += ["", "### Safety defaults"]
         out += ["- %s → owner: %s" % (cell(d.get("default")), cell(d.get("owner_answer")))
                 for d in data.get("safety_defaults") or []] or ["none"]

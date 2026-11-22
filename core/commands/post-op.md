@@ -74,6 +74,8 @@ and record what each probe covered, so a skip is visible.
   windows, mid-flight events, webhook replays, concurrent submissions. Name the ones accepted as bounded, and why.
 - **Inventory audit.** Open `.claude/state/<ticket>/inventory.json` (`/operate` Phase 1 step 2) and `state_homes`
   in `plan-check.json` (triage Step 4.8), and walk the final diff against them:
+  - the production lines each file gained are set against the page's `size`, and the diff adds no state, phase or
+    recovery rule the page's `adds` doesn't have;
   - every value the diff changes has a `values` entry, and its readers and writers were re-walked against this
     diff;
   - every new behaviour has a `siblings` entry, with every guard its sibling has, copied or not applicable with a

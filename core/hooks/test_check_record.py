@@ -25,9 +25,19 @@ PLAN_CHECK = {
                     "restored": "n/a", "edited_in_state": "blocked", "name_reuse": "n/a",
                     "safety_flags": "none apply", "what_a_person_sees": "a Held badge"}],
     "lifecycles_none": None,
-    "enumerations": [{"what": "order-statuses", "derived_from": "the orders.status CHECK constraint",
-                      "test": "tests/statuses.test.js"}],
-    "enumerations_none": None,
+    "adds": [{"step": "an order is released", "existing": "api/orders.js:40 moves held to open",
+              "adds": "nothing"}],
+    "adds_none": None,
+    "open_work": [{"part": "reading the carrier's reply", "closed_by": "stored state",
+                   "how": "the reply's status field is stored and read"}],
+    "open_work_none": None,
+    "outside": [{"behaviour": "the carrier keeps a label for 24 hours",
+                 "measured": "before code: request a label and read it back after 25 hours"}],
+    "outside_none": None,
+    "size": {"files": [{"path": "api/orders.js", "kind": "changed", "lines": 30},
+                       {"path": "jobs/ship.js", "kind": "reused", "lines": 0}],
+             "out_of_ticket": ["bulk release"]},
+    "size_none": None,
     "safety_defaults": [],
 }
 INVENTORY = {
@@ -194,8 +204,13 @@ class Kinds(Case):
             "empty `removed`": variant(PLAN_CHECK, ["lifecycles", 0, "removed"], ""),
             "`lifecycles` is empty": variant(PLAN_CHECK, ["lifecycles"], []),
             "owner_answer": variant(PLAN_CHECK, ["safety_defaults"], [{"default": "on error, skip"}]),
-            "`enumerations` is empty": variant(PLAN_CHECK, ["enumerations"], []),
-            "empty `test`": variant(PLAN_CHECK, ["enumerations", 0, "test"], ""),
+            "`adds` is empty": variant(PLAN_CHECK, ["adds"], []),
+            "adds[1]: empty `adds`": variant(PLAN_CHECK, ["adds", 0, "adds"], ""),
+            "open_work[1]: needs": variant(PLAN_CHECK, ["open_work", 0, "closed_by"], "a word list"),
+            "outside[1]: needs": variant(PLAN_CHECK, ["outside", 0, "measured"], ""),
+            "has no `size`": variant(PLAN_CHECK, ["size"], DELETE),
+            "size files[1]: needs": variant(PLAN_CHECK, ["size", "files", 0, "lines"], "about 30"),
+            "`out_of_ticket` must be a list": variant(PLAN_CHECK, ["size", "out_of_ticket"], "nothing"),
         }
         for want, data in cases.items():
             with self.subTest(want=want):
@@ -210,7 +225,10 @@ class Kinds(Case):
     def test_plan_check_none_boxes_and_new_writers(self):
         data = variant(variant(PLAN_CHECK, ["state_homes"], []), ["state_homes_none"], "docs-only ticket")
         data = variant(variant(data, ["lifecycles"], []), ["lifecycles_none"], "no state added")
-        data = variant(variant(data, ["enumerations"], []), ["enumerations_none"], "the change keeps no list")
+        data = variant(variant(data, ["adds"], []), ["adds_none"], "nothing exists yet: searched api/ and jobs/")
+        data = variant(variant(data, ["open_work"], []), ["open_work_none"], "no part judges text or works a state out")
+        data = variant(variant(data, ["outside"], []), ["outside_none"], "no outside service")
+        data = variant(variant(data, ["size"], DELETE), ["size_none"], "docs only")
         self.write(PLAN_CHECK_PATH, dumps(data))
         self.write(PATHS["triage"], GOOD["triage"])
         self.assertEqual(self.check("triage").returncode, 0)
@@ -289,6 +307,9 @@ class Kinds(Case):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("| order status | orders.status | api/orders.js:40 |", r.stdout)
         self.assertIn("No conflicts found.", r.stdout)
+        self.assertIn("| an order is released | api/orders.js:40 moves held to open | nothing |", r.stdout)
+        self.assertIn("Total: 30 production lines.", r.stdout)
+        self.assertIn("Out of the ticket: bulk release", r.stdout)
         r = self.run_cli("--show", "inventory", "--ticket", TICKET)
         self.assertIn("scripts/hold --dry-run", r.stdout)
         self.assertIn("Built by wf_abc123", r.stdout)

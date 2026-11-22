@@ -146,7 +146,7 @@ A post-merge failure is fixed forward on a new ticket and alerts the owner.
   | File | Holds |
   |---|---|
   | `triage.md` | Contract copy and hand-off |
-  | `plan-check.json` | Triage Step 4.8 as a fill-in form: `state_homes`, `contradiction_check`, `lifecycles`, `enumerations` (derived lists and their tests), `safety_defaults`. `check-record.py --show plan-check` prints the readable copy |
+  | `plan-check.json` | Triage Step 4.8, the design page, as a fill-in form: `adds` (what exists against what the change adds), `state_homes`, `contradiction_check`, `lifecycles`, `open_work`, `outside`, `size`, `safety_defaults`. `check-record.py --show plan-check` prints the readable copy |
   | `inventory.json` | The dependency inventory, built by `consensus-inventory.js` before code: section `Plan` (`values` readers and writers, `siblings`, `helpers`, `claims`, `lists`, `consensus`). A fix batch adds no section: it writes fix notes in `review-rounds.md`. `check-record.py --show inventory` prints the readable copy |
   | `self-review.md` | Contains `Fingerprint: <h>` and `Inventory: <inventory.json section>` (`Plan`), or `Inventory: Fix note <id>` for a fix batch |
   | `review-rounds.md` | One block per round (a `Panel:` line; findings `R<n>-<k>` with class, origin, disposition and why; a `Fixed:` line; an `Origins:` line; the round's `next`), the fix notes (`Fix note <id>: …`), plus any redesign note with its `Redesign size:` line |

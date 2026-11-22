@@ -37,7 +37,7 @@ const CONTEXT = [
   `Ticket: ${TICKET} · inventory section: ${SECTION}.`,
   `Base: ${BASE || '(not given)'}. ${WHERE}`,
   `Acceptance contract: ${text(A.contract) || '(see .claude/state/<ticket>/triage.md)'}`,
-  `Plan self-check (state homes, derived lists): ${text(A.planCheck) || '(see .claude/state/<ticket>/plan-check.json)'}`,
+  `Design page (what the change adds, state homes, size): ${text(A.planCheck) || '(see .claude/state/<ticket>/plan-check.json)'}`,
   `The planned change:\n${PLAN}`,
 ].join('\n')
 
