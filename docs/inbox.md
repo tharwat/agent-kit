@@ -124,3 +124,20 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
     normal use cannot reach today goes to one follow-up ticket; finders and voters are given the owner's decided
     list, so a decided item is not raised again; a round ends on "nothing serious and reachable is open, the rest
     is in a ticket", never on zero findings.
+- **A blind rebuild under the 1.12.0 draft held its size but not its review, and did not pass.** One past ticket was
+  rebuilt from its text and the owner's recorded answers, in a copy of the project with no history, then reviewed
+  under the draft. Pass rules were written before the run. What it showed:
+  - *The size held.* The design page estimated 79 production lines; the first draft added 80, and 100 after one fix
+    batch. The size check never had to stop the build.
+  - *The bug rate did not fall.* The first round confirmed 10 defects to fix now. A blind judge with the original
+    build's known bug list found the first draft repeated 5 of the 10 that applied to what it built, and the review
+    raised none of those 5.
+  - *The second round stopped for a redesign.* It found 6 defects, 4 in lines the fixes wrote. Three of the round-1
+    and round-2 findings were one fact: is this item still for sale when a message queued earlier is sent. The code
+    answered it from whether the item's facts still existed, not from its stored status. The fix added a status
+    check at one send path; the next round found a second path and a branch that skipped the check. The design
+    page's re-run question names jobs and retries; a message queued now and sent later is the same case, and the
+    page did not catch it. The grouping step named no shared cause in round 1.
+  - *An event fired out of proportion.* A wrong-text regression in a fix triggered a redesign because it shared a
+    mechanism with an earlier fix. A defect in a fix whose only loss is wrong text is just fixed; the same should
+    hold for the same-mechanism event.
