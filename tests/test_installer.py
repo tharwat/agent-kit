@@ -326,6 +326,16 @@ class Upgrade(Base):
         super().setUp()
         self.kit = copy_kit(os.path.join(self.tmp(), "kit"))
 
+    def test_a_retired_pack_in_the_answers_is_dropped_with_a_warning_not_an_error(self):
+        ans = self.answers()
+        self.apply(ans)
+        with_retired = write_answers(self.work, dict(full_answers(self.kit), packs=["scrollcraft"]))
+        plan = self.plan(with_retired)
+        self.assertEqual(plan["errors"], [])
+        self.assertTrue(any("scrollcraft" in w and "orphaned" in w for w in plan["warnings"]), plan["warnings"])
+        unknown = write_answers(self.work, dict(full_answers(self.kit), packs=["no-such-pack"]))
+        self.assertTrue(any("no-such-pack" in e for e in self.plan(unknown)["errors"]))
+
     def test_upgrade_updates_uncustomized_and_conflicts_on_customized(self):
         ans = self.answers()
         self.apply(ans)

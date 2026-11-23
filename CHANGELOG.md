@@ -4,6 +4,25 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.13.0 — 2026-11-23
+
+Fewer packs: the kit keeps what belongs to the workflow, and the pressure test joins it.
+
+- **`/pressure-test` is a core command.** It used to judge only business ideas, and only when installed as an
+  extra. It now tests any idea: a business, a feature or a ticket. For a feature, it reads the project first, and
+  the RESHAPE names the smaller version to build. On a ticket, it saves its verdict to
+  `.claude/state/<ticket>/pressure-test.md`.
+- **`/triage` offers it** for a ticket that builds something new (never for a fix or a change), and never runs it
+  unasked. A KILL verdict becomes a conflict for the owner, and a RESHAPE's smaller version becomes the scope.
+- **Removed extras:** `cloudflare`, `cold-email`, `fal-media`, `remotion` and `scrollcraft`. They weren't part of
+  the workflow, and most projects never used them. `turnstile` stays, and `statusline` stays as the one opt-in
+  extra.
+- **Installer:** a project whose answers still name a removed pack upgrades without it, with a warning instead of
+  an error. The review page no longer lists "optional extras", since none are left.
+
+**Upgrade touches:** `.claude/commands/pressure-test.md` (now from core) and `.claude/commands/triage.md`. Files a
+project installed from a removed pack stay in place and show as `orphaned`. Delete them by hand if you don't use them.
+
 ## 1.12.0 — 2026-11-22
 
 Two changes with one aim, fewer defects written and fewer rounds to clear them: a one-page design at triage that

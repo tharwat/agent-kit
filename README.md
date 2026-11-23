@@ -185,6 +185,7 @@ the command stops and asks you. Nothing else needs you, unless a review escalate
 | `/verify [<ticket>]` | Drives the changed route, webhook, job or screen end to end against real services before merge, then confirms the deploy and logs after merge. Rows it creates are marked synthetic and torn down by ID |
 | `/test` | Finds test gaps in the change, writes the missing tests, runs the suite and proves each contract row |
 | `/investigate` | Finds and confirms a bug's root cause before the fix, then proves the fix |
+| `/pressure-test [<ticket> \| idea]` | Five council members attack and defend an idea (a business, a feature or a ticket), then one GO / RESHAPE / KILL verdict and the cheapest test before building. `/triage` offers it for new features |
 | `/release` | Go/no-go checklist for releasing `main` to production. Stops for your yes |
 | `/handoff`, `/resume` | Save session state to `.claude/handoffs/latest.md` and restore it |
 | `/bteam` | A zero-context, review-only Claude reviewer of a frozen snapshot. Also designs the pre-code test contract |
@@ -266,20 +267,6 @@ rules, commands, hooks and Project facts, and extend core commands through `.cla
 | `hardening` | Deep-security mode: required peer review per ticket and a release-wide edge-case analysis | `/hardening`, `/hardening-analysis` |
 | `turnstile` | Cloudflare Turnstile bot protection for sign-up, login, OTP and other public forms: Cloudflare's setup skill, plus server-side token checks in `/triage`, `/security` and `/verify`. Works on any host | |
 
-**Extras** are opt-in skills that aren't part of the workflow:
-
-| Extra | Adds |
-|---|---|
-| `scrollcraft` | Scroll-driven landing pages, with Segmind asset generation (a modified MIT fork) |
-| `pressure-test` | `/pressure-test`: a five-member council attacks a business idea and returns GO / RESHAPE / KILL |
-| `fal-media` | fal.ai image, video and audio generation skills |
-| `remotion` | Remotion (video in React) best practices |
-| `cold-email` | Cold email sequence generator |
-| `cloudflare` | Choosing and building with Cloudflare products |
-
-Third-party extras are installed from their source at a pinned commit and verified by hash, never copied into this
-repo. They keep their own licenses.
-
 ## Codex
 
 Codex reads `AGENTS.md` and `.agents/skills/<name>/SKILL.md`. Each skill is a short generated wrapper that links to
@@ -354,5 +341,4 @@ and Node).
 
 ## License
 
-MIT. Copyright 2026 Tharwat Abdul-Malik. Third-party skills keep their own licenses; the `scrollcraft` pack is a
-modified fork of an MIT-licensed skill and keeps its original notice.
+MIT. Copyright 2026 Tharwat Abdul-Malik. Third-party skills keep their own licenses.
