@@ -156,3 +156,18 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
     still happen to it. The design page's lifecycle box asks this, and both runs filled it without catching them.
   - *Two kit rules collided:* "the smaller option is recommended" won over "a side effect that stands in for a
     fact is a defect". A rule that says what is a defect must say it beats the smaller option.
+- **Against a fair baseline, the draft's builds were smaller and somewhat better, not a step change.** The original
+  ticket's first draft was rebuilt from its session's edits and given the same review round (same finders, Codex,
+  voters and threat model):
+
+  | Build | Production lines | Fix now | Serious (S1–S3) | In lines the change wrote |
+  |---|---|---|---|---|
+  | Original first draft | about 440 | 15 | 7 | 11 |
+  | Draft run 1 | 80 | 10 | 4 | 5 |
+  | Draft run 2 | 61 | 13 | 6 | 6 |
+
+  Defects in the lines each build wrote fell by about half, on a fifth to a seventh of the code. The total to fix
+  now fell less, because the same few defects came up in all three: a send queued before a pause still goes out,
+  a send-time check that a pause switches off, and a read made ambiguous by a second link between two tables. They
+  belong to the ticket and the code around it, not to how it was built. Earlier counts of a ticket's known bugs
+  came from weaker, capped reviews; comparing them with a full sweep overstated the old bug rate.
