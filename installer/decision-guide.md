@@ -141,7 +141,7 @@ upgrades follow them without asking again.
 ### workflow-text-tests: Project tests that pin the old workflow's text
 
 - **Kit:** the kit tests its own commands in its own repo.
-- **What happens:** a project that tested its own workflow files ("ship.md must mention X") fails those tests once the
+- **What happens:** a project that tested its own workflow files ("discharge.md must mention X") fails those tests once the
   kit's versions replace them.
 - **Check:** for each failing test, does it guard a **project rule** (a deploy list, a security pointer, a standing
   authorization) or the **old workflow's wording**?
@@ -172,7 +172,7 @@ upgrades follow them without asking again.
 - **Kit:** one long-lived branch, plus a short-lived branch per ticket.
 - **Check:** `qa`, `develop` or `staging` branches, and deploys tied to them.
 - **Recommend:** `kit` if those branches are unused. If they are live, `other`: install, and the owner adapts
-  `/ship` and `/verify` for the extra branch.
+  `/discharge` and `/verify` for the extra branch.
 - **Pro:** one path to production. **Con:** a team that relies on a QA branch has to adapt the commands.
 
 ### merge-rights: Who may merge to main

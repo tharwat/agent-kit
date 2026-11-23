@@ -72,11 +72,11 @@ that it fits `<RUNTIME_MEMORY_LIMIT>`; peak memory after deploy is part of the p
 
 `Post-merge:` line: `<service> — deploy <id> live at <time>; log line seen` (one per service).
 
-## /ship
+## /discharge
 
 - **At the hook after Step 2:** record each affected service's current `live` deploy id (`list_deploys`) in
   `.claude/state/<ticket>/render-before.txt`. It is the rollback target, and it tells the new deploy apart.
-- **Step 4.1:** run this pack's `/verify` Step 3. A failed build or update follows `/ship`'s "main is broken" path.
+- **Step 4.1:** run this pack's `/verify` Step 3. A failed build or update follows `/discharge`'s "main is broken" path.
 
 ## /investigate
 

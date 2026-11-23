@@ -81,7 +81,7 @@ Fails (exit 1) when a scanned migration:
      `ON name` / `ON TABLE name` (either can name a sequence).
 
 Threat model: honest mistakes. Deliberately disguised SQL is a code-review concern;
-the /ship live privilege assertion checks the resulting privileges whatever the SQL
+the /discharge live privilege assertion checks the resulting privileges whatever the SQL
 text looked like.
 
 Comments are ignored everywhere, and text in a comment or a string never counts as

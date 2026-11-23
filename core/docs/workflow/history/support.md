@@ -24,7 +24,7 @@ No rule lives only here. If this file and a command disagree, the command wins.
 - **A green test runner is not a passing type check.** In a typed codebase, tests can pass while the compiler fails,
   and the deploy build then breaks. The ordering detail belongs to the typescript pack.
 - **Regression shown failing first, and the counterfactual.** A test that would keep passing with the guard deleted
-  proves nothing about the guard. So a contract row is discharged only when its test fails under the named bad
+  proves nothing about the guard. So a contract row is proved only when its test fails under the named bad
   behaviour. That run happens in a disposable copy, so the active checkout is never mutated.
 - **Escalating is not closing.** After three failed attempts the agent stops. Without this rule, a stop could be
   read as the end of the work, and the ticket could close with the failure still open. So the failure stays open,

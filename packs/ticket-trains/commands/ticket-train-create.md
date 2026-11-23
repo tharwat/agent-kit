@@ -40,7 +40,7 @@ out of the queue. For each ticket, in the order given:
    the files exist, the bug is still there.
 3. Record:
    - `runtime_verifiable`: can `/verify` drive the changed behaviour locally against the real services with no
-     human and no irreversible side effect (`docs/agent/verify-map.md`)? `/ship` won't merge a behaviour change
+     human and no irreversible side effect (`docs/agent/verify-map.md`)? `/discharge` won't merge a behaviour change
      without an observed verify, so a ticket that needs a human to verify goes to `excluded` (Step 4) with
      `unblock_by: "ship it attended"`.
    - `verify_how`: one sentence naming the entry point, route, query or screen and the expected before → after.
@@ -113,7 +113,7 @@ node .claude/scripts/train-state.mjs create .claude/state/trains/<train>.json @<
   `peer_review` and `candidates`. Leave them empty here.
 - `contract` holds the acceptance-and-proof rows, one object each: `id` (`C<digits>`), `class` (S1–S4),
   `invariant`, `paths`, `hostile_case`, `authority`, `proof`, `counterfactual`, `vector` (the independent pre-code
-  vector `{ input, expected, rejects, source }`, `source` naming engine and date, or `null`) and `discharge`
+  vector `{ input, expected, rejects, source }`, `source` naming engine and date, or `null`) and `proved_by`
   (`null` until the run writes `{ test, result, path_exercised, counterfactual_result }`).
 - `contract_note: "no executable behavior"` marks a docs-only ticket. An empty `contract` with no note means
   **untriaged**: an audit over nothing passes trivially, so the helper refuses to start that ticket.
@@ -123,7 +123,7 @@ node .claude/scripts/train-state.mjs create .claude/state/trains/<train>.json @<
   record (`/ticket-train-run`, "Preserve blocked work"). `unqueued_work` lists merge-blocker fixes the run made
   outside the queue.
 - The helper enforces the rest: states `pending → awaiting_answer ⇄ pending → in_progress → done | needs_verify |
-  blocked`, `blocked → pending` only through triage; contract rows, vectors, discharges, questions, decisions and
+  blocked`, `blocked → pending` only through triage; contract rows, vectors, proofs, questions, decisions and
   findings are append-only; recorded `forbidden`, `pre_authorized` and `base_branch` never change.
 
 ## Step 6: Report

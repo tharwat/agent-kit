@@ -161,7 +161,7 @@ def main():
         return 0
     except Blocked as exc:
         sys.stderr.write(
-            "Blocked by the main-branch guard: %s. Work on a feature branch; /ship merges through a PR "
+            "Blocked by the main-branch guard: %s. Work on a feature branch; /discharge merges through a PR "
             "after the owner's yes (gates G3/G4).\n" % exc
         )
         return 2

@@ -1,5 +1,5 @@
 ---
-description: Deep-security mode for one ticket. Runs triage, operate, post-op, a required peer review (up to three snapshots), then ship, with nothing reaching the main branch before review.
+description: Deep-security mode for one ticket. Runs triage, operate, post-op, a required peer review (up to three snapshots), then discharge, with nothing reaching the main branch before review.
 argument-hint: "<ticket>"
 ---
 <!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
@@ -13,7 +13,7 @@ Invoked as `/hardening <ticket>`. The ticket key is required.
 Takes one hardening ticket through the whole lifecycle, end to end:
 
 **triage → operate → post-op (own gates and review rounds) → peer review (required, up to 3 snapshots) → post-op
-report → commit → ship.**
+report → commit → discharge.**
 
 It pauses only for a product decision, an Owner-Kept Gate, a review-loop escalation, or a failed check or unexpected
 state, which stops the run rather than merging.
@@ -130,16 +130,16 @@ git commit -m "<ticket>: <what changed>"
 
 No co-author trailer. Committing doesn't move the fingerprint, so the post-op coverage holds.
 
-## Step 8: Ship
+## Step 8: Discharge
 
-Run `/ship <ticket>` in full. It checks post-op coverage and the peer-review record, pushes, opens the PR to
+Run `/discharge <ticket>` in full. It checks post-op coverage and the peer-review record, pushes, opens the PR to
 `<MAIN_BRANCH>`, runs `/verify` before merge, asks the owner's yes (G3), merges, confirms the deploy and logs, files
 open items and closes the ticket. Installed packs add their steps there (for example a migration apply). A hardening
-ticket isn't done on green checks alone: `/ship`'s pre-merge verify is part of it.
+ticket isn't done on green checks alone: `/discharge`'s pre-merge verify is part of it.
 
-- If `/ship` stops (failed check, failed verify, held for the owner), the markers stay as they are. A fix is a new
+- If `/discharge` stops (failed check, failed verify, held for the owner), the markers stay as they are. A fix is a new
   cycle: overwrite `<ticket>.postop-passed` with `restored`, then Steps 3–8 again.
-- After `/ship` confirms the merge, mark the run finished: `printf 'restored\n' > .claude/state/hardening/<ticket>.active`.
+- After `/discharge` confirms the merge, mark the run finished: `printf 'restored\n' > .claude/state/hardening/<ticket>.active`.
   Both files stay as the run's record.
 
 ## Step 9: Summary
@@ -157,7 +157,7 @@ Owner action: none | <the one action>
 - **Verified must-fix findings converge on this ticket.** Own gates (Step 4) always run before the engines (Step 5),
   including after every fix batch.
 - Never write code before the Step 2 contract exists, never commit before Step 6 records a pass, never merge except
-  through `/ship`, never push to `<MAIN_BRANCH>`.
+  through `/discharge`, never push to `<MAIN_BRANCH>`.
 - Stage named files only.
 - An unexpected result stops the run; report it, don't skip ahead. A skipped step states its skip reason.
 - Never remove or edit the hardening markers to get past the hook. Finish post-op instead.

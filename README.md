@@ -80,7 +80,7 @@ content is kept, and the kit's rules go in a separate `CLAUDE.kit.md` that `CLAU
 **Requirements:**
 - Python 3.9+, Node 18+ and git.
 - A ticket system. v1 supports **Jira** through the Atlassian MCP server.
-- `/ship` needs a GitHub remote and the `gh` CLI. Without them, everything else still works, and you open and merge
+- `/discharge` needs a GitHub remote and the `gh` CLI. Without them, everything else still works, and you open and merge
   PRs by hand.
 
 ## After installing
@@ -136,7 +136,7 @@ A ticket goes through five commands. Each one posts its result to the ticket as 
 record of what was decided, built, reviewed and verified.
 
 ```
-/triage PROJ-123 → /operate → /post-op → /peer-review (optional) → /ship
+/triage PROJ-123 → /operate → /post-op → /peer-review (optional) → /discharge
 ```
 
 1. **`/triage PROJ-123`** reads the ticket and the real code, then writes an **acceptance-and-proof contract**.
@@ -164,7 +164,7 @@ record of what was decided, built, reviewed and verified.
    with a fix no reviewer read.
 4. **`/peer-review`** (optional) freezes the diff, then has it reviewed by a zero-context second Claude and by Codex.
    Both reviews are bound to the frozen snapshot's hash.
-5. **`/ship`** opens the PR to `main`, requires a passing `/verify`, and **asks for your yes before merging**. After
+5. **`/discharge`** opens the PR to `main`, requires a passing `/verify`, and **asks for your yes before merging**. After
    the merge it checks the deploy and logs, files anything left open on your open-items ticket, and closes the
    ticket.
 
@@ -178,7 +178,7 @@ the command stops and asks you. Nothing else needs you, unless a review escalate
 
 ## Commands
 
-**Workflow:** `/triage`, `/operate`, `/post-op`, `/peer-review` and `/ship`, as above.
+**Workflow:** `/triage`, `/operate`, `/post-op`, `/peer-review` and `/discharge`, as above.
 
 | Command | What it does |
 |---|---|
@@ -204,7 +204,7 @@ The gate commands (`/security` through `/docs-update`) run inside `/post-op`, an
 Installed with the kit and binding on Claude and Codex alike:
 
 - **One long-lived branch (`main`)** plus feature branches. Nothing is committed or pushed to `main` directly;
-  `/ship` merges through a PR. A project that wants more long-lived branches adapts the commands itself.
+  `/discharge` merges through a PR. A project that wants more long-lived branches adapts the commands itself.
 - **Seven Owner-Kept Gates.** These always need your explicit yes at the time:
   1. production builds and releases;
   2. production data writes;

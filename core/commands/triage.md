@@ -13,7 +13,7 @@ Invoked as `/triage [<ticket>]`.
 **Record check.** First run `python3 .claude/hooks/check-record.py --start triage --ticket <ticket>`. The last step runs `--kind triage` the same way, and a Stop hook reminds Claude once if the record is still missing. If the command stops early on purpose (BLOCKED, nothing to do), run `--cancel triage` the same way instead. Codex runs these steps too.
 
 Triage checks a ticket against the current code **before implementation**. It finds stale assumptions, work that's
-already done and the fix's blast radius, and it writes the binding contract that `/operate` discharges. It is
+already done and the fix's blast radius, and it writes the binding contract that `/operate` proves. It is
 analysis only: never start implementing.
 
 ---
@@ -167,10 +167,10 @@ Packs may add checks here: see the section for this command in each installed `.
 
 ## Step 4.6: Acceptance-and-proof contract (mandatory)
 
-Turn Steps 1–4.5 into a finite contract that `/operate` must discharge before review. Add one row for **every**
+Turn Steps 1–4.5 into a finite contract that `/operate` must prove before review. Add one row for **every**
 acceptance criterion, safety gate, failure mode, epic constraint that applies, and in-scope sibling path.
 
-| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | Independent vector | Discharge |
+| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | Independent vector | Proved by |
 |---|---|---|---|---|---|---|---|---|---|
 | C1 | S1–S4 | what must be true, or must never happen | exact producer, consumer and sibling runtime paths | malformed input, missing state, timeout, error response, race, unreadable state | the schema, payload, live doc, rule or code contract that sets the expected behaviour | the test seam, input and observable result that runs **this** path | the valid mutation or reversal that must make the proof fail | from Step 4.7, with engine and date | blank now; `/operate` fills it |
 
@@ -180,7 +180,7 @@ acceptance criterion, safety gate, failure mode, epic constraint that applies, a
   `<CRITICAL_DOMAIN>`, S4 the ticket's own behaviour. The contract is the boundary of S4: review fixes a finding
   on the ticket's behaviour only if it breaks a row or a pre-code vector, or the changed flow crashes or returns a
   wrong result on realistic input. A behaviour you want fixed in review must be a row here.
-- **Discharge** is filled by `/operate`: the exact test or probe, its result, the path it ran, and the
+- **Proved by** is filled by `/operate`: the exact test or probe, its result, the path it ran, and the
   counterfactual's result. It cannot be blank at freeze.
 - **Critical Systems.** A row that changes one of `<CRITICAL_SYSTEMS>` records why the change is needed and its
   risk, lists every consumer, and names the tests (including regressions) and the pre-merge verify.
@@ -193,7 +193,7 @@ must-fix.
 
 **Proof rules.**
 - The proof must run the named runtime path. A source scan, a test of a similarly named field, or a green full
-  suite may supplement a proof but never discharges a row.
+  suite may supplement a proof but never proves a row.
 - For each external field, the authority is a real payload or current docs seen in this session.
 - For each fail-closed guard, include the malformed or unreadable condition that must be rejected.
 
@@ -472,11 +472,11 @@ product decision, an Owner-Kept Gate or a missing test runner.
 | When | Command | Purpose |
 |---|---|---|
 | Bug or regression | `/investigate` | Root cause first; no fix without a confirmed cause |
-| Always | `/operate` | The implementation: discharge every contract row, run every helper, read the diff back before review |
+| Always | `/operate` | The implementation: prove every contract row, run every helper, read the diff back before review |
 | Always | `/post-op` | Self-red-team, contract audit, the gates (observability, security, API contract, migration guard, compliance, docs, test, mock fidelity), then review rounds until clean. Before any commit that touches source |
-| Optional, owner's call | `/peer-review` | Two independent reviewers on a frozen snapshot, after post-op. Not required by `/ship`, but an unresolved verified finding blocks it |
+| Optional, owner's call | `/peer-review` | Two independent reviewers on a frozen snapshot, after post-op. Not required by `/discharge`, but an unresolved verified finding blocks it |
 | Behaviour on a live surface | `/verify` | Drive the changed flow locally against real services before merge; confirm deploy and logs after |
-| Ready to merge | `/ship` | PR to `<MAIN_BRANCH>`, owner's yes, merge, open items, close |
+| Ready to merge | `/discharge` | PR to `<MAIN_BRANCH>`, owner's yes, merge, open items, close |
 | Production release | `/release` | Release checklist; Owner-Kept Gate G1 |
 
 Packs may add rows: see the section for this command in each installed `.claude/packs/*.md`.

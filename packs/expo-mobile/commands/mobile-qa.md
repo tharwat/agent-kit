@@ -122,7 +122,7 @@ flow and its result, the build ID and `<APP_ID_QA>`.
   **label**) once every platform it needs has a `PASS` record: both, when a changed path is in the flow map's
   "both platforms" list; else this one. If it carries `<PROMOTION_BLOCK_LABEL>` and this build holds the fix,
   remove that too, from the ticket and its fix-forward ticket.
-- **FAIL before merge:** an ordinary failure. Fix it on the branch before `/ship`.
+- **FAIL before merge:** an ordinary failure. Fix it on the branch before `/discharge`.
 - **FAIL after merge, on a change touching `<CRITICAL_SYSTEMS>`:**
   1. Reopen the ticket, using the reopen helper in `.claude/rules/ticket-ops.md` if the ticket pack has one.
      Otherwise ticket op **create** a fix-forward ticket labelled `<PROMOTION_BLOCK_LABEL>` and comment its key on

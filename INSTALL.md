@@ -135,7 +135,7 @@ Then do the judgment, writing your answers into the same file:
    `options.word_budget`, with `word_budget_reason`, only if the safety core still doesn't fit. Never edit the CI
    workflow to raise it.
 8. **Requirements to flag on the page:**
-   - `/ship` needs an `origin` on GitHub with `gh` logged in. Without one, the owner merges PRs by hand.
+   - `/discharge` needs an `origin` on GitHub with `gh` logged in. Without one, the owner merges PRs by hand.
    - The kit assumes **one main branch plus feature branches**. If the scan lists `extra_long_lived_branches`
      (`qa`, `develop`), say so: the owner adapts the commands for those.
    - Facts you can't find and can't reasonably propose stay `ask`.
@@ -289,7 +289,7 @@ failed and offer the fix:
 
 Tell the owner:
 1. **Installed:** core plus the packs, the number of files, and the commands now available (`/triage`, `/operate`,
-   `/post-op`, `/peer-review`, `/ship`, `/verify`, `/test`, …).
+   `/post-op`, `/peer-review`, `/discharge`, `/verify`, `/test`, …).
 2. **Skipped or renamed**, and why. List every `.pre-agent-kit` file the owner may remove after checking.
    **Name every project file the install changed beyond the kit's own** (tests repointed, a constant changed,
    docs condensed), each with one line on why. Those are the lines in the PR the owner should actually read.
@@ -330,7 +330,7 @@ Tell the owner:
   "packs": ["jira", "supabase", "typescript", "notify-telegram"],
   "options": {"github": true},
   "mcp_map": {},
-  "resolutions": {".claude/commands/ship.md": "take-kit"}
+  "resolutions": {".claude/commands/discharge.md": "take-kit"}
 }
 ```
 

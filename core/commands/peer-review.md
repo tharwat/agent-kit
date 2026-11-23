@@ -1,5 +1,5 @@
 ---
-description: Optional two-engine review (B-Team + Codex) of one frozen, hashed snapshot, after /post-op and before /ship. Also runs the pre-code test-contract pass.
+description: Optional two-engine review (B-Team + Codex) of one frozen, hashed snapshot, after /post-op and before /discharge. Also runs the pre-code test-contract pass.
 argument-hint: "[ticket] | test-contract <ticket>"
 ---
 <!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
@@ -15,12 +15,12 @@ the key from the branch name and confirm it with ticket op **get**.
 
 Runs two independent, zero-context, review-only engines against finished work: `/bteam` (Claude) and
 `/codex-review` (Codex). They report; they never edit. This command freezes the one artifact both review, combines
-their results and writes the record `/ship` reads. The engines' files hold the brief, the lenses, the verification
+their results and writes the record `/discharge` reads. The engines' files hold the brief, the lenses, the verification
 recipes and the prior-art gate: follow them in full.
 
-- **Optional.** `/triage → /operate → /post-op → /peer-review (optional) → /ship`. The owner decides per ticket. Never
+- **Optional.** `/triage → /operate → /post-op → /peer-review (optional) → /discharge`. The owner decides per ticket. Never
   run it unasked, and never call its absence a missing step.
-- **The one exception:** once a pass has run, an unresolved verified finding stops `/ship`.
+- **The one exception:** once a pass has run, an unresolved verified finding stops `/discharge`.
 - **No substitutes.** Reading the diff yourself, re-running the suite or a hand-made checklist is not a peer review.
   The value is two engines that don't share your assumptions.
 
@@ -34,7 +34,7 @@ Rationale: `docs/workflow/history/peer-review.md`. If it and this file disagree,
 runs `/bteam` "Pre-code test-contract mode" exactly as written there: a fresh reviewer gets the ticket intent, the
 baseline code map and the draft contract, never a patch, and returns hostile vectors with their provenance
 (engine and date). Triage verifies them and folds them into the contract. This mode writes no peer-review record
-and has no effect on `/ship`. The rest of this file is the post-work review.
+and has no effect on `/discharge`. The rest of this file is the post-work review.
 
 ---
 
@@ -60,7 +60,7 @@ git status --short
 A review belongs to the snapshot it reviewed. **Make no source edit from here until both engines have returned.**
 
 **1a. Save the contract.** With the file-edit tool, copy the contract from `.claude/state/<ticket>/triage.md` to
-`<scratch>/<ticket>-contract.md`: the header, every `C<n>` row with its filled `Discharge` cell, and the
+`<scratch>/<ticket>-contract.md`: the header, every `C<n>` row with its filled `Proved by` cell, and the
 threat-model line. No placeholder rows. If the ticket has no contract, write one line, `NO CONTRACT: <why>`, and
 say so in the verdict. Don't invent one.
 
@@ -171,7 +171,7 @@ Write `.claude/state/<ticket>/peer-review.json`. A new pass replaces it.
   `resolved: true`: nothing is left to do. `VERIFIED` and `NEEDS-OWNER` start `false`.
 - A `NOTED` finding must have class `noted`. A must-fix class is never `NOTED`.
 - `verdict` is `CLEAN` when every finding is `resolved: true`, otherwise `UNRESOLVED`.
-- `fingerprint` is the tree this record vouches for. `/ship` runs
+- `fingerprint` is the tree this record vouches for. `/discharge` runs
   `node .claude/scripts/kit-tools.mjs covered --hash <fingerprint> --base origin/<MAIN_BRANCH>`; a mismatch means the
   review is **STALE** for the tree being shipped.
 
@@ -182,7 +182,7 @@ file is missing.
 ## Step 6: Resolve the findings
 
 **Noted.** Post one ticket op **comment** `<ticket>` whose first line is `Noted for the tracker (peer review <date>)`,
-listing every `NOTED` finding with where, effect and suggested fix. `/ship` files it on `<OPEN_ITEMS_TICKET>`
+listing every `NOTED` finding with where, effect and suggested fix. `/discharge` files it on `<OPEN_ITEMS_TICKET>`
 (post-op Step 1.5 round rule 11). Never a ticket per finding.
 
 **Must-fix (`VERIFIED`, S1–S4).** For each, first write its fix note (`/operate`, "Every fix batch"), then:
@@ -209,7 +209,7 @@ never fails the command.
 
 ```
 [<PROJECT_NAME>] Peer review <ticket>: B-Team <CLEAN|N verified|UNAVAILABLE> · Codex <CLEAN|N verified|UNAVAILABLE>
-Open <N> · Fixed <N> · Needs owner <N> · Noted <N> → <clear to ship | /ship blocked until N resolved>
+Open <N> · Fixed <N> · Needs owner <N> · Noted <N> → <clear to ship | /discharge blocked until N resolved>
 ```
 
 ## Report
@@ -221,13 +221,13 @@ End with the Step 4 table, the verdict, and `Owner action: none` or the single a
 
 ## Rules
 
-- **Optional, owner-decided.** Its absence is never a defect in a post-op or a ship.
+- **Optional, owner-decided.** Its absence is never a defect in a post-op or a discharge.
 - **Own gates first.** Never on code whose `/post-op` hasn't ended clean, and never while code is still changing.
 - **Review-only engines.** Discard any patch either one returns.
 - **One artifact.** Only this command freezes. The engines consume the snapshot; they never make another.
 - **One snapshot per pass.** No edits while the engines run; a result belongs only to the hash it attests.
 - **Verify before presenting.** Unverified or already-resolved claims are never shown as actionable.
-- **An unresolved verified finding blocks `/ship`.** `resolved: false` blocks; so does a stale `fingerprint`.
+- **An unresolved verified finding blocks `/discharge`.** `resolved: false` blocks; so does a stale `fingerprint`.
 - **No loop by default.** Fix, prove with a test, re-run the gates, update the record.
 - Codex runs this command the same way. Where `/bteam` falls back to a Claude subagent, Codex records B-Team as
   `UNAVAILABLE — claude CLI not found`.

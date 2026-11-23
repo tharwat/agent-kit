@@ -41,7 +41,7 @@ editor, `execute_sql` or a script.
 - **A G6 step** (a grant, policy or public bucket that makes data client-readable) is applied only after the
   owner's recorded G6 yes.
 - **An applied migration is never edited.** A fix is a new migration on the same branch, guarded and applied the same
-  way. `/ship` checks that the merged file is byte-for-byte the one that was applied.
+  way. `/discharge` checks that the merged file is byte-for-byte the one that was applied.
 - **A branch that won't merge** leaves its additive schema live. Record it on the tracker; removing it is G5.
 
 **Worktree trap.** A migration file created in one checkout and edited in another is two different files, and the
@@ -119,7 +119,7 @@ SELECT has_function_privilege('anon',          'public.my_fn(uuid)', 'EXECUTE') 
 ```
 
 The CI check (`.github/scripts/check_function_grants.py`) catches honest mistakes. Disguised SQL is code review's
-job, and `/ship`'s live privilege assertion checks the result whatever the SQL looked like.
+job, and `/discharge`'s live privilege assertion checks the result whatever the SQL looked like.
 
 ## Storage
 

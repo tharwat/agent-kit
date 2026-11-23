@@ -11,7 +11,7 @@ snapshot, re-ran both engines, and any new claim restarted the loop, so the revi
 whole pipeline. Single tickets took days. Whether a change is worth two adversarial passes is now the owner's call
 per change. Post-op's own gates and its review loop still run on every change.
 
-The one non-optional part: once a pass has run, an unresolved verified finding stops `/ship`. Running reviewers and
+The one non-optional part: once a pass has run, an unresolved verified finding stops `/discharge`. Running reviewers and
 then shipping past what they found turns a real defect into a recorded, ignored one.
 
 ## Own gates first

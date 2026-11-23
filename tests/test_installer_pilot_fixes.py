@@ -396,13 +396,13 @@ class ResolutionsTemplate(Base):
     """I10: plan prints a ready-to-fill resolutions JSON for every conflict; refusal repeats it."""
 
     def test_template_in_plan_and_refusal(self):
-        write(self.t(".claude/commands/ship.md"), "---\ndescription: ours\n---\nOurs.\n")
+        write(self.t(".claude/commands/discharge.md"), "---\ndescription: ours\n---\nOurs.\n")
         write(self.t(".claude/rules/security.md"), "ours\n")
         ans = self.answers()
         rc, md, _ = self.cli("plan", ans)
         block = md.split("```json\n", 1)[1].split("```", 1)[0]
         tmpl = json.loads(block)["resolutions"]
-        self.assertEqual(tmpl[".claude/commands/ship.md"], "keep-theirs | take-kit | kit-renamed")
+        self.assertEqual(tmpl[".claude/commands/discharge.md"], "keep-theirs | take-kit | kit-renamed")
         self.assertEqual(tmpl[".claude/rules/security.md"], "keep-theirs | take-kit")
         self.assertEqual(self.plan(ans)["resolutions_template"], tmpl)
         rc, out, err = self.cli("apply", ans)

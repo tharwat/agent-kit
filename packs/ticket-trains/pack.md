@@ -18,7 +18,7 @@ Rows for "Workflow after triage":
 |---|---|---|
 | Several tickets planned as a batch | `/ticket-train-create <train> <ticket> …` | Light premise check and ordering into a self-contained queue. Ships nothing |
 | Before the run | `/ticket-train-triage <train>` | The full `/triage` per ticket, then its questions to the owner one at a time, each option with a pro and a con. Answers are recorded verbatim; engineering forks get a recorded default. Ships nothing |
-| Ready to execute | `/ticket-train-run <train>` | Runs `/operate` → `/post-op` → `/peer-review` (when the ticket's `peer_review` is `run`) → `/ship` per ticket, sequentially and unattended, on the recorded decisions. Refuses an untriaged train. Invoking it is G3 for exactly that queue |
+| Ready to execute | `/ticket-train-run <train>` | Runs `/operate` → `/post-op` → `/peer-review` (when the ticket's `peer_review` is `run`) → `/discharge` per ticket, sequentially and unattended, on the recorded decisions. Refuses an untriaged train. Invoking it is G3 for exactly that queue |
 | Any time | `/ticket-train-status [<train>]` | Read-only progress, including open questions. Safe mid-run |
 
 The run starts with no context, so the verify plan, boundaries and the answer to every question triage can raise

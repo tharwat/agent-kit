@@ -21,7 +21,7 @@ nicer. It is one of the two engines of `/peer-review` (the other is `/codex-revi
   of the diff, so it is also a signal about the `/operate` pass that produced it.
 - **Hash-bound.** It reviews only the snapshot `/peer-review` Step 1 froze, and its output must attest that hash.
 - **Standalone runs are fine** as a second opinion. They still need a frozen snapshot (run `/peer-review` Step 1
-  first), and they are **not a peer-review verdict**: no `peer-review.json` is written and `/ship` has nothing to
+  first), and they are **not a peer-review verdict**: no `peer-review.json` is written and `/discharge` has nothing to
   stop on. Say which you ran.
 - It doesn't notify. `/peer-review` reports.
 
