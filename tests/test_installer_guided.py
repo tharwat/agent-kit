@@ -81,8 +81,7 @@ class Guided(TempDirs, unittest.TestCase):
         self.assertEqual(f["CRITICAL_DOMAIN"]["source"], "ask")
         asked = {q["pack"] for q in d["notes"]["packs_to_ask"]}
         self.assertIn("hardening", asked)
-        self.assertNotIn("cold-email", asked)  # a niche extra: listed on the page, never asked
-        self.assertIn("cold-email", {x["pack"] for x in d["notes"]["optional_extras"]})
+        self.assertIn("statusline", asked)  # the one opt-in extra is asked like any choice-only pack
         self.assertNotIn("never-read", json.dumps(d))
 
     def test_draft_and_preflight_write_nothing_in_the_project(self):

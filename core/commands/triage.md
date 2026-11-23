@@ -39,6 +39,13 @@ this ticket would break is a conflict (Step 4).
 **Lessons.** Read the sections of `docs/agent/lessons.md` and `docs/agent/defect-classes.md` that match the areas
 this ticket touches.
 
+**Idea check.** If the ticket builds something new for users (not a bug fix, a refactor or a change to how an
+existing thing behaves), look for `.claude/state/<ticket>/pressure-test.md`.
+- None → offer it in the output's 💡 line: "New feature: run `/pressure-test <ticket>` before building?" and carry
+  on. Never run it unasked.
+- KILL → a conflict that needs the owner (Step 4).
+- RESHAPE → its smaller version is the scope, unless the owner chose otherwise.
+
 ---
 
 ## Step 2: Verify every claim the ticket makes
@@ -356,6 +363,7 @@ human", "on error, skip") is shown to the owner as a choice. It is never applied
 ```
 TICKET ANALYSIS: <ticket> — <title>
 
+💡 Idea check: <the /pressure-test offer, or its verdict and what triage did with it>   (omit for fixes and changes)
 ✅ Matches current code:
   - <item>: <note>
 ⚠️ Outdated / adjusted:

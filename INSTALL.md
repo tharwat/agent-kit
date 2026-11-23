@@ -102,8 +102,7 @@ project's tracked files there, so the branch the checkout is on doesn't matter. 
 - `ask` needs the owner.
 
 The draft also fills `packs` (scan matches plus worktrees, when the checkout has any) and `mcp_map` (the kit's
-servers mapped to the project's own, by name). `notes.packs_to_ask` lists the choice-only packs, and
-`notes.optional_extras` lists the niche ones.
+servers mapped to the project's own, by name). `notes.packs_to_ask` lists the choice-only packs.
 
 Then do the judgment, writing your answers into the same file:
 1. **Read the project's own `CLAUDE.md`, `AGENTS.md`, README, `.claude/commands/*`, `.claude/rules/*` and
@@ -250,7 +249,7 @@ carries the latest kit, and the project's first upgrade after the merge starts c
 owner wants goes through the answers: `resolutions`, `exceptions`, facts or decisions. The owner's decisions are
 written to `docs/agent/install-decisions.md`, so later sessions follow them.
 
-**Third-party skills** (extras): `apply` doesn't fetch them. For each `third_party` entry of a chosen pack, clone
+**Third-party skills**: `apply` doesn't fetch them. For each `third_party` entry of a chosen pack, clone
 its `source` at its `ref` into scratch, then:
 
 ```bash

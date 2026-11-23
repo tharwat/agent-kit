@@ -65,7 +65,7 @@ Each skill is a separate invocation, not the whole pipeline; keep the ticket key
 | Post-op review round | consensus review, fallback `/code-review high` | `⏭️ Skipped — Codex` |
 | Peer review (optional) | `/peer-review` | `$peer-review` |
 | Ship | `/ship` | `$ship` |
-| Supporting | `/verify`, `/test`, `/investigate`, `/handoff`, `/resume`, the gate commands | same name with `$` |
+| Supporting | `/verify`, `/test`, `/investigate`, `/pressure-test`, `/handoff`, `/resume`, the gate commands | same name with `$` |
 
 - Record the review-round row as `⏭️ Skipped — Codex`; it counts as passing for `$ship`. `⚠️ Not run` and
   `⚠️ N open` do not. Never report a step as run when it wasn't.

@@ -60,6 +60,12 @@ import schema_check  # noqa: E402
 
 DEFAULT_KIT = os.path.dirname(HERE)
 LOCK_PATH = ".claude/agent-kit.lock.json"
+# Packs a release removed. A project that still lists one upgrades without it: a note, not an error.
+RETIRED_PACKS = {
+    "pressure-test": "1.13.0 moved /pressure-test into core",
+    "cloudflare": "removed in 1.13.0", "cold-email": "removed in 1.13.0", "fal-media": "removed in 1.13.0",
+    "remotion": "removed in 1.13.0", "scrollcraft": "removed in 1.13.0",
+}
 BACKUP_SUFFIX = ".pre-agent-kit"
 LOCK_FORMAT = 1
 
@@ -900,7 +906,10 @@ def build_plan(kit, target, answers_path, upgrade=False, local_from=None, pendin
     # Units: core + chosen packs, checked against requires/conflicts.
     packs = answers["packs"]
     for p in packs:
-        if p not in kit.units:
+        if p in RETIRED_PACKS and p not in kit.units:
+            plan.warnings.append(f"pack {p} is no longer in the kit ({RETIRED_PACKS[p]}); dropped from this install. "
+                                 "Its files stay in place, listed as orphaned")
+        elif p not in kit.units:
             plan.errors.append(f"pack {p!r} is not in this kit (known: {', '.join(sorted(n for n in kit.units if n != 'core'))})")
     packs = [p for p in packs if p in kit.units]
     plan.auto_packs = ticket_pack_for(kit, answers, packs, plan)
@@ -3132,11 +3141,6 @@ def draft(kit, target, fresh=False):
     for p in sc["packs"]:
         if p["matched"] or p["kind"] == "ticket" or p["name"] in packs or not p.get("ask"):
             continue
-        det = kit.units[p["name"]].get("detect") or {}
-        if det.get("files") or det.get("package_deps") or det.get("package_json") or p["kind"] == "extra" and \
-                p["name"] != "statusline":
-            notes.setdefault("optional_extras", []).append({"pack": p["name"], "adds": p["description"]})
-            continue  # detectable and not found, or a niche extra: listed on the review page, never asked
         item = {"pack": p["name"], "ask": p["ask"], "adds": p["description"]}
         if p["name"] == "statusline" and have_status:
             item["already"] = (f"you already have a status line ({', '.join(have_status)}); the project's is kept "
@@ -3511,9 +3515,6 @@ def review_markdown(kit, top, wt, answers, pf, plan):
         if q.get("already"):
             line += f". **Already:** {md_cell(q['already'])}"
         out.append(line)
-    if notes.get("optional_extras"):
-        out.append("- Optional extras, not asked (add any by name): " +
-                   ", ".join(f"`{x['pack']}`" for x in notes["optional_extras"]))
     if answers.get("mcp_map"):
         out.append("- MCP: " + ", ".join(f"the kit's `{k}` uses your `{v}`" for k, v in sorted(answers["mcp_map"].items())))
     out += ["", "## C. What happens to your files", ""]
