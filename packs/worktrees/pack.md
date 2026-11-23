@@ -34,7 +34,7 @@ warning. The log is `.claude/state/worktree.log` in the main checkout. Over 256 
   checkout for it.
 - Another session may already run the dev server. Start yours on a free port, and stop only the process you started.
 
-## /ship
+## /discharge
 
 - `<MAIN_BRANCH>` is usually checked out in the main checkout, so git refuses to check it out in a worktree. After the
   merge, use `git checkout --detach origin/<MAIN_BRANCH>` in the worktree.

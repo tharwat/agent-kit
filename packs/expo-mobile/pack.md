@@ -67,9 +67,9 @@ usual.
 **At Step 3.** A mobile change has no deploy to confirm: record `📱 ships with the next store build`.
 
 **Verdicts.** Add `📱 DEFERRED — needs a build (mobile)`. It is not `⚠️ PARTIAL`. It covers the mobile surface only
-and is a pass for `/ship` only when every other surface is `✅ VERIFIED` or `⏭️ SKIPPED`.
+and is a pass for `/discharge` only when every other surface is `✅ VERIFIED` or `⏭️ SKIPPED`.
 
-## /ship
+## /discharge
 
 **At Step 2.** When `/verify` returns `📱 DEFERRED`:
 

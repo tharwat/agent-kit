@@ -262,27 +262,27 @@ class CommandConflict(Base):
 
     def setUp(self):
         super().setUp()
-        write(self.t(".claude/commands/ship.md"), self.THEIRS)
-        self.kit_ship = read(os.path.join(KIT, "core", "commands", "ship.md"))
+        write(self.t(".claude/commands/discharge.md"), self.THEIRS)
+        self.kit_ship = read(os.path.join(KIT, "core", "commands", "discharge.md"))
 
     def test_refused_without_resolution(self):
         ans = self.answers()
-        row = self.rows(ans)[".claude/commands/ship.md"]
+        row = self.rows(ans)[".claude/commands/discharge.md"]
         self.assertEqual(row["action"], "conflict")
         self.assertIn("kit-renamed", row["options"])
         before = snapshot(self.target)
         rc, out, err = self.cli("apply", ans)
         self.assertEqual(rc, 2)
-        self.assertIn("unresolved conflict: .claude/commands/ship.md", err)
+        self.assertIn("unresolved conflict: .claude/commands/discharge.md", err)
         self.assertEqual(snapshot(self.target), before)
 
     def test_keep_theirs(self):
-        ans = self.answers(resolutions={".claude/commands/ship.md": "keep-theirs"})
+        ans = self.answers(resolutions={".claude/commands/discharge.md": "keep-theirs"})
         self.apply(ans)
-        self.assertEqual(read(self.t(".claude/commands/ship.md")), self.THEIRS)
+        self.assertEqual(read(self.t(".claude/commands/discharge.md")), self.THEIRS)
         self.assertEqual(self.backups(), [])
         lock = load_json(self.t(".claude/agent-kit.lock.json"))
-        self.assertEqual(lock["files"][".claude/commands/ship.md"]["status"], "kept-theirs")
+        self.assertEqual(lock["files"][".claude/commands/discharge.md"]["status"], "kept-theirs")
         before = snapshot(self.target)
         self.apply(ans)
         self.assertEqual(snapshot(self.target), before)
@@ -290,31 +290,31 @@ class CommandConflict(Base):
         self.apply(self.answers())
 
     def test_take_kit(self):
-        write(self.t(".claude/commands/ship.md.pre-agent-kit"), "an older backup\n")
-        ans = self.answers(resolutions={".claude/commands/ship.md": "take-kit"})
+        write(self.t(".claude/commands/discharge.md.pre-agent-kit"), "an older backup\n")
+        ans = self.answers(resolutions={".claude/commands/discharge.md": "take-kit"})
         self.apply(ans)
-        self.assertEqual(read(self.t(".claude/commands/ship.md")), self.kit_ship)
-        self.assertEqual(read(self.t(".claude/commands/ship.md.pre-agent-kit")), "an older backup\n")
-        self.assertEqual(read(self.t(".claude/commands/ship.md.pre-agent-kit.1")), self.THEIRS)
+        self.assertEqual(read(self.t(".claude/commands/discharge.md")), self.kit_ship)
+        self.assertEqual(read(self.t(".claude/commands/discharge.md.pre-agent-kit")), "an older backup\n")
+        self.assertEqual(read(self.t(".claude/commands/discharge.md.pre-agent-kit.1")), self.THEIRS)
         before = snapshot(self.target)
         self.apply(ans)
         self.assertEqual(snapshot(self.target), before)
 
     def test_kit_renamed(self):
-        ans = self.answers(resolutions={".claude/commands/ship.md": "kit-renamed"})
+        ans = self.answers(resolutions={".claude/commands/discharge.md": "kit-renamed"})
         self.apply(ans)
-        self.assertEqual(read(self.t(".claude/commands/ship.md")), self.THEIRS)
-        self.assertEqual(read(self.t(".claude/commands/ship-kit.md")), self.kit_ship)
+        self.assertEqual(read(self.t(".claude/commands/discharge.md")), self.THEIRS)
+        self.assertEqual(read(self.t(".claude/commands/discharge-kit.md")), self.kit_ship)
         lock = load_json(self.t(".claude/agent-kit.lock.json"))
-        self.assertEqual(lock["files"][".claude/commands/ship-kit.md"]["renamed_from"], ".claude/commands/ship.md")
-        self.assertNotIn(".claude/commands/ship.md", lock["files"])
+        self.assertEqual(lock["files"][".claude/commands/discharge-kit.md"]["renamed_from"], ".claude/commands/discharge.md")
+        self.assertNotIn(".claude/commands/discharge.md", lock["files"])
         before = snapshot(self.target)
         self.apply(self.answers())  # remembered from the lock
         self.assertEqual(snapshot(self.target), before)
 
     def test_kit_renamed_refused_for_non_commands(self):
         write(self.t(".claude/rules/security.md"), "ours\n")
-        ans = self.answers(resolutions={".claude/commands/ship.md": "keep-theirs",
+        ans = self.answers(resolutions={".claude/commands/discharge.md": "keep-theirs",
                                         ".claude/rules/security.md": "kit-renamed"})
         rc, out, err = self.cli("apply", ans)
         self.assertEqual(rc, 2)
@@ -325,6 +325,27 @@ class Upgrade(Base):
     def setUp(self):
         super().setUp()
         self.kit = copy_kit(os.path.join(self.tmp(), "kit"))
+
+    def test_upgrade_sets_the_old_ship_command_and_its_wrapper_aside(self):
+        cmds = os.path.join(self.kit, "core", "commands")
+        os.rename(os.path.join(cmds, "discharge.md"), os.path.join(cmds, "ship.md"))  # the kit before 1.13.1
+        ans = self.answers()
+        self.apply(ans)
+        self.assertTrue(os.path.isfile(self.t(".agents/skills/ship/SKILL.md")))
+        os.rename(os.path.join(cmds, "ship.md"), os.path.join(cmds, "discharge.md"))
+        rows = self.rows(ans)
+        self.assertEqual(rows[".claude/commands/ship.md"]["action"], "retired")
+        self.assertEqual(rows[".agents/skills/ship/SKILL.md"]["action"], "retired")
+        rc, out, err = self.cli("upgrade", ans)
+        self.assertEqual(rc, 0, out + err)
+        self.assertFalse(os.path.exists(self.t(".claude/commands/ship.md")))
+        self.assertTrue(os.path.isfile(self.t(".claude/commands/ship.md.pre-agent-kit")))
+        self.assertTrue(os.path.isfile(self.t(".agents/skills/ship/SKILL.md.pre-agent-kit")))
+        self.assertTrue(os.path.isfile(self.t(".claude/commands/discharge.md")))
+        self.assertTrue(os.path.isfile(self.t(".agents/skills/discharge/SKILL.md")))
+        self.assertNotIn(".claude/commands/ship.md", load_json(self.t(".claude/agent-kit.lock.json"))["files"])
+        self.assertNotIn("stale", out + err)
+        self.assertNotIn("retired", {r["action"] for r in self.plan(ans)["files"]})  # a second upgrade is quiet
 
     def test_a_retired_pack_in_the_answers_is_dropped_with_a_warning_not_an_error(self):
         ans = self.answers()

@@ -88,14 +88,14 @@ does **get** and checks whether that exact record already exists, so a re-run do
 |---|---|---|
 | `TICKET ANALYSIS: <ticket> — <title>` | `/triage` (analysis + contract) | `/operate`, `/post-op` |
 | `Pre-code vectors: <ticket>` | `/triage` | `/operate`, `/post-op` |
-| `Verify: <ticket> — <verdict>` | `/verify` (one per run) | `/release`, `/ship` |
-| `Post-merge: <ticket> — <result>` | `/ship` (the close note) | `/release` |
+| `Verify: <ticket> — <verdict>` | `/verify` (one per run) | `/release`, `/discharge` |
+| `Post-merge: <ticket> — <result>` | `/discharge` (the close note) | `/release` |
 | `Self-review: <ticket>` | `/operate` Phase 3 (one per fix batch) | the owner and reviewers (audit trail); the local `self-review.md` is what `/post-op` checks |
-| `Review round <n>: <ticket>` | `/post-op` (one per round) | `/post-op` (round count), `/ship` (open items) |
-| `Noted for the tracker (peer review <date>)` | `/peer-review` | `/ship` (open items) |
-| `Noted for the tracker (security <date>)` | `/security` (node-esm / typescript dependency audit) | `/ship` (open items) |
-| `PEER_REVIEW: not run` / `PEER_REVIEW: CLEAN <hash>` / `PEER_REVIEW: UNRESOLVED <ids>` | `/peer-review` | `/ship` (when the local record is missing) |
-| `Open items (PR #<N>): <OPEN_ITEMS_TICKET> comment <id>` or `Open items (PR #<N>): none` | `/ship` only | `/ship` (idempotency, and the start of the next PR's items) |
+| `Review round <n>: <ticket>` | `/post-op` (one per round) | `/post-op` (round count), `/discharge` (open items) |
+| `Noted for the tracker (peer review <date>)` | `/peer-review` | `/discharge` (open items) |
+| `Noted for the tracker (security <date>)` | `/security` (node-esm / typescript dependency audit) | `/discharge` (open items) |
+| `PEER_REVIEW: not run` / `PEER_REVIEW: CLEAN <hash>` / `PEER_REVIEW: UNRESOLVED <ids>` | `/peer-review` | `/discharge` (when the local record is missing) |
+| `Open items (PR #<N>): <OPEN_ITEMS_TICKET> comment <id>` or `Open items (PR #<N>): none` | `/discharge` only | `/discharge` (idempotency, and the start of the next PR's items) |
 
 Packs add their own markers (for example a train pack's triage record, or `Mobile QA: <ticket> — <platform> —
 <result>`) in a `## Markers` table in their `pack.md`, with the same columns. Core never edits this table at install.

@@ -1,7 +1,7 @@
 <!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
 # History: triage, ship, verify and ticket ops
 
-Why the rules in `core/commands/triage.md`, `ship.md`, `verify.md` and `core/docs/ticket-ops.md` exist. Not loaded
+Why the rules in `core/commands/triage.md`, `discharge.md`, `verify.md` and `core/docs/ticket-ops.md` exist. Not loaded
 every session. If this file and a rule disagree, the rule wins.
 
 ## Triage
@@ -39,7 +39,7 @@ every session. If this file and a rule disagree, the rule wins.
 - **Removed: scope from the bare diff** when no key is found. A ticket system is required, so `/triage` asks for
   the key instead.
 
-## Ship
+## Discharge (called ship before 1.13.1)
 
 - **Covered check is executable.** It existed only as prose, so "covered" at ship time was a recollection. A
   fingerprint comparison removes the guess.

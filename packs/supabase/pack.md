@@ -138,9 +138,9 @@ CI checker:      ✅ passed / ❌ <first failure> / ⏭️ not installed
 Next step:       apply before merge (/verify apply step) / G5 — own ticket, applied after merge with the owner's yes / G6 — owner's yes first
 ```
 
-## /ship
+## /discharge
 
-Skip when this branch's migration list is empty. Migrations are already live (the `/verify` apply step); `/ship`
+Skip when this branch's migration list is empty. Migrations are already live (the `/verify` apply step); `/discharge`
 never applies one.
 
 **At the hook after Step 0.4 (before the PR):**

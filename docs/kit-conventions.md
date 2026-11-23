@@ -28,7 +28,7 @@ A test checks that every `<UPPER_SNAKE>` used anywhere is defined in `manifest.j
 | `MCP_PREFIX` | Prefix on this project's MCP server names (§9) | `acme_` gives `acme_jira`; `none` for no prefix |
 | `MAIN_BRANCH` | The only long-lived branch | `main` |
 | `BRANCH_PREFIX` | Feature branch prefix | `feature/` |
-| `HAS_CI` | `true` means `/ship` waits for required checks before merging | `false` |
+| `HAS_CI` | `true` means `/discharge` waits for required checks before merging | `false` |
 | `TEST_COMMANDS` | One line per package: `<dir>: <command>`. Run exactly as written | `.: npm test` |
 | `TYPECHECK_COMMAND` | Optional | `none` |
 | `BUILD_COMMAND` | Optional | `none` |
@@ -72,7 +72,7 @@ reference them by path.
 - Review diffs are always merge-base diffs: `git diff origin/<MAIN_BRANCH>...HEAD`, three dots, after a fetch.
 - `/verify` runs on the feature branch, locally against real services, **before** merge. After merge, confirm the
   deploy and the logs.
-- `/ship` opens a PR to `<MAIN_BRANCH>` and needs the owner's explicit yes before merging (gate G3). If
+- `/discharge` opens a PR to `<MAIN_BRANCH>` and needs the owner's explicit yes before merging (gate G3). If
   `<HAS_CI>` is true, it waits for the required checks.
 - Never push, commit or force-push to `<MAIN_BRANCH>` directly.
 - There is no qa branch or QA environment. Never write one in.

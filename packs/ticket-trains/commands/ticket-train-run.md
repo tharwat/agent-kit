@@ -1,5 +1,5 @@
 ---
-description: Run a triaged ticket train unattended, one ticket at a time, through operate, post-op, optional peer review and ship. Invoking it approves merging that queue only.
+description: Run a triaged ticket train unattended, one ticket at a time, through operate, post-op, optional peer review and discharge. Invoking it approves merging that queue only.
 argument-hint: "<train>"
 ---
 <!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
@@ -24,7 +24,7 @@ node .claude/scripts/train-state.mjs update .claude/state/trains/<train>.json <t
 
 Read the revision just before each update. The helper locks the file, refuses a stale revision, validates the whole
 state, and writes atomically. It also refuses an untriaged ticket going `in_progress`, a ticket going `done` with an
-undischarged row or open finding, and any rewrite of recorded evidence. A refusal is a finding about the run: fix the
+unproved row or open finding, and any rewrite of recorded evidence. A refusal is a finding about the run: fix the
 cause, never work around the helper. A live lock means another writer: wait and retry. A stale lock: stop and report
 it (the owner renames it). Run each call from the repo root, as written (no `cd`, no shell variables), so it matches
 the permission rules. If Node is unavailable, say so and stop.
@@ -37,7 +37,7 @@ the permission rules. If Node is unavailable, say so and stop.
   the exact phase in the ticket's `result`, so a resume needs no reconstruction.
 - **Invoking this command is the owner's G3 approval for the queued tickets only.** For them it also authorizes the
   ordinary actions the workflow requires: sending credential-free diffs and contracts to the configured review
-  engines; pushing ticket branches; opening and merging their PRs to `<MAIN_BRANCH>` through `/ship`; ticket ops;
+  engines; pushing ticket branches; opening and merging their PRs to `<MAIN_BRANCH>` through `/discharge`; ticket ops;
   reading deploy and log state; using already-configured credentials without printing them; and anything in
   `rules.pre_authorized`. Don't ask again per ticket or per round.
 - **Batch host approvals.** If the host still asks for interactive approval, put every action you can foresee into
@@ -110,10 +110,10 @@ Take the first `pending` ticket.
    production edit and red-teams the diff. Its counterfactuals and every regression test's red half run in a
    disposable worktree (`git worktree add <scratch>/red-<ticket> HEAD`, then copy the changed files in), **never
    `git stash`** (a stash fails once `git add -N` is in play). Run `<TEST_COMMANDS>` exactly.
-4. **Write the discharge back the same turn.** For each contract row, update its `discharge` with `{ "test",
-   "result", "path_exercised", "counterfactual_result" }` from the Discharge cells `/operate` filled in
-   `.claude/state/<ticket>/triage.md` (send the whole `contract` list). A row still `null` is not discharged: the
-   ticket can't pass post-op, ship or close.
+4. **Write the proofs back the same turn.** For each contract row, update its `proved_by` with `{ "test",
+   "result", "path_exercised", "counterfactual_result" }` from the Proved by cells `/operate` filled in
+   `.claude/state/<ticket>/triage.md` (send the whole `contract` list). A row still `null` is not proved: the
+   ticket can't pass post-op, discharge or close.
 5. **Own gates and review rounds: run `/post-op <ticket>`** (Before starting, gates 1–8, Step 1.5) under round rules
    1–11, unattended (round rule 9). After each round, update `code_review` (`rounds`, `redesign`,
    `end_state`, `self_review` = the record's fingerprint, every disposition appended). Then by end state:
@@ -132,11 +132,11 @@ Take the first `pending` ticket.
    unless a decision says otherwise. A finding that stays unresolved or is `NEEDS-OWNER` → preserve the work, add it to
    `open_findings`, add a blocking `pr-f<n>` question with the evidence and snapshot hash, block with
    `question pr-f<n>: unresolved peer-review finding <id>`. Never relabel it to get past it.
-7. **Ship: run `/ship <ticket>`** in full: post-op and covered checks, the peer-review record, commit, push, PR,
+7. **Discharge: run `/discharge <ticket>`** in full: post-op and covered checks, the peer-review record, commit, push, PR,
    `/verify` before merge, then merge (this invocation is the G3 yes), post-merge deploy and logs, open items, close.
-   - **Record the PR number the moment `/ship` creates it** (update `{"pr": <N>}`), before verify or merge.
+   - **Record the PR number the moment `/discharge` creates it** (update `{"pr": <N>}`), before verify or merge.
    - **Pre-merge `/verify` ❌ FAILS:** it's an S4 defect on this ticket. Fix forward once on the same branch through
-     steps 3–5 (a new contract row through `/triage` first), then `/ship` again. Fails again, or the fix needs an owner
+     steps 3–5 (a new contract row through `/triage` first), then `/discharge` again. Fails again, or the fix needs an owner
      decision → preserve the work, block with `verify failed — <what was observed>`.
    - **⚠️ PARTIAL** (couldn't be driven) → preserve the work, block with `verify partial — <what is unverified>`.
    - **A required check fails** → rule 6 if pre-existing; otherwise fix through steps 3–5, or block with the failing
@@ -145,16 +145,16 @@ Take the first `pending` ticket.
      `{"state": "needs_verify", "result": "main broken — <deploy and error>"}`, train update
      `{"halt": "<ticket>: main broken — <one line>"}`, notify, and **stop the train**. Later tickets would build on a
      broken base.
-   - **Other post-merge failure** → `/ship` files the fix-forward ticket and leaves this one open:
+   - **Other post-merge failure** → `/discharge` files the fix-forward ticket and leaves this one open:
      `{"state": "needs_verify", "result": "merged; post-merge check failed — fix-forward <key>"}`.
-   - **Open items not filed, or the close failed** → `/ship` leaves the ticket open: block with
+   - **Open items not filed, or the close failed** → `/discharge` leaves the ticket open: block with
      `open items not filed — <error>` or `close failed — <error>`. These don't count toward the circuit breaker.
    - **Merged, verified, closed** → `{"state": "done", "result": "<one line>"}`.
 8. **Result comment.** Ticket op **comment** `<ticket>`, first line `TRAIN RESULT (<train>): <ticket> — <state>`: PR,
    `<TEST_COMMANDS>` counts, the verify evidence, the deploy, the code-review outcome (rounds, end state,
    dispositions), the peer-review outcome (skipped, or engines and snapshot hash), decisions and defaults acted on,
-   unqueued work, and the `Open items (PR #<N>)` marker `/ship` wrote.
-9. **Advance.** `/ship` already detached the checkout and deleted the merged branch. Confirm `git status --short` is
+   unqueued work, and the `Open items (PR #<N>)` marker `/discharge` wrote.
+9. **Advance.** `/discharge` already detached the checkout and deleted the merged branch. Confirm `git status --short` is
    clean, notify (`.claude/scripts/notify "[<PROJECT_NAME>] Train <train>: <ticket> <state> · PR #<N>"`, if it
    exists; a failed send prints one line), then take the next `pending` ticket.
 

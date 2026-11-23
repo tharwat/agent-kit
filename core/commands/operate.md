@@ -12,7 +12,7 @@ Invoked with: `/operate [ticket]`. With no ticket, take the key from the branch 
 
 **Record check.** First run `python3 .claude/hooks/check-record.py --start operate --ticket <ticket>`. The last step runs `--kind operate` the same way, and a Stop hook reminds Claude once if the record is still missing. If the command stops early on purpose (BLOCKED, nothing to do), run `--cancel operate` the same way instead. Codex runs these steps too.
 
-The middle step of **`/triage` → `/operate` → `/post-op`** (then the optional `/peer-review`, then `/ship`). It is a
+The middle step of **`/triage` → `/operate` → `/post-op`** (then the optional `/peer-review`, then `/discharge`). It is a
 discipline to follow, not advice to weigh.
 
 **Reviewers confirm the work; they don't repair it.** A defect a zero-context reviewer finds was visible on the
@@ -272,13 +272,13 @@ meant.
 writer and confirm the diff handles it as the entry says. Add any value or behaviour the diff changes that has no
 entry, with its search. An entry you can't back with a `path:line` isn't done.
 
-**2. Discharge the contract and the Phase 1 probe matrix**, not one a reviewer suggests later. Fill each row's
-`Discharge` cell in `.claude/state/<ticket>/triage.md`:
+**2. Prove the contract and the Phase 1 probe matrix**, not one a reviewer suggests later. Fill each row's
+`Proved by` cell in `.claude/state/<ticket>/triage.md`:
 
 | Contract row | Exact proof command or test | Result | Runtime path exercised | Counterfactual and result |
 |---|---|---|---|---|
 
-A similarly named test is not a discharge.
+A similarly named test is not a proof.
 
 **3. Show that each probe fails for the right reason.** Run its named bad behavior in a disposable worktree or copy,
 never the active checkout, and show that this exact test turns red. A red test proves something fired, not that

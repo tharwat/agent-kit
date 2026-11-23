@@ -145,7 +145,7 @@ test("covered: exit 0 on a match, exit 1 on a mismatch", () => {
 
 // -------------------------------------------------------------------------------------------------------------- freeze
 
-const CONTRACT = "| ID | Invariant | Discharge |\n|---|---|---|\n| C1 | a() never returns 1 | test a.test.mjs |\n| C2 | b exists | test b.test.mjs |\n";
+const CONTRACT = "| ID | Invariant | Proved by |\n|---|---|---|\n| C1 | a() never returns 1 | test a.test.mjs |\n| C2 | b exists | test b.test.mjs |\n";
 
 test("freeze writes base.txt, patch.diff and contract.md, and the hash is stable and covers all three", () => {
   const { dir, work } = repo();

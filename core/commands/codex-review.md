@@ -29,7 +29,7 @@ with the model named above, read-only and with MCP servers off. That needs no sn
 - **Hash-bound.** Its output must attest the snapshot hash and pass
   `node .claude/scripts/kit-tools.mjs check-review`.
 - **Standalone runs are fine** as a second opinion. They still need a frozen snapshot (`/peer-review` Step 1), and
-  they are **not a peer-review verdict**: no record is written and `/ship` has nothing to stop on. Say which you ran.
+  they are **not a peer-review verdict**: no record is written and `/discharge` has nothing to stop on. Say which you ran.
 - It doesn't notify. `/peer-review` reports.
 
 The brief, the lenses, the verification recipes and the prior-art gate are `/bteam`'s. This file adds only how to

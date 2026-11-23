@@ -11,13 +11,13 @@ Values written `<LIKE_THIS>` come from the Project facts block in `CLAUDE.md`.
 Invoked as `/verify [<ticket>]`.
 
 `/verify` drives the changed route, webhook, job, screen or migration end to end and observes what really happens.
-`/ship` requires it for any behaviour change. `/test` is the lighter check.
+`/discharge` requires it for any behaviour change. `/test` is the lighter check.
 
 A feature branch is deployed nowhere (no preview environment), so verification has two halves, and the second
 never replaces the first:
 
 - **Pre-merge (the gate):** run the branch's code locally against the real backing services.
-- **Post-merge (the confirmation):** after `/ship` merges, confirm the deploy is live and the change shows in the
+- **Post-merge (the confirmation):** after `/discharge` merges, confirm the deploy is live and the change shows in the
   logs.
 
 `docs/agent/verify-map.md` holds where a local run lands, the actions proven safe to run locally, the surface map
@@ -87,7 +87,7 @@ Confirm the effect, not just the run:
 - **Regression:** reproduce the failure against the pre-fix behaviour first, then show it fixed. A fix you can't
   reproduce, you can't claim.
 
-## Step 3: Post-merge confirmation (after `/ship` merges)
+## Step 3: Post-merge confirmation (after `/discharge` merges)
 
 - **Deploy:** confirm every affected service's latest deploy is live. Changed shared code → check **every**
   service built from it.
@@ -131,7 +131,7 @@ Packs may add verdicts here: see the section for this command in each installed 
 - **Never fabricate output.** A path that can't be exercised is `⚠️ PARTIAL`, said plainly.
 - `🕒 DEFERRED` is allowed only when the map's row already says `Local check: none`. A surface that has a local
   check, or no row, can't be deferred: add the row (with its proof) first.
-- `⚠️ PARTIAL` isn't a pass. `/ship` merges on `✅ VERIFIED`, `⏭️ SKIPPED`, `🕒 DEFERRED` (owner told, at G3), or a pack verdict
+- `⚠️ PARTIAL` isn't a pass. `/discharge` merges on `✅ VERIFIED`, `⏭️ SKIPPED`, `🕒 DEFERRED` (owner told, at G3), or a pack verdict
   that the pack's `## /verify` section declares passing (for example a deferred mobile build). Nothing else.
 
 ## Completion status

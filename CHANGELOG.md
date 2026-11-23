@@ -4,6 +4,24 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.13.1 — 2026-11-23
+
+**`/ship` is now `/discharge`.** Claude Code added a built-in `/ship`, and it stops a project's own `/ship` from
+loading ("Not loaded: a custom /ship. Rename it, then restart."). The new name also fits the workflow:
+triage → operate → post-op → discharge.
+
+- **Commands:** `core/commands/ship.md` is now `discharge.md`, and every command, rule, pack and doc that named
+  `/ship` or `$ship` names `/discharge`.
+- **Contract wording:** the triage contract's last column, `Discharge`, is now `Proved by`, and `/operate` "proves"
+  each row. This way "discharge" means only the command. The record check still accepts a contract triaged before
+  the rename. In ticket trains, a row's `discharge` key is now `proved_by`, and a train saved before reads either.
+- **Installer:** an upgrade renames the old `.claude/commands/ship.md` and its Codex wrapper
+  `.agents/skills/ship/SKILL.md` to `*.pre-agent-kit`, so the warning stops. Nothing is deleted. If you had
+  changed `ship.md`, your changes are in that copy.
+
+**Upgrade touches:** most of `.claude/commands/`, the rules that name `/ship`, `CLAUDE.md`'s kit block and
+`AGENTS.md`. After it, restart Claude Code and use `/discharge`.
+
 ## 1.13.0 — 2026-11-23
 
 Fewer packs: the kit keeps what belongs to the workflow, and the pressure test joins it.

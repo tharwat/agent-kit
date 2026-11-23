@@ -21,7 +21,7 @@ rounds (Step 1.5) and Lessons learned. It ends with a report that answers one qu
 - **Post-op reports. It doesn't hand off, recommend a next step, or ask permission.** It asks the owner only a
   needs-owner finding or an escalation (round rule 6).
 - **`/peer-review` is not part of post-op.** It is the optional frozen-snapshot review the owner may ask for
-  afterwards: `/triage` → `/operate` → `/post-op` → `/peer-review` (optional) → `/ship`. Never launch it here, and
+  afterwards: `/triage` → `/operate` → `/post-op` → `/peer-review` (optional) → `/discharge`. Never launch it here, and
   never report its absence as a gap. Codex as a finder inside a review round (Step 1.5) is separate from it.
 - **The vote decides what is fixed here; you don't.** A real defect is fixed on this ticket when its loss is
   serious or normal use reaches it, whoever wrote it, and in the sweep also when its fix is small (round rule 2).
@@ -29,7 +29,7 @@ rounds (Step 1.5) and Lessons learned. It ends with a report that answers one qu
   is deferred by the author or by a round count, and nothing real is dropped. The ticket ends clean or goes to the
   owner (round rules 3 and 6).
 - **The gates are static and check conventions.** None runs the changed code against real services, so a green
-  post-op is not "validated": that is `/verify`, run by `/ship` before merge. Nor do they attack the diff: the
+  post-op is not "validated": that is `/verify`, run by `/discharge` before merge. Nor do they attack the diff: the
   self-red-team does. A diff can pass every gate and still hold a dead path, impossible user-facing copy, or a race.
 
 ---
@@ -48,7 +48,7 @@ git status --short
 - **Include every intended new file.** `git diff` omits untracked files. Run `git add -N -- <path>` on each intended
   new path. A new secret-bearing file is a Security blocker, not a reason to hide it.
 - Run post-op **before committing** when possible, so fixes land in the same commit.
-- Load the contract, with the discharge `/operate` wrote, from `.claude/state/<ticket>/triage.md`. No contract: say
+- Load the contract, with the proofs `/operate` wrote, from `.claude/state/<ticket>/triage.md`. No contract: say
   so in the report; don't invent one.
 
 ### Self-red-team (mandatory on any executable change)
@@ -338,7 +338,7 @@ This section is the one definition. Other commands cite it as "round rule N".
    round makes a round due.
 8. **Record each round** as one block in `.claude/state/<ticket>/review-rounds.md`, and post the same block with
    ticket op **comment** `<ticket>`, first line `Review round <n>: <ticket>` (the record marker in
-   `docs/workflow/ticket-ops.md` §3; `/ship` reads it). Include:
+   `docs/workflow/ticket-ops.md` §3; `/discharge` reads it). Include:
    - the saved diff's path and fingerprint, the round's `scope`, and a `Panel:` line (`reviewers` and `codex` from
      the result);
    - every finding with its id, class, origin, disposition and the result's `why`;
@@ -383,7 +383,7 @@ This section is the one definition. Other commands cite it as "round rule N".
       The next round reviews the delta, which holds the whole redesign.
 11. **Open items go to `<OPEN_ITEMS_TICKET>`.** It holds work that isn't a review finding of this ticket: the vote
     sends a deferred finding to the ticket's follow-up ticket (round rule 2), so review rounds add nothing here. **One writer, at
-    one moment:** the step that closes the ticket (`/ship`, or a pack that closes tickets) writes **one** comment
+    one moment:** the step that closes the ticket (`/discharge`, or a pack that closes tickets) writes **one** comment
     on `<OPEN_ITEMS_TICKET>` with ticket op **comment**, before closing, from the records already on the ticket.
     Post-op and `/peer-review` only record items on the ticket.
     - **Filed:**
@@ -461,7 +461,7 @@ Owner action: none | <the one decision needed now>
 ```
 
 - **Peer review line:** read `verdict` from `.claude/state/<ticket>/peer-review.json`; no file means `not run`. It
-  is informational. Post-op never requires `/peer-review`, but `/ship` stops on an `UNRESOLVED` one.
+  is informational. Post-op never requires `/peer-review`, but `/discharge` stops on an `UNRESOLVED` one.
 - **Incomplete** if a gate has an unresolved defect, the suite is red, a contract row is unaudited, or the Code
   review row is `⚠️`. Self-red-team and Contract audit rows are mandatory on executable changes, Code review on
   every run. A missing row is a skipped step.
@@ -479,7 +479,7 @@ Result: clean | escalate
 `Result` is the end state (round rule 6); `escalate` is written only once the owner has answered **ship with these
 named defects**. Any other answer continues the loop. On a
 docs-only branch, write `Fingerprint: none (no reviewable change)` and `Result: clean`. On a Codex run, `Result:
-clean` means the gates passed and the report's Code review row says `⏭️ Skipped — Codex`. `/ship` reads this file
+clean` means the gates passed and the report's Code review row says `⏭️ Skipped — Codex`. `/discharge` reads this file
 for its covered check, so write it last, after every fix. Then run
 `python3 .claude/hooks/check-record.py --kind post-op --ticket <ticket>`; fix the file and re-run until it exits 0.
 

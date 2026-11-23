@@ -45,7 +45,7 @@ class Copyright(Base):
         gi = read(self.t(".gitignore")).split("\n")
         self.assertIn(C_HASH, gi)
         self.assertEqual(gi.index(C_HASH), gi.index(next(l for l in gi if l.startswith("# agent-kit"))) + 1)
-        wrapper = read(self.t(".agents/skills/ship/SKILL.md"))
+        wrapper = read(self.t(".agents/skills/discharge/SKILL.md"))
         fm_end = wrapper.index("\n---\n", 4) + len("\n---\n")
         self.assertTrue(wrapper[fm_end:].startswith(C_HTML + "\n"), wrapper)
         before = snapshot(self.target)

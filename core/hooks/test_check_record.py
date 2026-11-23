@@ -14,7 +14,7 @@ HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-record.py
 TICKET = "ABC-12"
 FP = "ab" * 32
 HEADER = ("| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | "
-          "Independent vector | Discharge |")
+          "Independent vector | Proved by |")
 PLAN_CHECK = {
     "ticket": "ABC-12",
     "state_homes": [{"fact": "order status", "home": "orders.status", "writers": ["api/orders.js:40"],
@@ -170,6 +170,10 @@ class Kinds(Case):
                 with self.subTest(kind=kind, text=text[:20]):
                     self.write(PATHS[kind], text)
                     self.assertEqual(self.check(kind).returncode, 1)
+
+    def test_a_contract_triaged_before_the_column_rename_still_passes(self):
+        self.write(PATHS["triage"], GOOD["triage"].replace("| Proved by |", "| Discharge |"))
+        self.assertEqual(self.check("triage").returncode, 0)
 
     def test_post_op_docs_only_and_other_results(self):
         for text in ("Fingerprint: none (no reviewable change)\nResult: clean\n",

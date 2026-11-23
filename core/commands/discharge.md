@@ -6,12 +6,12 @@ argument-hint: "[<ticket>]"
 
 Values written `<LIKE_THIS>` come from the Project facts block in `CLAUDE.md`.
 
-# Ship
+# Discharge
 
-Invoked as `/ship [<ticket>]`. With no argument, the key comes from the branch name
+Invoked as `/discharge [<ticket>]`. With no argument, the key comes from the branch name
 (`<BRANCH_PREFIX><ticket-lowercase>-<slug>`), confirmed with ticket op **get** `<ticket>`.
 
-`/ship` is a merge engine, not a review. It takes a finished feature branch to "merged into `<MAIN_BRANCH>`":
+`/discharge` is a merge engine, not a review. It takes a finished feature branch to "merged into `<MAIN_BRANCH>`":
 
 1. Preconditions: post-op report, covered check, peer-review record.
 2. Commit and push what's outstanding; open the PR.
@@ -38,7 +38,7 @@ normally. Don't ask for it and don't run it to satisfy this command. The one exc
 
 ### 0.0 GitHub remote
 
-`/ship` opens, checks and merges the PR with `gh`, so in v1 it needs a remote named `origin` on GitHub and an
+`/discharge` opens, checks and merges the PR with `gh`, so in v1 it needs a remote named `origin` on GitHub and an
 authenticated `gh`:
 
 ```bash
@@ -47,7 +47,7 @@ gh repo view --json nameWithOwner,defaultBranchRef
 ```
 
 No `origin`, a non-GitHub URL, or `gh repo view` failing (not installed, not logged in, no access) → **stop** and say:
-"`/ship` needs a GitHub remote in v1; push the branch and open the PR on your host by hand." Then give the steps:
+"`/discharge` needs a GitHub remote in v1; push the branch and open the PR on your host by hand." Then give the steps:
 
 1. Push the branch to the project's remote: `git push -u <remote> HEAD` (never force).
 2. On the host, open a pull/merge request from `<branch>` into `<MAIN_BRANCH>`. Put the post-op result and the
@@ -56,7 +56,7 @@ No `origin`, a non-GitHub URL, or `gh repo view` failing (not installed, not log
 4. After the merge: confirm the deploy and logs, file open items on `<OPEN_ITEMS_TICKET>`, and ticket op **close**
    `<ticket>`.
 
-If `gh` is only logged out, the owner can run `gh auth login` instead and re-run `/ship`.
+If `gh` is only logged out, the owner can run `gh auth login` instead and re-run `/discharge`.
 
 ### Branch state
 
@@ -78,7 +78,7 @@ Read `.claude/state/<ticket>/post-op.md`. It must hold `Result: clean` (or `esca
 `⏭️ Skipped — Codex` or `⏭️ Skipped — no reviewable change` (docs-only branch; its `Fingerprint: none (no
 reviewable change)` is handled by the empty-diff case in 0.2). `⚠️ Escalated`, `⚠️ N open`, `⚠️ Not run` or a missing file → **stop**: `/post-op` hasn't
 passed. `Result: capped` is from a kit before 1.8.0, when fixes after the last round shipped unreviewed → **stop**:
-re-run `/post-op`, whose rounds now continue until the code is clean or the owner decides. `/ship` never runs the
+re-run `/post-op`, whose rounds now continue until the code is clean or the owner decides. `/discharge` never runs the
 gates for you.
 
 ### 0.2 Covered check
@@ -122,7 +122,7 @@ with class exactly `noted` (a must-fix class marked noted blocks); or `VERIFIED`
   → peer review wasn't run. Continue, and don't suggest running it.
 - **Exit 0** → continue to the staleness check.
 - **Exit 1 with findings or `verdict: UNRESOLVED` listed** → **stop**. Name each one. Resolve it through
-  `/peer-review`, disprove it with evidence, or get the owner's decision; then run `/ship` again.
+  `/peer-review`, disprove it with evidence, or get the owner's decision; then run `/discharge` again.
 - **Exit 1 with a JavaScript error** (unparseable, no findings list) → **stop**. A broken record isn't evidence that
   nothing is open.
 
@@ -231,7 +231,7 @@ git branch -d <branch>
 
 ### 4.3 Open items (before closing)
 
-`/ship` is the only writer to `<OPEN_ITEMS_TICKET>`. It never stops the ship and never asks the owner.
+`/discharge` is the only writer to `<OPEN_ITEMS_TICKET>`. It never stops the discharge and never asks the owner.
 
 1. Ticket op **get** `<ticket>` (comments included). A record is a comment whose **first line** starts with
    `Open items (PR #`.
@@ -267,17 +267,17 @@ agent can do, or the optional `/peer-review`.
 
 ## Step 6: Notify
 
-If `.claude/scripts/notify` exists, run it once. A failed send prints one line and never fails `/ship`.
+If `.claude/scripts/notify` exists, run it once. A failed send prints one line and never fails `/discharge`.
 
 - Success: `.claude/scripts/notify "[<PROJECT_NAME>] 🚀 Shipped <ticket> — <title> · PR #<N> merged to <MAIN_BRANCH> · ticket closed"`
 - Failure: one alert per run, naming every problem:
-  `.claude/scripts/notify "[<PROJECT_NAME>] ❌ Ship blocked: <ticket> · <what failed> · <one-line error> · <run-url>"`
+  `.claude/scripts/notify "[<PROJECT_NAME>] ❌ Discharge blocked: <ticket> · <what failed> · <one-line error> · <run-url>"`
 
 ## Step 7: Final report
 
 ```
 ─────────────────────────────────────
-SHIP: <ticket> — <title>
+DISCHARGE: <ticket> — <title>
 PR:          #<N> (base: <MAIN_BRANCH>)
 Checks:      ✅ N/N green | ❌ <check> failed | — no CI
 Validation:  ✅ /verify passed pre-merge on <surface> | ⏭️ skipped — no runtime surface

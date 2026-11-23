@@ -31,7 +31,7 @@ without a check recorded in the ticket or PR:
 
 - Any app-code change under `<MOBILE_DIR>` needs a new build before it can be driven. Docs, `.claude/`, `*.md`, CI
   and test-only files don't (see "What counts as a mobile change" in `.claude/packs/expo-mobile.md`). `/verify`
-  records `📱 DEFERRED` and `/ship` labels the ticket `<NEEDS_BUILD_QA_LABEL>` until `/mobile-qa` passes on a build.
+  records `📱 DEFERRED` and `/discharge` labels the ticket `<NEEDS_BUILD_QA_LABEL>` until `/mobile-qa` passes on a build.
 - `<EAS_CLI> submit` always takes `--id <build-id>`, never `--latest`: the newest build can be another profile's artifact.
 - Reset the simulator keychain (`xcrun simctl keychain booted reset`) before Maestro runs, so a stored session
   doesn't skip the login flow.

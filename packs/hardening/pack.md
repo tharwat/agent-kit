@@ -3,7 +3,7 @@
 
 Deep-security mode. `/hardening-analysis <version>` builds a release-wide edge-case analysis; `/hardening <ticket>`
 takes each resulting ticket through triage → operate → post-op → a **required** peer review (up to three snapshots)
-→ ship. The `block-push-before-review` hook keeps anything from reaching the main branch before review and post-op.
+→ discharge. The `block-push-before-review` hook keeps anything from reaching the main branch before review and post-op.
 
 ## Pack facts
 

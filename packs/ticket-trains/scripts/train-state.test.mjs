@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { applyPatch, summarize, triageGaps } from "./train-state.mjs";
+import { applyPatch, renameOldKeys, summarize, triageGaps } from "./train-state.mjs";
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "train-state.mjs");
 const run = (...args) => spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
@@ -29,10 +29,10 @@ function refused(r, pattern) {
 
 const row = (id, extra = {}) => ({
   id, class: "S4", invariant: "x is rejected", paths: "a.js -> b.js", hostile_case: "empty x", authority: "schema",
-  proof: "test rejects empty x", counterfactual: "remove the guard", vector: null, discharge: null, ...extra,
+  proof: "test rejects empty x", counterfactual: "remove the guard", vector: null, proved_by: null, ...extra,
 });
 const vector = { input: "x=''", expected: "400", rejects: "accepts empty", source: "bteam 2026-01-02" };
-const discharge = { test: "rejects empty x", result: "pass", path_exercised: "POST /x", counterfactual_result: "red without guard" };
+const proved_by = { test: "rejects empty x", result: "pass", path_exercised: "POST /x", counterfactual_result: "red without guard" };
 const ticket = (key, extra = {}) => ({
   key, state: "pending", title: `title ${key}`, runtime_verifiable: true, verify_how: "POST /x returns 400",
   regression_test: "none", constraints: "none", notes: "none", pr: null, branch: null, peer_review: null, reason: null,
@@ -125,8 +125,8 @@ test("preview prints the next state and writes nothing", () => {
 test("summary is read-only and never counts needs_verify as done", () => {
   const f = tempFile();
   const s = train([
-    triaged("ABC-1", { state: "done", pr: 7, contract: [row("C1", { vector, discharge })] }),
-    triaged("ABC-2", { state: "needs_verify", pr: 8, contract: [row("C1", { vector, discharge })] }),
+    triaged("ABC-1", { state: "done", pr: 7, contract: [row("C1", { vector, proved_by })] }),
+    triaged("ABC-2", { state: "needs_verify", pr: 8, contract: [row("C1", { vector, proved_by })] }),
     ticket("ABC-3"),
   ]);
   writeFileSync(f, JSON.stringify(s));
@@ -189,15 +189,15 @@ test("in_progress is refused for an untriaged ticket", () => {
   assert.deepEqual(triageGaps(triaged("ABC-9")), []);
 });
 
-test("contract rows are append-only; a vector or discharge is written once", () => {
+test("contract rows are append-only; a vector or proof is written once", () => {
   const s = train([triaged("ABC-1", { contract: [row("C1"), row("C2", { vector })] })]);
   assert.throws(() => patch(s, "ABC-1", { contract: [row("C2", { vector })] }), /remove contract row C1/);
   assert.throws(() => patch(s, "ABC-1", { contract: [row("C1", { invariant: "weaker" }), row("C2", { vector })] }), /rewrite contract row C1/);
   const added = patch(s, "ABC-1", { contract: [row("C1", { vector }), row("C2", { vector }), row("C3")] });
   assert.equal(added.queue[0].contract.length, 3);
   assert.throws(() => patch(added, "ABC-1", { contract: [row("C1", { vector: { ...vector, expected: "200" } }), row("C2", { vector }), row("C3")] }), /vector is immutable/);
-  const d = patch(added, "ABC-1", { contract: [row("C1", { vector, discharge }), row("C2", { vector }), row("C3")] });
-  assert.throws(() => patch(d, "ABC-1", { contract: [row("C1", { vector, discharge: { ...discharge, result: "skip" } }), row("C2", { vector }), row("C3")] }), /discharge is immutable/);
+  const d = patch(added, "ABC-1", { contract: [row("C1", { vector, proved_by }), row("C2", { vector }), row("C3")] });
+  assert.throws(() => patch(d, "ABC-1", { contract: [row("C1", { vector, proved_by: { ...proved_by, result: "skip" } }), row("C2", { vector }), row("C3")] }), /proved_by is immutable/);
   assert.throws(() => patch(s, "ABC-1", { contract: [row("C1", { vector: { input: "x" } }), row("C2", { vector })] }), /vector.expected is missing/);
   assert.throws(() => patch(s, "ABC-1", { contract: [row("C1"), row("C2", { vector }), row("C3", { invariant: "TODO" })] }), /invariant is missing or a placeholder/);
   assert.throws(() => patch(s, "ABC-1", { contract_note: "no executable behavior" }), /mixes contract rows/);
@@ -261,12 +261,12 @@ test("code_review: no capped end state; nit is a disposition and a class (kit 1.
   assert.equal(patch(s, "ABC-1", { code_review: { ...cr, dispositions: [...cr.dispositions, nit] } }).revision, 1);
 });
 
-test("done and needs_verify need a PR, every row discharged, nothing open", () => {
+test("done and needs_verify need a PR, every row proved, nothing open", () => {
   const base = triaged("ABC-1", { state: "in_progress" });
   const s = train([base]);
   assert.throws(() => patch(s, "ABC-1", { state: "done" }), /without a recorded PR/);
-  assert.throws(() => patch(s, "ABC-1", { state: "done", pr: 12 }), /not discharged: C1/);
-  const dis = { pr: 12, contract: [row("C1", { vector, discharge })] };
+  assert.throws(() => patch(s, "ABC-1", { state: "done", pr: 12 }), /not proved: C1/);
+  const dis = { pr: 12, contract: [row("C1", { vector, proved_by })] };
   assert.throws(() => patch(s, "ABC-1", { state: "needs_verify", ...dis, open_findings: [{ id: "F1", source: "post-op", finding: "x", class: "S2", resolved: false }] }), /unresolved findings: F1/);
   assert.equal(patch(s, "ABC-1", { state: "done", ...dis }).queue[0].state, "done");
   const d = patch(s, "ABC-1", { state: "done", ...dis });
@@ -292,4 +292,13 @@ test("the state shape is validated on read", () => {
   assert.throws(() => summarize(train([ticket("ABC-1", { peer_review: "maybe" })])), /peer_review must be/);
   assert.throws(() => summarize(train([ticket("ABC-1", { contract_note: "docs" })])), /contract_note may only be/);
   assert.equal(summarize(train([ticket("#42")])).total, 1);
+});
+
+test("a train or patch saved before 1.13.1 reads its discharge as proved_by", () => {
+  const old = (r) => { const { proved_by: p, ...rest } = r; return { ...rest, discharge: p }; };
+  const s = renameOldKeys(train([ticket("ABC-1", { contract: [old(row("C1", { vector, proved_by }))] })]));
+  assert.deepEqual(s.queue[0].contract[0].proved_by, proved_by);
+  assert.equal("discharge" in s.queue[0].contract[0], false);
+  const p = renameOldKeys({ contract: [old(row("C1", { proved_by }))] });
+  assert.deepEqual(p.contract[0].proved_by, proved_by);
 });

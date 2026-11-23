@@ -54,7 +54,7 @@ Every schema migration in the range needs:
 
 In the order the steps would run:
 
-1. **Code**: the previous release to return to. Revert with `git revert` on a new branch through `/ship`, never by
+1. **Code**: the previous release to return to. Revert with `git revert` on a new branch through `/discharge`, never by
    force-pushing `<MAIN_BRANCH>`. A deploy pack may offer a faster platform rollback.
 2. **Schema**: each backout, newest first.
 3. **Irreversible effects**: anything from the list in `docs/agent/verify-map.md` that the release may trigger, and

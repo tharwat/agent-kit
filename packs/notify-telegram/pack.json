@@ -10,7 +10,7 @@
   "detect": {
     "files": [],
     "package_deps": [],
-    "ask": "Send workflow notifications (ship, post-op, verify and similar outcomes) to a Telegram chat for this project?"
+    "ask": "Send workflow notifications (discharge, post-op, verify and similar outcomes) to a Telegram chat for this project?"
   },
   "facts": [
     {

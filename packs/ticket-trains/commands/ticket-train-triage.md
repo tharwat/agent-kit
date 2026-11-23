@@ -60,13 +60,13 @@ acceptance-and-proof contract with its threat-model line, the independent pre-co
    - `triage`: `{ "date", "status": "DONE|DONE_WITH_CONCERNS|BLOCKED|NEEDS_CONTEXT", "premise": "Reproduces|Does not reproduce|n/a (feature)", "files": [<blast-radius files>], "summary": "<two lines: the fix, and what the sweeps changed about scope>" }`.
    - `contract`: every row, copied **verbatim** from `.claude/state/<ticket>/triage.md` (the tracker's copy may have
      lost characters), with its class, `vector` from Step 4.7 (`source` = engine and date) or `null`, and
-     `discharge: null`. `threat_model`: the contract's one line.
+     `proved_by: null`. `threat_model`: the contract's one line.
    - Refresh `verify_how`, `regression_test`, `notes` and `constraints` from what the full triage found.
 3. **Never an empty contract on executable work.** If `/triage` produced none, record `status: "NEEDS_CONTEXT"` and
    leave `contract` empty: the run refuses to start it. Only a docs- or copy-only ticket records
    `contract_note: "no executable behavior"`.
 4. **Vectors are immutable.** A re-triage may add rows and may add a vector to a row that has none. It never
-   rewrites or removes a recorded row, vector or discharge; a change is a new row (the helper refuses anything else).
+   rewrites or removes a recorded row, vector or proof; a change is a new row (the helper refuses anything else).
    Never fill a vector you designed yourself, and never write a partial one.
 
 Write after **every** ticket, before the next, so a crash loses one triage, not the pass.

@@ -28,7 +28,7 @@ session, and no rule lives only here. If this file and a rule disagree, the rule
   that refuses to overwrite local work replaces a hard reset for syncing a stale tree.
 - **Secrets.** Once committed or pasted into a ticket, a secret has to be rotated; naming the env var is enough for
   anyone who needs it.
-- **No direct commits to the main branch.** With one long-lived branch, the PR in `/ship` is the only point where
+- **No direct commits to the main branch.** With one long-lived branch, the PR in `/discharge` is the only point where
   review, verification and the owner's yes all meet.
 - **Additive API and schema.** Installed and cached clients can't be forced to update, so removing a field, URL or
   status breaks every consumer at once, with no error on their side, only missing data. Explaining that old clients
@@ -41,7 +41,7 @@ session, and no rule lives only here. If this file and a rule disagree, the rule
 
 - Agents approve everything except G1–G7. Asking the owner for every risky change made the owner the bottleneck
   without making changes safer; the stricter Critical Systems checks do that instead.
-- **G3** means every `/ship` waits for an explicit yes: work is never shipped on an implied approval. Invoking a
+- **G3** means every `/discharge` waits for an explicit yes: work is never shipped on an implied approval. Invoking a
   ticket train run is the yes for exactly that queue.
 - **G7** guards the guards. Adding or tightening a check is always welcome; quietly removing one is how protection
   erodes.
@@ -60,7 +60,7 @@ session, and no rule lives only here. If this file and a rule disagree, the rule
   first draft and every fix must carry a written inventory, a second finding in one area stops patching for a
   spiral assessment, and the round count escalates instead of ending the work. See `review-loop.md`.
 - **Noted findings go to one standing tracker**, one comment per ticket. Findings left as comments on a ticket that
-  `/ship` then closed were never seen again. Exactly one step writes them, because several writers at different
+  `/discharge` then closed were never seen again. Exactly one step writes them, because several writers at different
   moments lost items.
 - **`Owner action:` ends every report.** Restating already-tracked items as "still open" made the owner hand-hold
   work that needed nothing from them.
@@ -69,7 +69,7 @@ session, and no rule lives only here. If this file and a rule disagree, the rule
   its blast radius is every site it touched, the author stops reading carefully after the first few, and a syntax
   check or test suite may never execute the changed lines.
 - **Peer review is optional.** As a mandatory gate with a repeat-until-clean loop it became the pipeline's
-  bottleneck. Once a pass has run, an unresolved verified finding stops `/ship`: shipping past what reviewers found
+  bottleneck. Once a pass has run, an unresolved verified finding stops `/discharge`: shipping past what reviewers found
   is worse than not running them.
 - **Verified defects are fixed on their ticket.** "Pre-existing" or "found late" is attribution, not permission to
   leave known broken behaviour in place.

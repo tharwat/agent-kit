@@ -60,7 +60,9 @@ NUDGED = kit_facts.NUDGED if kit_facts else "nudged"
 STALE_SECONDS = kit_facts.STALE_SECONDS if kit_facts else 24 * 3600
 TICKET_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*-[0-9]+$")
 TRIAGE_HEADER = ("| ID | Class | Invariant | Paths | Hostile case | Authority | Behavioral proof | Counterfactual | "
-                 "Independent vector | Discharge |")
+                 "Independent vector | Proved by |")
+# Before 1.13.1 the last column was "Discharge"; a ticket triaged then still passes.
+TRIAGE_HEADERS = (TRIAGE_HEADER, TRIAGE_HEADER.replace("| Proved by |", "| Discharge |"))
 TRIAGE_ROW_RE = re.compile(r"^\|\s*C[0-9]+\s*\|", re.M)
 HEX64 = r"[0-9a-f]{64}"
 OPERATE_RE = re.compile(r"^Fingerprint:\s*%s\s*$" % HEX64)
@@ -557,7 +559,7 @@ def problems(project, kind, ticket, started=None, fp_before=None):
     if started is not None and os.path.getmtime(path) + 1 < started:
         out.append("%s wasn't written by this run (it's older than the command's start)" % shown)
     if kind == "triage":
-        if not any(norm(line) == norm(TRIAGE_HEADER) for line in text.split("\n")):
+        if not any(norm(line) in {norm(h) for h in TRIAGE_HEADERS} for line in text.split("\n")):
             out.append("%s has no contract table (header `%s`)" % (shown, TRIAGE_HEADER))
         elif not TRIAGE_ROW_RE.search(text):
             out.append("%s has a contract table with no `| C1 |` row" % shown)

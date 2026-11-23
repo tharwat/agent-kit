@@ -1,7 +1,7 @@
 <!-- Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License). -->
 # Telegram notifications
 
-Commands that report an outcome (`/ship`, `/post-op`, `/peer-review`, `/test`, `/investigate`, `/release`, and pack
+Commands that report an outcome (`/discharge`, `/post-op`, `/peer-review`, `/test`, `/investigate`, `/release`, and pack
 commands such as builds and QA) run
 `.claude/scripts/notify "<text>"`. The script posts the text to one Telegram chat. Every message starts with
 `[<PROJECT_NAME>]`; the commands add that prefix.

@@ -73,8 +73,8 @@ function checkRow(ticket, row) {
     // A present vector must be whole: a half-filled one reads as independent coverage nobody designed.
     for (const key of ["input", "expected", "rejects", "source"]) if (!cell(row.vector?.[key])) refuse(`${where}: vector.${key} is missing`);
   }
-  if (row.discharge != null) {
-    for (const key of ["test", "result", "path_exercised", "counterfactual_result"]) if (!cell(row.discharge?.[key])) refuse(`${where}: discharge.${key} is missing`);
+  if (row.proved_by != null) {
+    for (const key of ["test", "result", "path_exercised", "counterfactual_result"]) if (!cell(row.proved_by?.[key])) refuse(`${where}: proved_by.${key} is missing`);
   }
 }
 
@@ -192,7 +192,7 @@ export function triageGaps(ticket) {
 
 const unansweredBlocking = (ticket) => ticket.questions.filter((q) => q.blocking && q.answer == null);
 const unresolved = (ticket) => ticket.open_findings.filter((f) => !f.resolved);
-const undischarged = (ticket) => ticket.contract.filter((row) => row.discharge == null);
+const unproved = (ticket) => ticket.contract.filter((row) => row.proved_by == null);
 
 export function checkState(state) {
   if (!isObject(state)) refuse("state must be a JSON object");
@@ -226,12 +226,12 @@ function keepContract(k, before, after) {
   for (const old of before.contract) {
     const next = after.contract.find((row) => row.id === old.id);
     if (!next) refuse(`ticket ${k}: update would remove contract row ${old.id}; amend by adding a row`);
-    const { vector: ov, discharge: od, ...oldFixed } = old;
-    const { vector: nv, discharge: nd, ...nextFixed } = next;
+    const { vector: ov, proved_by: od, ...oldFixed } = old;
+    const { vector: nv, proved_by: nd, ...nextFixed } = next;
     if (!same(oldFixed, nextFixed)) refuse(`ticket ${k}: update would rewrite contract row ${old.id}; amend by adding a row`);
     // A vector may be added late, never rewritten or dropped: that is how an independent vector gets swapped.
     if (ov != null && !same(ov, nv)) refuse(`ticket ${k}: contract row ${old.id} vector is immutable once recorded`);
-    if (od != null && !same(od, nd)) refuse(`ticket ${k}: contract row ${old.id} discharge is immutable once recorded`);
+    if (od != null && !same(od, nd)) refuse(`ticket ${k}: contract row ${old.id} proved_by is immutable once recorded`);
   }
   if (before.contract_note != null && after.contract_note !== before.contract_note) refuse(`ticket ${k}: contract_note is immutable once recorded`);
   if (text(before.threat_model) && after.threat_model !== before.threat_model) refuse(`ticket ${k}: threat_model is immutable once recorded`);
@@ -276,8 +276,8 @@ function keepTicket(before, after) {
   }
   if (["done", "needs_verify"].includes(after.state) && after.state !== before.state) {
     if (after.pr == null) refuse(`ticket ${k} cannot be ${after.state} without a recorded PR`);
-    const rows = undischarged(after);
-    if (rows.length) refuse(`ticket ${k} cannot be ${after.state}: contract rows not discharged: ${rows.map((r) => r.id).join(", ")}`);
+    const rows = unproved(after);
+    if (rows.length) refuse(`ticket ${k} cannot be ${after.state}: contract rows not proved: ${rows.map((r) => r.id).join(", ")}`);
     const open = unresolved(after);
     if (open.length) refuse(`ticket ${k} cannot be ${after.state} with unresolved findings: ${open.map((f) => f.id).join(", ")}`);
     const qs = unansweredBlocking(after);
@@ -338,7 +338,7 @@ export function summarize(state, key) {
     code_review: t.code_review ? { rounds: t.code_review.rounds, end_state: t.code_review.end_state ?? null, extra_round: t.code_review.extra_round, redesign: t.code_review.redesign ?? null } : null,
     open_questions: t.questions.filter((q) => q.answer == null).map((q) => ({ id: q.id, blocking: q.blocking, default: q.default ?? null, question: q.question })),
     unresolved_findings: unresolved(t).map((f) => f.id),
-    undischarged_rows: t.contract_note ? [] : undischarged(t).map((r) => r.id),
+    unproved_rows: t.contract_note ? [] : unproved(t).map((r) => r.id),
     blocked_work: t.blocked_work ? { branch: t.blocked_work.branch, commit: t.blocked_work.commit } : null,
   });
   if (key != null) {
@@ -370,16 +370,29 @@ export function summarize(state, key) {
 
 // ---------------------------------------------------------------- file I/O (locked, atomic, never deletes)
 
+// Before kit 1.13.1 a row's proof was stored as `discharge`. A train or patch written then reads as `proved_by`.
+export function renameOldKeys(value) {
+  const rows = [...(Array.isArray(value?.contract) ? value.contract : []),
+    ...(Array.isArray(value?.queue) ? value.queue.flatMap((t) => (Array.isArray(t?.contract) ? t.contract : [])) : [])];
+  for (const row of rows) {
+    if (isObject(row) && "discharge" in row && !("proved_by" in row)) {
+      row.proved_by = row.discharge;
+      delete row.discharge;
+    }
+  }
+  return value;
+}
+
 function readJson(path) {
   let raw;
   try { raw = readFileSync(path, "utf8"); } catch (e) { refuse(`cannot read ${path}: ${e.code ?? e.message}`); }
-  try { return JSON.parse(raw); } catch (e) { refuse(`${path} is not valid JSON: ${e.message}`); }
+  try { return renameOldKeys(JSON.parse(raw)); } catch (e) { if (e instanceof Refusal) throw e; refuse(`${path} is not valid JSON: ${e.message}`); }
 }
 
 function patchArg(arg) {
   if (typeof arg !== "string") refuse("missing JSON argument");
   const raw = arg.startsWith("@") ? (() => { try { return readFileSync(arg.slice(1), "utf8"); } catch (e) { refuse(`cannot read ${arg.slice(1)}: ${e.code ?? e.message}`); } })() : arg;
-  try { return JSON.parse(raw); } catch (e) { refuse(`the JSON argument does not parse: ${e.message}`); }
+  try { return renameOldKeys(JSON.parse(raw)); } catch (e) { refuse(`the JSON argument does not parse: ${e.message}`); }
 }
 
 function withLock(path, fn, { staleLockMs = STALE_LOCK_MS } = {}) {
