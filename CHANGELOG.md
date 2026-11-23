@@ -4,12 +4,40 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
-## 1.12.0 — unreleased draft (2026-11-21)
+## 1.12.0 — 2026-11-22
 
-The review loop, first half of a two-part change. The second half (a one-page design at triage, and removing the
-steps that generate volume) waits for a live result. Evidence: the review records of two projects. Under "fix
-every finding" rounds ran into the tens and most later defects sat in earlier fixes; under a severity bar the
-loop stopped but about five of 25 runs ended with nothing from review left open.
+Two changes with one aim, fewer defects written and fewer rounds to clear them: a one-page design at triage that
+keeps the build small, and a review loop where voters other than the author decide what is fixed now.
+
+**Evidence.**
+- *Where it came from.* The review records of two projects. Under "fix every finding", rounds ran into the tens
+  and most later defects sat in earlier fixes. Under a severity bar, the loop stopped, but only about five of 25
+  runs ended with nothing from review left open. First-draft defects tracked the production lines written
+  (r = 0.82 over 19 tickets).
+- *The proof.* One past ticket was rebuilt blind twice under this release and once from its original session. All
+  three builds then went through the same review round:
+
+  | Build | Production lines | Fix now | Serious | In the build's own lines |
+  |---|---|---|---|---|
+  | Original first draft | about 440 | 15 | 7 | 11 |
+  | This release, run 1 | 80 | 10 | 4 | 5 |
+  | This release, run 2 | 61 | 13 | 6 | 6 |
+
+- *What it does not do yet.* Run 1 stopped for a redesign at round 2, not clean in two rounds. The defects that
+  belong to the ticket and the code around it came up in every build. What is still open is in `docs/inbox.md`.
+
+**Lessons this release ships** (from `docs/inbox.md`):
+- 1.11.0's derived lists became checkers;
+- a state several places read is stored;
+- plug into the existing lifecycle;
+- bugs track lines written;
+- the plan named the existing mechanism and still built beside it;
+- an owner question's recommended option is the decision in practice;
+- long loops come from two kinds of work;
+- the one-page design held the scope but not the bug rate;
+- a loop that fixes every small finding has no end;
+- the first blind rebuild;
+- the fair baseline.
 
 - **The author no longer decides what a finding gets.** In `consensus-review.js` the verifiers answer facts about
   each real finding: what is lost and to whom, whether the loss is bounded, what has to happen first, whether
