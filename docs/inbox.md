@@ -141,3 +141,18 @@ own. Move each shipped lesson to the CHANGELOG entry that shipped it.
   - *An event fired out of proportion.* A wrong-text regression in a fix triggered a redesign because it shared a
     mechanism with an earlier fix. A defect in a fix whose only loss is wrong text is just fixed; the same should
     hold for the same-mechanism event.
+- **A second blind rebuild, after two fixes to the draft, did worse.** The same ticket, a fresh agent, the same
+  pass rules. The design page now asked what a later action must check. The agent wrote 61 production lines
+  against an estimate of 64, then answered that very question with the smaller option: rely on the side effect
+  (the item's facts are removed) instead of reading the stored status at send time, because the kit also says the
+  smaller option is the recommended one. The judge found 6 of 11 applicable known bugs repeated (the first run: 5
+  of 10); round 1 confirmed 12 defects to fix now and stopped on an open class. Across both runs:
+  - *Size fell about five times; the defects did not.* Roughly 10 to 13 confirmed defects on 60 to 100 lines.
+  - *About half the confirmed defects were in lines the change did not write.* The sweep reads the code around the
+    change, and the rule "fixed here whoever wrote it" makes each one this ticket's work.
+  - *The same known bugs survived both runs and both reviews:* a one-click destructive action, an action that can
+    be repeated on an item already in its final state, an item in a final state that can still be edited, and a
+    message naming a step that no longer exists. Each is a state the change made final without asking what may
+    still happen to it. The design page's lifecycle box asks this, and both runs filled it without catching them.
+  - *Two kit rules collided:* "the smaller option is recommended" won over "a side effect that stands in for a
+    fact is a defect". A rule that says what is a defect must say it beats the smaller option.
