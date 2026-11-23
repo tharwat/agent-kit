@@ -31,7 +31,7 @@ export const TRANSITIONS = Object.freeze({
   done: [],
   needs_verify: ["done", "blocked"],
 });
-export const DISPOSITIONS = Object.freeze(["must-fix", "noted", "nit", "own ticket", "rejected", "already decided", "needs owner", "repeat"]);
+export const DISPOSITIONS = Object.freeze(["must-fix", "noted", "nit", "follow-up", "own ticket", "open class", "rejected", "already decided", "needs owner", "repeat"]);
 // post-op round rule 6 (kit 1.8.0): no `capped`; a ticket ends clean or goes to the owner.
 export const END_STATES = Object.freeze(["clean", "escalate"]);
 export const CHECKPOINT_KIND = "WIP checkpoint — blocked";
@@ -114,7 +114,7 @@ function checkCodeReview(ticket) {
   // extra_round: readable in train files written before kit 1.11.0; nothing counts rounds now
   if (cr.extra_round != null && typeof cr.extra_round !== "boolean") refuse(`${where}.extra_round must be true or false`);
   if (cr.redesign != null && !text(cr.redesign)) refuse(`${where}.redesign must be "<trigger> -> <decision>" or null`);
-  // post-op round rule 10 (kit 1.11.0): each round's consensus `next` decides fix or redesign; there is no round cap.
+  // post-op round rule 10: each round's `next` decides fix or redesign, by event (kit 1.12.0); there is no round cap.
   if (cr.end_state != null && !END_STATES.includes(cr.end_state)) refuse(`${where}.end_state must be clean, escalate or null (there is no capped end state since kit 1.8.0)`);
   if (!Array.isArray(cr.dispositions)) refuse(`${where}.dispositions must be a list`);
   for (const d of cr.dispositions) {

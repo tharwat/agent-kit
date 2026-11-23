@@ -239,7 +239,8 @@ git branch -d <branch>
 3. Otherwise collect items from comments after the latest earlier `Open items` record (all comments if none):
    every `noted` item in a `Review round` record, every item in a `Noted for the tracker` comment, and every defect
    the owner accepted by name in an escalation answer (tagged `accepted by owner`). Never a `must-fix` or a `nit`:
-   a ticket's own defects are fixed on it, not filed (post-op Step 1.5 round rule 11). List an item found more than
+   a must-fix is fixed on its ticket, and a finding the review's vote deferred is already in the follow-up ticket (post-op
+   Step 1.5 round rules 2 and 11). List an item found more than
    once only once.
 4. Items found → ticket op **comment** `<OPEN_ITEMS_TICKET>` with one comment:
    `## <ticket> — <title> (closed <date>; round records <comment ids>)`, then one numbered item each with

@@ -219,20 +219,28 @@ or patch. It returns adversarial vectors:
 This pass designs vectors only. It doesn't implement, waive the later reviews, or add a delivery stage. The
 post-work `/peer-review` stays optional.
 
-## Step 4.8: Plan self-check (mandatory)
+## Step 4.8: The design page (mandatory)
 
-Some defects start before any code: the code faithfully follows a plan that stores one fact twice, contradicts a
-decision, or never settled a state's lifecycle. Every review round then finds one more symptom.
+Most first-draft defects start before any code, and they grow with the amount of code written. The page keeps the
+build small and settles, before code, the things review otherwise finds one round at a time: a mechanism built
+beside one that already existed, a fact the code works out when it could read it, work with no finite list of
+cases, and a limit resting on something nobody measured. It is one page. A part that needs more is a sign the
+ticket should be split.
 
-**Write all five parts as a fill-in form, `.claude/state/<ticket>/plan-check.json`.** The record check only asks
-whether each box is filled, never how a note is formatted, so a complete note is never refused for its layout. Write
-exactly these keys:
+**Write it as a fill-in form, `.claude/state/<ticket>/plan-check.json`.** The record check only asks whether each
+box is filled, never how a note is formatted. Write exactly these keys:
 
 ```json
 {
   "ticket": "<ticket>",
+  "adds": [
+    { "step": "a step of the flow the change touches",
+      "existing": "what does that step today, with path:line, and the stored states it uses",
+      "adds": "nothing | what this change adds to it" }
+  ],
+  "adds_none": null,
   "state_homes": [
-    { "fact": "what is true (a status, a mode, a verdict, a count)",
+    { "fact": "what is true (a status, a mode, a verdict, a count, 'this step already happened')",
       "home": "the one table, column, record or store that holds it",
       "writers": ["path:line", "new: <path> for a writer not written yet"],
       "readers": ["path:line of every reader"],
@@ -246,10 +254,19 @@ exactly these keys:
       "name_reuse": "…", "safety_flags": "…", "what_a_person_sees": "…" }
   ],
   "lifecycles_none": null,
-  "enumerations": [
-    { "what": "pii-columns", "derived_from": "the query, walk or parse that produces it", "test": "the test that re-derives it" }
+  "open_work": [
+    { "part": "the part that judges free text, or works a state out from several fields",
+      "closed_by": "stored state | structural rule | classifier | model call", "how": "…" }
   ],
-  "enumerations_none": null,
+  "open_work_none": null,
+  "outside": [
+    { "behaviour": "what the design assumes an outside service does",
+      "measured": "how and when it was measured and what came back | before code: <the measurement>" }
+  ],
+  "outside_none": null,
+  "size": { "files": [ { "path": "…", "kind": "reused | changed | new", "lines": 0 } ],
+            "out_of_ticket": ["what the ticket could be read to include and this change leaves out"] },
+  "size_none": null,
   "safety_defaults": [ { "default": "…", "owner_answer": "…" } ]
 }
 ```
@@ -257,13 +274,35 @@ exactly these keys:
 - `writers` and `readers` are `path:line` entries, or `["none"]`.
 - `second_home` is `null`, or `{ "where", "kept_in_step_by": "transaction | trigger", "owner_ok": "<where the
   owner's OK is recorded>" }`.
-- An empty list needs its `_none` box filled with the reason (a docs- or rules-only ticket: `"no state"`).
-  `conflicts` and `safety_defaults` may be `[]`.
+- An empty list needs its `_none` box filled with the reason (a docs- or rules-only ticket: `"no state"`, and
+  `size_none: "docs only"`). `conflicts`, `safety_defaults` and `out_of_ticket` may be `[]`.
 - The readable copy is printed by `python3 .claude/hooks/check-record.py --show plan-check --ticket <ticket>`. Use it
   in the output and the ticket comment. Never maintain a second hand-written copy.
 
-**A. State homes: one fact, one home.** List every piece of state the ticket stores or depends on.
+**A. What exists, and what this change adds.** Fill this first. Walk the flow the change touches, step by step.
+For each step, write what does it today (`path:line`, and the stored states and allowed moves it uses), then what
+this change adds to it. **"Nothing" is an answer, and the more rows that say it, the better the design.**
 
+- Start from the stored states the entity already has. The change says what it adds to them.
+- A second set of states, phases or recovery rules beside an existing one is a design defect, however well it is
+  built. Plug into the mechanism that exists; if it truly cannot carry the change, that is an owner question (see
+  the Rules).
+- Naming the existing mechanism in a contract row is not enough. This table is where it is set against the change.
+
+**B. State homes: one fact, one home.** List every fact the change stores or depends on.
+
+- **What a re-run must know.** For any flow that can run again after stopping part-way (a job, a retry, a webhook,
+  a resumed request), ask: what must this code know when it runs again after stopping at any point? ("Did this
+  step already happen", "which record did this request become", "is the result already ours".) Each answer is a
+  row. It is stored by the same write that makes it true, and every branch that decides reads it. **A time limit,
+  a try count or the order of two writes that stands in for a fact that could be read is a defect in the page.**
+  A new stored fact is not a new state system: add it.
+- **What a later action must check.** Anything decided now and done later (a queued message, a scheduled post, a
+  delayed send, a job picked up later) acts on facts that may have changed in between: the item paused, retired,
+  deleted or handed to another owner. For each such action, name the stored fact it checks at the moment it acts,
+  and list **every** path that performs it (each send, each retry, each fast path that skips a check). Each path
+  reads that fact itself. **A side effect that stands in for the fact (the item's cached text still exists, a
+  derived row is still there, a flag set when it was queued) is a defect in the page.**
 - **The same fact in two places** (a copy, a cache, a mirrored column, a status duplicated into another record, two
   rows that must agree): collapse it to one home, or derive it at the read. Keeping two copies in step by a side
   effect (a follow-up write, a hook, a "remember to also update") is not allowed. If two copies are truly
@@ -273,23 +312,40 @@ exactly these keys:
   them separate, and combine them at the read.
 - **A gating status** is applied where it is read, never copied somewhere that must be kept current.
 
-**B. Contradiction check.** Read every contract row against every decision (ticket comments, epic constraints, owner
+**C. Contradiction check.** Read every contract row against every decision (ticket comments, epic constraints, owner
 answers) and against the ticket text. List each conflict, and resolve it with the owner or an explicit recorded
 default. Record the counts read and every conflict in `contradiction_check`.
 
-**C. Lifecycle check.** For every state the ticket adds or changes, answer: how it is created, changed, removed and
+**D. Lifecycle check.** For every state the ticket adds or changes, answer: how it is created, changed, removed and
 restored; what editing a record in that state does; whether its name or key can be reused; how it interacts with
 each safety flag; and what a person sees. Each unanswered question goes to the owner, one at a time. Record one
-`lifecycles` entry per state.
+`lifecycles` entry per state. **A state with more than two values that more than one place reads is stored.** One
+function is its only writer, with a table of allowed moves that refuses every other move and a test for each row,
+and every reader uses the state alone, never the fields it used to be worked out from.
 
-**D. Derived lists.** Every list the change will write or rely on (columns holding person data, tables keyed to a
-record, folders that need a row, services that receive data, routes, imports, actions safe to run) is a list some
-member of which will be missed when it is typed by hand: review then finds them one round at a time. Name how each
-is derived from the source (a schema query, a directory walk, a parser, a route table) and the test that re-derives
-it and fails when a member is missing or wrong. Record each in `enumerations`; `enumerations_none` says why there
-is no list.
+**E. Open-ended work is closed in the design.** Two kinds of code have no finite list of cases, so no review can
+finish them: code that judges free text with patterns or word lists, and code that works a state out from several
+fields. Each round finds one more phrase, format or combination, and each fix breaks another. Name every such part
+in `open_work` and how the design closes it:
+- a **stored state** (part D);
+- a **structural rule**: a rule on structure or position that needs no meaning;
+- a **classifier** or a **model call** that fails closed. Prefer a stored field, then a dedicated classifier, then
+  a general model.
 
-**E. Safety defaults.** An engineering default that touches S1–S3 or a user-facing send ("any verdict → hand to a
+A list the change would have to keep complete is replaced by a rule where one exists. A claim the change doesn't
+need is removed, not proven. Never plan code that parses or judges text in order to prove a doc or a list.
+
+**F. Outside behaviour is measured.** When the design rests on what an outside service does (how long it keeps
+something, what it returns on failure, what it bills), record the measurement: how, when, what came back. Docs
+that can be read two ways are not a measurement. One not yet taken is written `before code: <the measurement>`,
+and `/operate` takes it before the first production edit.
+
+**G. Size.** List every file the change touches as reused, changed or new, with the production lines you expect to
+add (tests and docs don't count), and what is out of the ticket. `/operate` sets the diff against these numbers as
+it builds: an estimate nobody compares limits nothing. Less code is the lever with evidence behind it, so a
+smaller design that meets the contract beats a more complete one.
+
+**H. Safety defaults.** An engineering default that touches S1–S3 or a user-facing send ("any verdict → hand to a
 human", "on error, skip") is shown to the owner as a choice. It is never applied silently. Record each one in
 `safety_defaults` with the owner's answer.
 
@@ -325,8 +381,8 @@ TICKET ANALYSIS: <ticket> — <title>
   - Module placement: <chosen module and why, or n/a>
   - Files this approach touches: <list>
 🧪 Test approach: existing patterns at <path>; new tests <yes/no + what>
-🏠 Plan self-check: <the output of check-record.py --show plan-check: state homes, contradiction check,
-   lifecycles, safety defaults>
+📄 Design page: <the output of check-record.py --show plan-check: what the change adds, state homes,
+   contradiction check, lifecycles, open-ended work, outside behaviour, size, safety defaults>
 🧾 Acceptance-and-proof contract: <the Step 4.6 table>
   Threat model / out of scope: <one line>
 🧨 Pre-code vectors: <the Step 4.7 table, or: skipped — no executable behaviour>
@@ -346,8 +402,9 @@ TICKET ANALYSIS: <ticket> — <title>
 - [ ] Every contract row has an ID `C<digits>`, a class, a hostile case, a proof plan and a counterfactual, plus the
       threat-model line
 - [ ] Ran `/peer-review test-contract` (executable work) and folded in its vectors with provenance
-- [ ] Wrote `plan-check.json`: state homes (one fact, one home), the contradiction check and the lifecycles; showed
-      the owner every safety default
+- [ ] Wrote the design page (`plan-check.json`): what exists against what the change adds, state homes (with what a
+      re-run must know), the contradiction check, the lifecycles, open-ended work, outside behaviour and size;
+      showed the owner every safety default
 - [ ] Completed the Step 6 hand-off
 
 ---
@@ -377,6 +434,9 @@ End the report with `Context: ready to /clear`. Never ask the owner whether clea
 - A safety condition or edge case on the ticket's execution path is neither an optional adjacent gap nor an owner
   question. Add it to the contract and implement it in this ticket.
 - Owner decisions are only for product, strategy, safety-limit, destructive-operation or authority questions.
+- **An option that adds a mechanism, a state or a protection says what it costs:** the estimated production lines,
+  the new states and the new ways to fail. The smaller option is the recommended one unless the owner has asked
+  for the protection. A recommended option is, in practice, the decision.
 - **Questions to the owner:** one at a time, in plain language, every option with a pro and a con, including your
   recommendation. Keep line numbers, symbol names and paths out of the question; they belong in the analysis
   comment.

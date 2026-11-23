@@ -30,9 +30,9 @@ copy; trackers mangle symbols), then ticket op **get** `<ticket>` (comments and 
 - **No contract:** say so, and write the rows before any code.
 - The independent vectors come from `/peer-review test-contract <ticket>`, run by `/triage`. A row whose vector reads
   `not run` still needs its hostile case and counterfactual: they are what the test is built from.
-- A verified must-fix finding (S1–S4, post-op Step 1.5 round rule 2) that shares the ticket's execution path,
-  invariant, safety outcome or acceptance criterion joins the contract and is fixed here. It is never recorded away
-  as "outside scope". Only a genuinely independent capability is recorded instead of built.
+- A verified must-fix finding (post-op Step 1.5 round rule 2) joins the contract and is fixed here. It is never
+  recorded away as "outside scope". Only the review's vote, or a genuinely independent capability, puts work on
+  another ticket.
 
 **2. Enumerate the space, not the example.** The defect class is larger than the ticket's instances, and you can
 derive it now from the language, the schema or the call graph.
@@ -46,6 +46,7 @@ derive it now from the language, the schema or the call graph.
 | a guard reading a stored verdict | every producer that writes it. Readers can't tell you who forgot to write it |
 | a matcher, detector or pin | every syntactic form the language allows for that construct |
 | a cleanup or `finally` | every exit, including those where an external party still holds the resource |
+| a job, retry, webhook or request that can run again | every pair of writes that follow each other: a test stops after the first, runs the flow again, and asserts one outcome (one record, one charge, one message) |
 | a shared component or helper | every consumer, found by search |
 | a list, enum or constant | every home of the fact: type, runtime constant, validator schema, database constraint, each client, tests, docs |
 | a rename or sweep | every consumer and every home, not just the producer |
@@ -130,9 +131,8 @@ how a note is formatted:
   call (dynamic imports, queue and job handlers included). An effect found means the claim is false: change the
   plan, not the wording.
 - **`lists`**, one entry per list the change writes or relies on (columns, tables, folders, services, routes,
-  imports, safe actions). Each is derived from the source, never typed by hand, and the plan's `enumerations` in
-  `plan-check.json` name the test that re-derives it. The test is the class-ending check: it fails on any member
-  that is missing or wrong, now and after every later change.
+  imports, safe actions). Each is read from the source, never typed by hand. Where a rule can replace the list,
+  write the rule and drop the list. Never write code that parses or judges text to prove a list or a doc complete.
 - **Nothing of a kind:** leave the list empty and put the search that showed it in `values_none_search` or
   `siblings_none_search`.
 - **The readable copy** (for the ticket comment) is printed by
@@ -142,6 +142,18 @@ how a note is formatted:
 The inventory is also the probe matrix in Phase 3. `docs/agent/source-layout.md` says where the schema, clients and
 consumer surfaces live. `docs/agent/sibling-paths.md` lists known pairs that must change together. Check each state
 the ticket stores against `state_homes` in `plan-check.json` (triage Step 4.8): one fact, one home.
+
+**The design page binds the build** (`plan-check.json`, printed by `check-record.py --show plan-check`):
+- **Measure first.** Take every `outside` measurement written `before code:` now, before the first production
+  edit. A result that differs from the page changes the page first, then the plan.
+- **Build what `adds` says.** A step whose row says "nothing" gets no code. A state, phase or recovery rule the
+  page doesn't have is not added while building: stop and amend the page, and if it adds a mechanism, ask the
+  owner with its cost (triage Rules).
+- **A fact a re-run needs is read, not guessed.** Every branch that decides on a `state_homes` fact reads its
+  home. A time limit or a try count never stands in for it.
+- **A later action checks the stored fact on every path.** A queued or delayed action reads the fact the page
+  names when it acts, on each path that performs it, fast paths and retries included. A fix that adds the check
+  to one path adds it to all of them in the same batch, with a test per path.
 
 **3. Read the sibling first.** The repo usually does this already somewhere. Open that code before writing yours,
 and copy the pattern.
@@ -163,7 +175,7 @@ breaks in every case nobody listed. If the fact is known when something is writt
 | the same rule computed in the API and in each client | one stored value, or one function, that all of them read |
 | a special-case branch for each new shape | one data shape with no special cases |
 | word lists, keyword or pattern checks, or hand-built heuristics that judge language or content | a stored field, if the fact is known when the record is written. Otherwise, the cheapest classifier that passes the tests: first a dedicated classification model (it returns probabilities over fixed choices, and is far cheaper than a general model), then a general model call with a fixed output schema. Use the one `docs/agent/integrations.md` lists; adding a new service follows `<DEPENDENCY_POLICY>`. Act on a probability only above a recorded threshold, and fail closed below it. Hand-built classifiers grow by one check per review round |
-| a list typed by hand (columns, tables, folders, services, routes, safe actions) | the list derived from the source (a schema query, a directory walk, a route table), with a test that re-derives it and fails on drift |
+| a list typed by hand (columns, tables, folders, services, routes, safe actions) | a rule that needs no list, where one exists; otherwise the list read from the source when it is needed (a schema query, a directory walk, a route table). Never a checker written to prove a typed list |
 | a regex or hand-written scanner reading code, SQL or markup | a real parser: the language's own, or one the repo already uses |
 | one fact kept in two places, kept in step by a follow-up write or a "remember to also update" | one home, with the other read derived from it; an unavoidable copy changes in the same transaction or by a database trigger (`plan-check.json` state homes) |
 
@@ -206,6 +218,12 @@ may not weaken them after a production edit to make the suite green. A real chan
 
 ## Phase 2: While you write
 
+- **Set the diff against the design page's size at the end of every build step.** `git diff --numstat <base>`
+  (`<base>` as in Phase 3 step 1) gives the lines added per file. A production file more than half again over its
+  estimate, or one the page doesn't list, stops the build. Either the page missed something (amend `size` and the
+  part of the page it belongs to, and say why in one line), or the code does more than the page (remove it).
+  Never carry on with a build that is quietly larger than its design. Add `size: <estimated> → <actual> production
+  lines` to the `Design:` line of the self-review record.
 - **Execute every helper the moment you write it**: one positive and one negative input in a scratch script, before
   it has a caller. A pattern that can never match looks exactly like a pattern that found nothing.
 - **Parse and normalize at the boundary**, in one small testable helper. Apply the same guard, normalization and
@@ -302,7 +320,7 @@ starting" and the lenses below. Then:
 Self-review: <ticket>
 Fingerprint: <h>
 Covers: whole branch | fix batch since <previous fingerprint>
-Inventory: <the inventory.json section this pass wrote or re-walked: Plan, or Fix batch <n>>
+Inventory: <Plan (the inventory.json section), or Fix note <id> for a fix batch>
 Diff read: <files> · <lines> lines, read line by line against origin/<MAIN_BRANCH>
 Design: <shape chosen>; simpler alternative considered: <one>, rejected because <reason>
 Edge cases checked: <null/empty/absent, malformed, concurrent, each sibling path…>
@@ -328,14 +346,25 @@ unless it equals the current fingerprint.
 **Every fix batch comes back through this phase.** Fixes from a review round, a gate or `/peer-review` are new code.
 A third of review findings are bugs that an earlier fix introduced. A fix never goes in because "this line looks
 right".
-1. **Before the fix,** run `consensus-inventory.js` again with `"section": "Fix batch <n>"` and `plan` set to the
-   findings and the proposed fix, and append its section to `inventory.json`. A finding is one member of a class
-   (every place with the same defect): the workflow enumerates the class as a `lists` entry, and the fix covers
-   every member, with a test that re-derives the list. A fix that changes a state transition must match its
-   `lifecycles` entry in `plan-check.json`. A path the plan doesn't have is a scope change, and goes to the owner.
-2. **After the fix,** do steps 1, 7 and 8 on the **fix delta**: read it line by line, simplify it, red-team it, and
-   write a new record whose `Inventory:` line names the batch.
-3. Follow the round's `next`: a `redesign` is never patched (post-op Step 1.5 round rule 10).
+1. **One batch, grouped by mechanism.** Sort the findings by the function, stored state or rule they come from, and
+   make one fix per mechanism at its root cause, never one per finding. The round has grouped them already
+   (`mechanism`, `members`): a fix note covers every member of its group.
+2. **Fix note first.** Before a fix changes what a function does, write its note into
+   `.claude/state/<ticket>/review-rounds.md`, with `file:line` for each entry:
+   ```
+   Fix note <id>: <function> — exits: … · callers: … · readers of what it writes: … · writers of <each key it looks up>: …
+   ```
+   `<id>` is the round (`R2`), or `G<n>` for a gate fix; one batch may hold several notes under one id. It is a
+   note you write from reading the code, not a workflow and not a checker.
+3. **A fix that adds is not a fix.** One that would add a stored state, a user-visible outcome or a new mechanism
+   is a design change: stop, and take it to the owner (post-op Step 1.5 round rule 10). One that would add a list
+   entry or an exception to a rule says so in its fix note first: if the next entry is already imaginable, it is an
+   open class (round rule 2), and another entry doesn't close it.
+4. **A regression test that fails without the fix,** driven through the real entry point with the inputs the real
+   caller sends.
+5. **After the fix,** do steps 1, 7 and 8 on the **fix delta**: read it line by line, simplify it, red-team it, and
+   write a new record whose `Inventory:` line names the notes (`Inventory: Fix note <id>`).
+6. Follow the round's `next`: a `redesign` is never patched (round rule 10).
 
 Only now hand it to `/post-op`. Its own gates run before any external reviewer sees the code.
 
@@ -373,10 +402,9 @@ Packs may add lenses here: see the section for this command in each installed `.
 - **Never hand over code you haven't read back.** Writing it is not reading it.
 - **Never ship a pattern you haven't watched match something.**
 - **Never accept a red test without reading why it is red**, or a green one without knowing what would turn it red.
-- **Every real defect in code this ticket wrote is fixed here, whatever its class**, and so is a must-fix (S1–S4)
-  inside the definition of done. Only pre-existing defects below the bar are noted (post-op Step 1.5 round rule 2). A verified must-fix defect on the ticket's execution path is always inside it:
-  calling it "pre-existing", or reading the ticket narrowly, never makes it safe to leave. Only a genuinely
-  independent capability gets its own ticket (post-op Step 1.5, disposition "own ticket").
+- **You never defer a defect; only the review's vote does** (post-op Step 1.5 round rule 2). A must-fix is fixed
+  here whoever wrote the code: calling it "pre-existing", or reading the ticket narrowly, never makes it safe to
+  leave. The vote sends only a bounded defect that normal use doesn't reach to the follow-up ticket.
 - **No inventory, no edit.** A production edit made before its `inventory.json` entries exist is the first draft the
   reviewers will spend rounds on.
 - **Slow is the point.** Every shortcut skipped here was tried, and it produced a fix round, which is slower.

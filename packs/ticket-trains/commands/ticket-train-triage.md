@@ -142,7 +142,7 @@ Questions the run raises, asked the same way:
 | ID | Raised when | Options (each with a pro and a con) |
 |---|---|---|
 | `nc1` | the circuit breaker: an own gate the run couldn't make pass (show its output and the kept branch) | **continue** on the kept work; **re-scope** the notes or contract first; **drop** (stays blocked) |
-| `cr-e<n>` | post-op ended `escalate` (round rule 6). Name the cause: an open needs-owner finding, or a redesign that would change behaviour, a contract or scope (round rule 10) | those the escalation carries: **the product decision**, or **the proposed change** / **a redesign that keeps the behaviour** / **re-scope**. Never offer shipping the ticket's own known defects |
+| `cr-e<n>` | post-op ended `escalate` (round rule 6). Name the cause: an open needs-owner finding, or a redesign note waiting for the owner (round rule 10) | those the escalation carries: **the product decision**, or the redesign note's choices in its order (**remove** / **reuse** / **one closed shape**). Never offer shipping a must-fix |
 | `pr-f<n>` | `/peer-review` left a verified finding unresolved, or a `NEEDS-OWNER` one (show the finding, its evidence, the snapshot hash) | **new approach** / **re-scope** keeping every unresolved row / **stop** (stays blocked) |
 | `halt<n>` | a merge broke `<MAIN_BRANCH>` and the run stopped. Before asking, check the fix-forward ticket merged and the deploy is live (`/verify` post-merge half) | **resume** the train / **stay halted** |
 

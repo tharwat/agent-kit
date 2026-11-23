@@ -185,7 +185,7 @@ file is missing.
 listing every `NOTED` finding with where, effect and suggested fix. `/ship` files it on `<OPEN_ITEMS_TICKET>`
 (post-op Step 1.5 round rule 11). Never a ticket per finding.
 
-**Must-fix (`VERIFIED`, S1–S4).** For each, first write its fix inventory (`/operate`, "Every fix batch"), then:
+**Must-fix (`VERIFIED`, S1–S4).** For each, first write its fix note (`/operate`, "Every fix batch"), then:
 1. Add a regression test on the exact faulty path that fails without the fix. Run it to prove that.
 2. Fix the root cause and every sibling with the same mechanism. A verified `CHANGED_PATH` finding becomes a new
    `C<n>` contract row first.
@@ -196,7 +196,7 @@ listing every `NOTED` finding with where, effect and suggested fix. `/ship` file
 with ticket op **comment**, then set `resolved: true`.
 
 **After fixes.** The fixes are new code: run `/operate` Phase 3 steps 1, 7 and 8 on the fix delta (new self-review
-record), then `/post-op`'s static gates and a review round (post-op Step 1.5 round rules 5 and 7), whose `next` decides fix or redesign (round
+record), then `/post-op`'s static gates and a review round (post-op Step 1.5 round rules 5 and 7), whose `next` decides what follows (round
 rule 10). No fix ships unreviewed. Then take a new
 `node .claude/scripts/kit-tools.mjs fingerprint --base origin/<MAIN_BRANCH>`, write it to `fingerprint`, recompute
 `verdict`, and post a fresh `PEER_REVIEW:` comment. A fixed finding with a failing-without-fix regression test

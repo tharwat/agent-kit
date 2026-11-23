@@ -75,8 +75,8 @@ Run `/operate <ticket>`. Claude writes the code. It ends with the self-review re
 ## Step 4: Own gates first
 
 Run `/post-op <ticket>`: Before starting (self-red-team, contract audit), gates 1–8, then the Step 1.5 review rounds
-under round rules 1–11. Fix every must-fix finding on this ticket (S1–S4, and every real defect in code the ticket
-wrote); only pre-existing ones below the bar are noted. The reviewers in Step 5 start only when post-op ends `clean`
+under round rules 1–11. Fix every must-fix finding on this ticket; only the round's vote sends a finding to the
+follow-up ticket (round rule 2). The reviewers in Step 5 start only when post-op ends `clean`
 with the code covered. An `escalate` → ask the owner (round rule
 6) and continue with the answer. The engines confirm this work; they don't do it.
 

@@ -1,6 +1,6 @@
 // Copyright 2026 Tharwat Abdul-Malik. Part of agent-kit (MIT License).
-// The dependency inventory for /operate Phase 1 (section "Plan") and for every fix batch
-// (section "Fix batch <n>"), built BEFORE the code is written:
+// The dependency inventory for /operate Phase 1 (section "Plan"), built BEFORE the code is written. A fix batch
+// no longer runs it: a fix writes a short fix note instead (/operate, "Every fix batch").
 // 3 independent enumerators → merge in code → 1 completeness critic → 2 verifiers on every
 // item only one source found → one inventory.json section.
 // Why: about half of all review findings are a reader, writer, sibling, claim or list member
@@ -10,7 +10,7 @@
 export const meta = {
   name: 'consensus-inventory',
   description: 'Dependency inventory before code: 3 independent enumerators, merge, completeness critic, 2 verifiers per single-source item',
-  whenToUse: 'Called by /operate Phase 1 (section Plan) and by /post-op before each fix batch (section Fix batch <n>). args: ticket, section, base, plan, contract, planCheck, scratchDir, repo',
+  whenToUse: 'Called by /operate Phase 1 (section Plan). args: ticket, section, base, plan, contract, planCheck, scratchDir, repo',
   phases: [
     { title: 'Enumerate', detail: '3 agents enumerate independently from the source' },
     { title: 'Critic', detail: 'one agent looks for what all three missed' },
@@ -24,7 +24,6 @@ const TICKET = text(A.ticket) || '(none)'
 const SECTION = text(A.section) || 'Plan'
 const BASE = text(A.base)
 const PLAN = text(A.plan)
-const FIX = /^fix batch/i.test(SECTION)
 const SCRATCH = text(A.scratchDir) || '.claude/state/tmp'
 const WHERE = text(A.repo) ? `Work only in the project at ${A.repo}: run every command there (cd ${A.repo} first).` : 'Work in the current project checkout.'
 
@@ -32,14 +31,14 @@ const notRun = why => {
   log(why)
   return { ran: false, reason: why, section: null }
 }
-if (!PLAN) return notRun('args.plan is missing: the planned change (or, for a fix batch, the findings and the proposed fix) is the input')
+if (!PLAN) return notRun('args.plan is missing: the planned change is the input')
 
 const CONTEXT = [
   `Ticket: ${TICKET} · inventory section: ${SECTION}.`,
   `Base: ${BASE || '(not given)'}. ${WHERE}`,
   `Acceptance contract: ${text(A.contract) || '(see .claude/state/<ticket>/triage.md)'}`,
-  `Plan self-check (state homes, derived lists): ${text(A.planCheck) || '(see .claude/state/<ticket>/plan-check.json)'}`,
-  FIX ? `The fix batch to inventory (the findings and the proposed fix):\n${PLAN}` : `The planned change:\n${PLAN}`,
+  `Design page (what the change adds, state homes, size): ${text(A.planCheck) || '(see .claude/state/<ticket>/plan-check.json)'}`,
+  `The planned change:\n${PLAN}`,
 ].join('\n')
 
 const RULES = [
@@ -50,7 +49,6 @@ const RULES = [
   '- A claim that something is SAFE or has NO effect (a dry-run, a local command, a read-only path) needs every call followed: static and dynamic imports, queue and job handlers, what a job does when real work is waiting. List every outside effect you found in `effects` (database writes, external calls, messages, alerts, token refreshes or saves, jobs started). An empty `effects` is a claim too: search for it.',
   '- A list the change writes or relies on (columns, tables, folders, services, routes, imports, safe actions) is derived from the real source (a schema query, a directory walk, an import graph from a real parser, a route table), never typed by hand. Give `derived_from` and every member.',
   '- `subject` and `what` are identifiers, not prose: a path, a table.column, a service name, a short kebab-case list name.',
-  FIX ? '- A fix batch: each finding is one member of a class (every place with the same defect). Enumerate the whole class as a list, so the fix covers every member, not just the one found.' : '',
   'Read only. Do not modify any project file, commit, or run anything that writes, except scratch files under ' + SCRATCH + '.',
 ].filter(Boolean).join('\n')
 

@@ -168,6 +168,41 @@ What changed, and why:
   with named defects". Every version of a count (a cap, no limit, a redesign every three rounds) was tried in one
   day; none fixed a bad first draft, and the owner rejected each. A third round is now a notice to the owner that
   a first-draft step missed something.
+- **The author stopped deciding, and events replaced the redesign vote (1.12.0).** Two projects' review records
+  showed the fix rule swinging between two failures. "Fix every verified finding" had no stopping point: rounds ran
+  into the tens, and from the second round on most new defects sat in earlier fixes. A severity bar stopped the
+  loop but sent a dozen small findings a ticket to the tracker; of 25 recorded runs, about five ended short with
+  nothing from review left open. Both rules treated all small findings alike, and under both the author sorted its
+  own findings, where "noted" is the easy answer. Now:
+  - voters other than the author answer facts (what is lost and to whom, what must happen first, whether anyone
+    would notice, what the fix costs), and a table in code turns the answers into fix now or the follow-up ticket. Who
+    a defect reaches decides, not the size of its fix. The first round also makes every small fix. A later round
+    fixes only a serious loss or a defect normal use reaches. On the ticket this was drawn from, round 4 offered
+    six small real findings as fixes (three could not go wrong as the project stood, two came from the previous
+    fixes), each would have been new code for a fifth round, and the owner ended the loop by hand. A defect that
+    cannot go wrong today (`dormant`) is filed with what would wake it. One follow-up ticket per ticket, not one
+    ticket per finding;
+  - "one more member of a class with no end" is its own answer. Long loops came from code that judges free text
+    with patterns and from state worked out from several fields, where each round found one more case. Such a
+    member is never fixed alone;
+  - the 1.11.0 redesign vote fired every round on its first ticket, and each redesign was a rebuild. A redesign
+    now fires on an event (a defect in a fix, the same mechanism again, an open class that matters, a fix that
+    would add a state), goes to the owner as one screen, and must change the kind of solution and remove code.
+    Redesigns that deleted the mechanism ended clean in one or two rounds; ones that rebuilt it tidier did not;
+  - the last cap is gone ("report at most 15"; the fallback at its default limit). A capped review found 8, 10, 7,
+    9, 4 and 8 a round, and 39 of those 46 defects were already in the first draft;
+  - a fix batch no longer runs the inventory workflow, whose class lists turned fixes into new checkers. It
+    writes a fix note (exits, callers, readers, writers of each key), because 4 of 9 defects after one sweep were
+    in the sweep's own fixes: a skipped early return, a narrowed lookup, a reader of a field no writer set;
+  - Codex joined the round as a finder, since three reviewers on one model share blind spots.
+  - triage's plan self-check became the design page. On one large ticket a plan made of contract rows and case
+    lists named the existing mechanism and still built a second one beside it (about 2,400 production lines).
+    Asked for a table of existing step against "what this adds", with "nothing" allowed and file-by-file line
+    estimates, the same agent produced a design a fifth the size. The rebuild then showed what the page still
+    lacked: every file came out at twice its estimate because nobody compared; two facts a re-run needed were
+    guessed from time limits and held almost half the findings; and a limit rested on an outside service's
+    documented behaviour, which read two ways. The "derive every list with a test" box is gone: on its first
+    ticket each derived list became a checker, and each checker a new place for defects.
 - **A targeted fix at a spiral stop is still reviewed (1.8.1).** An owner answer of "targeted fix" at round 3 left
   the fix's review round past the limit, so the next step escalated again. The answer now counts as the
   owner-granted round.

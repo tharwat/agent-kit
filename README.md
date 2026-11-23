@@ -142,21 +142,26 @@ record of what was decided, built, reviewed and verified.
 1. **`/triage PROJ-123`** reads the ticket and the real code, then writes an **acceptance-and-proof contract**.
    Each row is something the change must do, with its severity class, a hostile case and a counterfactual ("this
    test would fail without the change"). It records a threat-model line and asks you anything the ticket leaves
-   open. It writes no code.
+   open. It also writes a one-page **design page**: what exists today against what the change adds ("nothing" is
+   an answer), where each fact a re-run needs is stored, how any open-ended work is closed, what an outside service
+   was measured to do, and each file with its estimated lines. It writes no code.
 2. **`/operate`** builds against the contract on a feature branch cut from `main`: tests first, then code. It ends
-   with a self-review record tied to a fingerprint of the diff, so a later change to the diff is visible.
+   with a self-review record tied to a fingerprint of the diff, so a later change to the diff is visible. It builds
+   only what the design page adds, and stops when a file runs more than half again over its estimate.
 3. **`/post-op`** checks the finished work:
    - a self-red-team pass and a contract audit;
    - eight gates: observability, security, API contract, migration guard, copy compliance, docs, tests and mock
      fidelity;
-   - a **consensus review round**: three reviewers with different lenses on every area of the change, and each
-     finding checked by two verifiers who try to refute it.
+   - a **consensus review round**: three reviewers with different lenses on every area of the change, plus Codex
+     when it is installed, with no cap on findings. Two verifiers try to refute each finding.
 
-   Findings at severity S1–S4 must be fixed, and so must every real defect in code the ticket wrote, whatever its
-   severity. Only pre-existing, lower-severity defects go to the tracker. The verifiers also vote on what comes
-   next: `fix`, or `redesign` when the findings come from a design that keeps breaking. No round counter decides,
-   and you are asked only for a product decision or a change of what the feature does. It ends `clean` or
-   `escalate`, never with known defects of its own or a fix no reviewer read.
+   The verifiers, not the author, decide what happens to a real finding. They answer what is lost and to whom, what
+   has to happen first, whether anyone would notice, and what the fix costs. A serious loss and anything normal use
+   reaches is fixed on the ticket. The first round sweeps the whole change and also fixes anything with a small
+   fix. A later round checks only the fixes. Every other real defect goes into one follow-up ticket, with that
+   analysis attached, so a round that finds nothing serious ends the review. A defect inside a fix stops the
+   patching: you get a one-screen redesign note that must change the kind of solution and remove code. No round counter decides. It ends `clean` or `escalate`, never
+   with a fix no reviewer read.
 4. **`/peer-review`** (optional) freezes the diff, then has it reviewed by a zero-context second Claude and by Codex.
    Both reviews are bound to the frozen snapshot's hash.
 5. **`/ship`** opens the PR to `main`, requires a passing `/verify`, and **asks for your yes before merging**. After

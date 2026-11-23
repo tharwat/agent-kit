@@ -4,6 +4,126 @@
 Each entry says what changed and what an upgrade will touch. The installer prints the entries newer than a project's
 installed version before an upgrade.
 
+## 1.12.0 — 2026-11-22
+
+Two changes with one aim, fewer defects written and fewer rounds to clear them: a one-page design at triage that
+keeps the build small, and a review loop where voters other than the author decide what is fixed now.
+
+**Evidence.**
+- *Where it came from.* The review records of two projects. Under "fix every finding", rounds ran into the tens
+  and most later defects sat in earlier fixes. Under a severity bar, the loop stopped, but only about five of 25
+  runs ended with nothing from review left open. First-draft defects tracked the production lines written
+  (r = 0.82 over 19 tickets).
+- *The proof.* One past ticket was rebuilt blind twice under this release and once from its original session. All
+  three builds then went through the same review round:
+
+  | Build | Production lines | Fix now | Serious | In the build's own lines |
+  |---|---|---|---|---|
+  | Original first draft | about 440 | 15 | 7 | 11 |
+  | This release, run 1 | 80 | 10 | 4 | 5 |
+  | This release, run 2 | 61 | 13 | 6 | 6 |
+
+- *What it does not do yet.* Run 1 stopped for a redesign at round 2, not clean in two rounds. The defects that
+  belong to the ticket and the code around it came up in every build. What is still open is in `docs/inbox.md`.
+
+**Lessons this release ships** (from `docs/inbox.md`):
+- 1.11.0's derived lists became checkers;
+- a state several places read is stored;
+- plug into the existing lifecycle;
+- bugs track lines written;
+- the plan named the existing mechanism and still built beside it;
+- an owner question's recommended option is the decision in practice;
+- long loops come from two kinds of work;
+- the one-page design held the scope but not the bug rate;
+- a loop that fixes every small finding has no end;
+- the first blind rebuild;
+- the fair baseline.
+
+- **The author no longer decides what a finding gets.** In `consensus-review.js` the verifiers answer facts about
+  each real finding: what is lost and to whom, whether the loss is bounded, what has to happen first, whether
+  anyone would notice, what the fix costs, and whether it is one more member of a class with no end. A table in
+  code turns two agreeing answers into the outcome (`/post-op` round rule 2):
+  - a serious loss, and anything normal use reaches: fixed on the ticket, in any round;
+  - anything with a small fix: fixed in round 1, which sweeps the whole branch. In a later round it is filed,
+    because every fix is new code another round must read;
+  - a defect that cannot go wrong as the project stands today (`dormant`: it needs a setting production doesn't
+    use, an edited constant, or far more data than exists): filed, with what would wake it;
+  - every other real defect: filed, carrying the analysis and a priority;
+  - a split vote: fixed now.
+
+  Filed means the ticket's **one** follow-up ticket (`Follow-up: <ticket> review findings`), written once when no
+  round is due. The disposition is `follow-up`; `own ticket` now means only an independent capability. A round
+  with nothing to fix now is `clean`, however many entries the follow-up ticket holds.
+
+  The author is a witness: it passes a `witness` note of what is already guarded or decided, and sends an
+  objection or an unverified finding back with `recheck`. It never rejects, shrinks or defers a finding.
+  The decided list (`prior`) also carries every owner decision recorded for the ticket before the review, so
+  finders and voters don't raise a decided item again without new evidence.
+- **`open class` is a new outcome:** one more phrase, format, evasion or fault combination that the same check
+  would have to list. It is never fixed one by one. Finders report such a mechanism once.
+- **No cap on findings.** "Report at most 15" is gone, and the fallback runs `/code-review high --max-findings
+  all`, with two fresh subagents answering the questions.
+- **Codex is a finder in every round** when the `codex` CLI runs on the machine (`codexModel`), headless,
+  read-only, with MCP servers off. A round counts without it and its record says so.
+- **Round 1 sweeps the whole branch; a later round reviews only the fix delta.**
+- **Reports are grouped by mechanism before the vote.** Finders work per area, so one defect arrives from several
+  files; the first live trial confirmed one defect five times, with ten verifiers. One agent now groups the
+  reports and each group is voted on once (`mechanism`, `members`). In the sweep the same agent names any shared
+  cause: a fact the code works out instead of reading, or a second copy of a mechanism, that one change closes.
+  Two verifiers try to refute it. A cause they confirm for two or more findings is an event: those findings go
+  to the redesign note instead of being patched one by one (`shared_causes`).
+- **Events replace the redesign vote.** `next` is `redesign` when a real defect sits in lines an earlier fix
+  wrote, comes from the same mechanism as an earlier fixed one, or is an open class that normal use or a serious
+  loss reaches; the author raises it too when a fix would add a stored state, a user-visible outcome or a
+  mechanism. Patching that part stops. A one-screen redesign note goes to the owner **before any edit** (it used
+  to be applied without waiting): remove, reuse, or one closed shape, in that order. A redesign must change the
+  kind of solution and remove code, and records `Redesign size: <before> → <after>`.
+- **A fix batch writes fix notes, not an inventory section.** One fix per mechanism; before a fix changes what a
+  function does, a `Fix note <id>:` line in `review-rounds.md` lists its exits, callers, readers and the writers
+  of each key it looks up. `consensus-inventory.js` no longer has a fix-batch mode, and `check-record.py` accepts
+  `Inventory: Fix note <id>` when that note exists. An `inventory.json` `Fix batch <n>` section is still accepted.
+- **Review rounds no longer write `noted` items for `<OPEN_ITEMS_TICKET>`.** A deferred finding goes into the ticket's follow-up ticket.
+  `/peer-review`, pack audits and owner-accepted defects still use the tracker.
+- **Wrong text alone never stops the patching.** A defect whose only loss is appearance is fixed in the batch,
+  even when it sits in a fix's lines or comes from a mechanism an earlier round fixed.
+- **Triage Step 4.8 is the design page.** `plan-check.json` keeps its place and gains four boxes:
+  - `adds`: each step of the flow the change touches, what does it today, and what the change adds ("nothing" is
+    an answer). A second set of states or recovery rules beside an existing one is a design defect;
+  - `open_work`: every part that judges free text or works a state out from several fields, and how the design
+    closes it (a stored state, a structural rule, a classifier or a model call that fails closed);
+  - `outside`: each behaviour of an outside service the design rests on, with its measurement, or `before code:`
+    and the measurement `/operate` takes first;
+  - `size`: every file as reused, changed or new with its estimated production lines, and what is out of the
+    ticket.
+
+  State homes now ask what a re-run must know, and what a later action must check: a queued or delayed action
+  reads the stored fact when it acts, on every path that performs it, and a side effect that stands in for that
+  fact is a defect in the page. They also ask what a re-run must know: a time limit, a try count or the order of two writes that stands
+  in for a fact that could be read is a defect in the page. A state with more than two values that several
+  places read is stored, with one writer and a table of allowed moves. An owner question whose option adds a
+  mechanism says what it costs, and the smaller option is the recommended one.
+- **`/operate` builds inside the page.** It takes the `before code:` measurements first, adds no state or recovery
+  rule the page doesn't have, and sets the diff against `size` at the end of every build step: a production file
+  more than half again over its estimate stops the build until the page is amended or the code removed. A flow
+  that can run again gets a test that stops between two writes and runs it again.
+- **Removed:** the per-finding `design` vote, the third-round notice, `proposed_class` from finders, and the
+  `enumerations` box (lists derived by a test that re-derives them). A rule replaces a list, and no checker is
+  written to prove one.
+- New test: `core/scripts/consensus-review.test.mjs` pins the table and the events with scripted agents.
+
+**Not changed, and now out of step:** `/peer-review`, `/bteam` and the hardening pack still sort their own
+findings by the S1–S4 bar, with the author applying it.
+
+**Upgrade touches:**
+- `CLAUDE.kit.md` (the review severity and `/post-op` lines);
+- `/post-op`, `/operate` ("Every fix batch"), `/peer-review`, `/codex-review`;
+- `.claude/workflows/consensus-review.js`, `consensus-inventory.js`, `check-record.py`;
+- with ticket-trains, `/ticket-train-run`, `/ticket-train-triage` and `train-state.mjs` (adds the `open class`
+  disposition; a `redesign` now pauses the ticket for the owner); with hardening, `/hardening`.
+
+A ticket that is mid-review when a project upgrades: finish its current round under the old rules, and start the
+new rules at the next round.
+
 ## 1.11.0 — 2026-11-18
 
 Rounds were a symptom; this release goes after the bad first draft and the bad fix. Evidence: the first ticket on
