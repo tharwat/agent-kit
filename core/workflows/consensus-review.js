@@ -366,12 +366,14 @@ const judged = await pipeline(grouped, async (f, _orig, i) => {
   const origin = quorum(yes, v => v.origin) || 'unclear'
   const mech = quorum(yes, v => v.mechanism_of || 'none')
   const sameMechanism = mech && mech !== 'none' ? mech : null
-  // Round rule 10, the events that stop patching. Wrong text alone in a fix is just fixed.
+  // Round rule 10, the events that stop patching. Wrong text alone is just fixed, whichever event it would be.
+  const textOnly = yes.every(v => v.loss === 'appearance')
   const stop = repeat ? null
     : out === 'open' ? (yes.some(v => serious(v) || v.reach === 'normal') ? 'an open class that normal use or a serious loss reaches' : null)
     : out !== 'fix' ? null
+    : textOnly ? null
     : sameMechanism ? `the same mechanism as a defect an earlier round fixed (${fixedById[sameMechanism]})`
-    : origin === 'fix-introduced' && !yes.every(v => v.loss === 'appearance') ? 'a defect in lines an earlier fix wrote'
+    : origin === 'fix-introduced' ? 'a defect in lines an earlier fix wrote'
     : null
   return {
     ...base, status: 'real', outcome: out,

@@ -56,6 +56,8 @@ loop stopped but about five of 25 runs ended with nothing from review left open.
   `Inventory: Fix note <id>` when that note exists. An `inventory.json` `Fix batch <n>` section is still accepted.
 - **Review rounds no longer write `noted` items for `<OPEN_ITEMS_TICKET>`.** A deferred finding goes into the ticket's follow-up ticket.
   `/peer-review`, pack audits and owner-accepted defects still use the tracker.
+- **Wrong text alone never stops the patching.** A defect whose only loss is appearance is fixed in the batch,
+  even when it sits in a fix's lines or comes from a mechanism an earlier round fixed.
 - **Triage Step 4.8 is the design page.** `plan-check.json` keeps its place and gains four boxes:
   - `adds`: each step of the flow the change touches, what does it today, and what the change adds ("nothing" is
     an answer). A second set of states or recovery rules beside an existing one is a design defect;
@@ -66,7 +68,9 @@ loop stopped but about five of 25 runs ended with nothing from review left open.
   - `size`: every file as reused, changed or new with its estimated production lines, and what is out of the
     ticket.
 
-  State homes now ask what a re-run must know: a time limit, a try count or the order of two writes that stands
+  State homes now ask what a re-run must know, and what a later action must check: a queued or delayed action
+  reads the stored fact when it acts, on every path that performs it, and a side effect that stands in for that
+  fact is a defect in the page. They also ask what a re-run must know: a time limit, a try count or the order of two writes that stands
   in for a fact that could be read is a defect in the page. A state with more than two values that several
   places read is stored, with one writer and a table of allowed moves. An owner question whose option adds a
   mechanism says what it costs, and the smaller option is the recommended one.

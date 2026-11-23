@@ -151,6 +151,9 @@ the ticket stores against `state_homes` in `plan-check.json` (triage Step 4.8): 
   owner with its cost (triage Rules).
 - **A fact a re-run needs is read, not guessed.** Every branch that decides on a `state_homes` fact reads its
   home. A time limit or a try count never stands in for it.
+- **A later action checks the stored fact on every path.** A queued or delayed action reads the fact the page
+  names when it acts, on each path that performs it, fast paths and retries included. A fix that adds the check
+  to one path adds it to all of them in the same batch, with a test per path.
 
 **3. Read the sibling first.** The repo usually does this already somewhere. Open that code before writing yours,
 and copy the pattern.

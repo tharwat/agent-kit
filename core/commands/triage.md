@@ -297,6 +297,12 @@ this change adds to it. **"Nothing" is an answer, and the more rows that say it,
   row. It is stored by the same write that makes it true, and every branch that decides reads it. **A time limit,
   a try count or the order of two writes that stands in for a fact that could be read is a defect in the page.**
   A new stored fact is not a new state system: add it.
+- **What a later action must check.** Anything decided now and done later (a queued message, a scheduled post, a
+  delayed send, a job picked up later) acts on facts that may have changed in between: the item paused, retired,
+  deleted or handed to another owner. For each such action, name the stored fact it checks at the moment it acts,
+  and list **every** path that performs it (each send, each retry, each fast path that skips a check). Each path
+  reads that fact itself. **A side effect that stands in for the fact (the item's cached text still exists, a
+  derived row is still there, a flag set when it was queued) is a defect in the page.**
 - **The same fact in two places** (a copy, a cache, a mirrored column, a status duplicated into another record, two
   rows that must agree): collapse it to one home, or derive it at the read. Keeping two copies in step by a side
   effect (a follow-up write, a hook, a "remember to also update") is not allowed. If two copies are truly

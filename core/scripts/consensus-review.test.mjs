@@ -134,6 +134,10 @@ test("events: a defect in a fix, or in a mechanism already fixed, stops the patc
   const again = await run({ base: "origin/main", prior }, { reviews: one, votes: both({ mechanism_of: "F1", fix: "small" }) });
   assert.equal(again.out.next.action, "redesign");
   assert.match(again.out.redesign[0].stop, /double-charges/);
+  // Wrong text alone is just fixed, even from a mechanism an earlier round fixed.
+  const copy = await run({ base: "origin/main", prior }, { reviews: one, votes: both({ mechanism_of: "F1", loss: "appearance", reach: "normal" }) });
+  assert.equal(copy.out.next.action, "fix");
+  assert.equal(copy.out.must_fix.length, 1);
 });
 
 test("a repeat of an earlier decision is not new", async () => {

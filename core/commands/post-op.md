@@ -357,8 +357,9 @@ This section is the one definition. Other commands cite it as "round rule N".
     - **`redesign`** means the part `next.part` names is not patched finding by finding. It fires when:
       - in the sweep, two or more findings share a cause that one change closes (`shared_causes`): a fact the code
         works out instead of reading, or a second copy of a mechanism. Two verifiers confirmed it;
-      - a real defect sits in lines an earlier fix wrote (wrong text alone is just fixed);
-      - a real defect comes from the same mechanism as one an earlier round fixed;
+      - a real defect sits in lines an earlier fix wrote;
+      - a real defect comes from the same mechanism as one an earlier round fixed.
+        For both of these, wrong text alone (the only loss is appearance) is just fixed;
       - normal use or a serious loss reaches an open class;
       - a fix you are about to write would add a stored state, a user-visible outcome or a new mechanism. That is
         a design change, not a fix, and you raise it yourself.
